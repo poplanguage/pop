@@ -407,3 +407,44 @@ fn outer_package_scan_does_not_absorb_nested_package_sources() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn document_symbols_never_include_sibling_module_declarations() {
+    let root = std::env::temp_dir().join(format!("PopLspSymbols{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("bubble.toml"),
+        "[package]\nname = \"Studio.Symbols\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .unwrap();
+    let active = "namespace Studio.Symbols\nfunction active(): Int\n    return 1\nend\n";
+    std::fs::write(root.join("src/lib.pop"), active).unwrap();
+    std::fs::write(
+        root.join("src/sibling.pop"),
+        "namespace Studio.Symbols\nfunction siblingWithALongerName(): Int\n    return 2\nend\n",
+    )
+    .unwrap();
+
+    let uri = DocumentUri::new(format!("file://{}", root.join("src/lib.pop").display())).unwrap();
+    let mut server = LanguageServer::initialize(Some("en")).unwrap();
+    server
+        .open(
+            uri.clone(),
+            DocumentVersion::new(1),
+            active,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+    let symbols = server
+        .document_symbols(&uri, &CancellationToken::new())
+        .unwrap();
+    assert_eq!(
+        symbols
+            .iter()
+            .map(pop_language_server::DocumentSymbol::name)
+            .collect::<Vec<_>>(),
+        ["active"]
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

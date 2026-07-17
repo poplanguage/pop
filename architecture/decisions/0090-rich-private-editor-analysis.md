@@ -106,7 +106,8 @@ versioning and atomic application contracts.
   range and a note remains localized;
 - a safe compiler quick fix becomes one version-matched code action and applies
   the exact edit;
-- stale, unknown-file, review, and unsafe edits are rejected;
+- stale, unknown-file, and unsafe edits are rejected, while review edits remain
+  explicitly non-preferred;
 - direct-call parameter hints use compiler-selected parameter names and
   argument positions, while unresolved and indirect calls produce none;
 - two Modules in one dependency-free Bubble resolve together;

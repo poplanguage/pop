@@ -15,7 +15,8 @@ The implemented bootstrap slice owns:
 - checked-documentation hover and document symbols;
 - compiler-proven direct-call parameter inlay hints;
 - conservative same-Bubble analysis for dependency-free conventional Packages;
-  and
+- atomic reanalysis and diagnostic republication for affected open Modules,
+  without republishing unrelated Packages or standalone documents; and
 - conversion from UTF-8 source offsets to LSP UTF-16 positions.
 
 The `pop-language-server` executable exposes that engine through a bounded LSP

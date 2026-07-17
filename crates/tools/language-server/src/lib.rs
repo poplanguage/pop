@@ -18,7 +18,9 @@ use pop_foundation::{
 use pop_localization::{
     Argument, Language, LocalizationError, RenderContext, select_process_language,
 };
-use pop_projects::{BubbleKind, discover_conventional_bubbles, parse_package_manifest};
+use pop_projects::{
+    BubbleKind, DiscoveredBubble, discover_conventional_bubbles, parse_package_manifest,
+};
 use pop_query::CancellationToken;
 use pop_source::SourceFile;
 
@@ -421,6 +423,19 @@ struct OpenDocument {
     inlay_hints: Vec<InlayHint>,
 }
 
+#[derive(Eq, PartialEq)]
+enum AnalysisScope {
+    Bubble { manifest: PathBuf, name: String },
+    Standalone(FileId),
+}
+
+struct PackageAnalysisSelection {
+    manifest: PathBuf,
+    root: PathBuf,
+    relative_active: String,
+    bubble: DiscoveredBubble,
+}
+
 struct AnalyzedDeclaration {
     name: String,
     kind: &'static str,
@@ -483,6 +498,18 @@ impl LanguageServer {
         text: impl Into<Arc<str>>,
         cancellation: &CancellationToken,
     ) -> Result<DocumentAnalysis, LanguageServerError> {
+        let active = uri.clone();
+        self.open_with_updates(uri, version, text, cancellation)
+            .and_then(|updates| active_analysis(updates, &active))
+    }
+
+    fn open_with_updates(
+        &mut self,
+        uri: DocumentUri,
+        version: DocumentVersion,
+        text: impl Into<Arc<str>>,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<(DocumentUri, DocumentAnalysis)>, LanguageServerError> {
         cancellation
             .check()
             .map_err(|_| LanguageServerError::Cancelled)?;
@@ -504,12 +531,13 @@ impl LanguageServer {
             version,
             cancellation,
         )?;
-        self.next_file = self
+        let scope = analysis_scope(&source);
+        let next_file = self
             .next_file
             .checked_add(1)
             .ok_or(LanguageServerError::TooManyDocuments)?;
         self.documents.insert(
-            uri,
+            uri.clone(),
             OpenDocument {
                 source,
                 version,
@@ -518,7 +546,15 @@ impl LanguageServer {
                 inlay_hints,
             },
         );
-        Ok(analysis)
+        let updates = match self.reanalyze_open_documents(&scope, cancellation) {
+            Ok(updates) => updates,
+            Err(error) => {
+                self.documents.remove(&uri);
+                return Err(error);
+            }
+        };
+        self.next_file = next_file;
+        Ok(updates)
     }
 
     /// Replaces an open document with a strictly newer full-text snapshot.
@@ -534,6 +570,17 @@ impl LanguageServer {
         text: impl Into<Arc<str>>,
         cancellation: &CancellationToken,
     ) -> Result<DocumentAnalysis, LanguageServerError> {
+        self.change_with_updates(uri, version, text, cancellation)
+            .and_then(|updates| active_analysis(updates, uri))
+    }
+
+    fn change_with_updates(
+        &mut self,
+        uri: &DocumentUri,
+        version: DocumentVersion,
+        text: impl Into<Arc<str>>,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<(DocumentUri, DocumentAnalysis)>, LanguageServerError> {
         cancellation
             .check()
             .map_err(|_| LanguageServerError::Cancelled)?;
@@ -560,17 +607,27 @@ impl LanguageServer {
             version,
             cancellation,
         )?;
-        self.documents.insert(
-            uri.clone(),
-            OpenDocument {
-                source,
-                version,
-                analysis: analysis.clone(),
-                declarations,
-                inlay_hints,
-            },
-        );
-        Ok(analysis)
+        let scope = analysis_scope(&source);
+        let previous = self
+            .documents
+            .insert(
+                uri.clone(),
+                OpenDocument {
+                    source,
+                    version,
+                    analysis: analysis.clone(),
+                    declarations,
+                    inlay_hints,
+                },
+            )
+            .expect("the changed document was open");
+        match self.reanalyze_open_documents(&scope, cancellation) {
+            Ok(updates) => Ok(updates),
+            Err(error) => {
+                self.documents.insert(uri.clone(), previous);
+                Err(error)
+            }
+        }
     }
 
     /// Reanalyzes the currently published snapshot for a document.
@@ -728,7 +785,60 @@ impl LanguageServer {
     }
 
     pub fn close(&mut self, uri: &DocumentUri) -> bool {
-        self.documents.remove(uri).is_some()
+        self.close_with_updates(uri, &CancellationToken::new())
+            .is_ok_and(|updates| updates.is_some())
+    }
+
+    fn close_with_updates(
+        &mut self,
+        uri: &DocumentUri,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Vec<(DocumentUri, DocumentAnalysis)>>, LanguageServerError> {
+        let Some(previous) = self.documents.remove(uri) else {
+            return Ok(None);
+        };
+        let scope = analysis_scope(&previous.source);
+        match self.reanalyze_open_documents(&scope, cancellation) {
+            Ok(updates) => Ok(Some(updates)),
+            Err(error) => {
+                self.documents.insert(uri.clone(), previous);
+                Err(error)
+            }
+        }
+    }
+
+    fn reanalyze_open_documents(
+        &mut self,
+        scope: &AnalysisScope,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<(DocumentUri, DocumentAnalysis)>, LanguageServerError> {
+        let analyzed = self
+            .documents
+            .iter()
+            .filter(|(_, document)| analysis_scope(&document.source) == *scope)
+            .map(|(uri, document)| {
+                analyze_document(
+                    self.session,
+                    &self.documents,
+                    &document.source,
+                    document.version,
+                    cancellation,
+                )
+                .map(|result| (uri.clone(), result))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut updates = Vec::with_capacity(analyzed.len());
+        for (uri, (analysis, declarations, inlay_hints)) in analyzed {
+            let document = self
+                .documents
+                .get_mut(&uri)
+                .expect("analyzed document remains open");
+            document.analysis = analysis.clone();
+            document.declarations = declarations;
+            document.inlay_hints = inlay_hints;
+            updates.push((uri, analysis));
+        }
+        Ok(updates)
     }
 
     /// Renders a language-server error with this session's catalog.
@@ -826,6 +936,7 @@ fn analyze_document(
     let declarations = result
         .tooling_declarations()
         .iter()
+        .filter(|declaration| declaration.declaration_span().file() == source.id())
         .map(|declaration| {
             let signature_range = declaration.signature_span().range();
             let signature = source
@@ -870,45 +981,29 @@ fn analyze_document(
     ))
 }
 
+fn active_analysis(
+    updates: Vec<(DocumentUri, DocumentAnalysis)>,
+    active: &DocumentUri,
+) -> Result<DocumentAnalysis, LanguageServerError> {
+    updates
+        .into_iter()
+        .find_map(|(uri, analysis)| (uri == *active).then_some(analysis))
+        .ok_or_else(|| LanguageServerError::DocumentNotOpen {
+            uri: active.clone(),
+        })
+}
+
 fn package_analysis_input(
     open_documents: &BTreeMap<DocumentUri, OpenDocument>,
     active: &SourceFile,
 ) -> Option<FrontEndBubbleInput> {
-    let active_path = file_uri_path(active.path())?;
-    let manifest_path = nearest_package_manifest(&active_path)?;
-    let package_root = manifest_path.parent()?;
-    let manifest_text = fs::read_to_string(&manifest_path).ok()?;
-    let manifest = parse_package_manifest(&manifest_text).ok()?;
-    if !manifest.dependencies().is_empty()
-        || !manifest.platform_dependencies().is_empty()
-        || !manifest.native_libraries().is_empty()
-        || !manifest.platform_native_libraries().is_empty()
-    {
-        return None;
-    }
-    let files = conventional_pop_files(package_root)?;
-    let relative_active = relative_pop_path(package_root, &active_path)?;
-    let bubbles = discover_conventional_bubbles(&manifest, &files).ok()?;
-    let bubble = bubbles.iter().find(|bubble| {
-        bubble
-            .modules()
-            .iter()
-            .any(|module| module == &relative_active)
-    })?;
-    if bubble.depends_on_library()
-        || matches!(
-            bubble.kind(),
-            BubbleKind::Test | BubbleKind::Example | BubbleKind::Benchmark
-        ) && !manifest.development_dependencies().is_empty()
-    {
-        return None;
-    }
+    let selection = package_analysis_selection(active)?;
     let mut modules = Vec::new();
     let mut implicit_main = None;
-    for (index, relative) in bubble.modules().iter().enumerate() {
-        let path = package_root.join(relative);
+    for (index, relative) in selection.bubble.modules().iter().enumerate() {
+        let path = selection.root.join(relative);
         let module = ModuleId::from_raw(u32::try_from(index).ok()?);
-        let file = if relative == &relative_active {
+        let file = if relative == &selection.relative_active {
             active.id()
         } else {
             FileId::from_raw(u32::MAX.checked_sub(u32::try_from(index).ok()?)?)
@@ -916,7 +1011,7 @@ fn package_analysis_input(
         let text = open_document_text(open_documents, &path)
             .or_else(|| fs::read_to_string(&path).ok().map(Arc::<str>::from))?;
         let source = SourceFile::new(file, Arc::<str>::from(file_uri(&path)?), text).ok()?;
-        if bubble.kind() == BubbleKind::Binary && relative == bubble.root() {
+        if selection.bubble.kind() == BubbleKind::Binary && relative == selection.bubble.root() {
             implicit_main = Some(module);
         }
         modules.push(FrontEndModule::new(module, source));
@@ -931,6 +1026,53 @@ fn package_analysis_input(
         input.with_implicit_main_entry(module)
     } else {
         input
+    })
+}
+
+fn analysis_scope(source: &SourceFile) -> AnalysisScope {
+    package_analysis_selection(source).map_or(AnalysisScope::Standalone(source.id()), |selection| {
+        AnalysisScope::Bubble {
+            manifest: selection.manifest,
+            name: selection.bubble.name().to_owned(),
+        }
+    })
+}
+
+fn package_analysis_selection(active: &SourceFile) -> Option<PackageAnalysisSelection> {
+    let active_path = file_uri_path(active.path())?;
+    let manifest_path = nearest_package_manifest(&active_path)?;
+    let package_root = manifest_path.parent()?.to_owned();
+    let manifest_text = fs::read_to_string(&manifest_path).ok()?;
+    let manifest = parse_package_manifest(&manifest_text).ok()?;
+    if !manifest.dependencies().is_empty()
+        || !manifest.platform_dependencies().is_empty()
+        || !manifest.native_libraries().is_empty()
+        || !manifest.platform_native_libraries().is_empty()
+    {
+        return None;
+    }
+    let files = conventional_pop_files(&package_root)?;
+    let relative_active = relative_pop_path(&package_root, &active_path)?;
+    let bubbles = discover_conventional_bubbles(&manifest, &files).ok()?;
+    let bubble = bubbles.into_iter().find(|bubble| {
+        bubble
+            .modules()
+            .iter()
+            .any(|module| module == &relative_active)
+    })?;
+    if bubble.depends_on_library()
+        || matches!(
+            bubble.kind(),
+            BubbleKind::Test | BubbleKind::Example | BubbleKind::Benchmark
+        ) && !manifest.development_dependencies().is_empty()
+    {
+        return None;
+    }
+    Some(PackageAnalysisSelection {
+        manifest: manifest_path,
+        root: package_root,
+        relative_active,
+        bubble,
     })
 }
 
