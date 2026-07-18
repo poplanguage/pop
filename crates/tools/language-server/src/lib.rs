@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use pop_documentation::{XmlFragment, XmlNode};
-use pop_driver::{FrontEndBubbleInput, FrontEndModule, ToolingDeclarationKind, analyze_bubble};
+use pop_driver::{
+    FrontEndBubbleInput, FrontEndModule, FrontEndResult, ToolingDeclarationKind, analyze_bubble,
+};
 use pop_foundation::{
     BubbleId, Diagnostic, DiagnosticCategory, DiagnosticSeverity, FileId, FixApplicability,
     ModuleId, NamespaceId, TextRange, TextSize,
@@ -213,6 +215,24 @@ pub struct ProtocolQuickFix {
 pub struct InlayHint {
     position: ProtocolPosition,
     label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Definition {
+    uri: DocumentUri,
+    range: ProtocolRange,
+}
+
+impl Definition {
+    #[must_use]
+    pub const fn uri(&self) -> &DocumentUri {
+        &self.uri
+    }
+
+    #[must_use]
+    pub const fn range(&self) -> ProtocolRange {
+        self.range
+    }
 }
 
 impl ProtocolDiagnostic {
@@ -436,6 +456,7 @@ struct OpenDocument {
     version: DocumentVersion,
     analysis: DocumentAnalysis,
     declarations: Vec<AnalyzedDeclaration>,
+    definitions: Vec<AnalyzedDefinitionOccurrence>,
     inlay_hints: Vec<InlayHint>,
 }
 
@@ -463,6 +484,23 @@ struct AnalyzedDeclaration {
     selection: TextRange,
     signature: String,
     summary: Option<String>,
+}
+
+struct AnalyzedDefinitionOccurrence {
+    selection: TextRange,
+    target: Definition,
+}
+
+struct AnalysisSnapshotInput {
+    bubble: FrontEndBubbleInput,
+    sources: BTreeMap<FileId, SourceFile>,
+}
+
+struct AnalyzedDocument {
+    analysis: DocumentAnalysis,
+    declarations: Vec<AnalyzedDeclaration>,
+    definitions: Vec<AnalyzedDefinitionOccurrence>,
+    inlay_hints: Vec<InlayHint>,
 }
 
 pub struct LanguageServer {
@@ -544,7 +582,7 @@ impl LanguageServer {
                     detail: error.to_string(),
                 }
             })?;
-        let (analysis, declarations, inlay_hints) = analyze_document(
+        let analyzed = analyze_document(
             self.session,
             &self.documents,
             &source,
@@ -562,9 +600,10 @@ impl LanguageServer {
                 source,
                 scope: scope.clone(),
                 version,
-                analysis: analysis.clone(),
-                declarations,
-                inlay_hints,
+                analysis: analyzed.analysis.clone(),
+                declarations: analyzed.declarations,
+                definitions: analyzed.definitions,
+                inlay_hints: analyzed.inlay_hints,
             },
         );
         let updates = match self.reanalyze_open_documents(&scope, cancellation) {
@@ -622,7 +661,7 @@ impl LanguageServer {
                 uri: uri.clone(),
                 detail: error.to_string(),
             })?;
-        let (analysis, declarations, inlay_hints) = analyze_document(
+        let analyzed = analyze_document(
             self.session,
             &self.documents,
             &source,
@@ -637,9 +676,10 @@ impl LanguageServer {
                     source,
                     scope: scope.clone(),
                     version,
-                    analysis: analysis.clone(),
-                    declarations,
-                    inlay_hints,
+                    analysis: analyzed.analysis.clone(),
+                    declarations: analyzed.declarations,
+                    definitions: analyzed.definitions,
+                    inlay_hints: analyzed.inlay_hints,
                 },
             )
             .expect("the changed document was open");
@@ -734,6 +774,36 @@ impl LanguageServer {
                 })
             })
             .collect()
+    }
+
+    /// Returns the compiler-selected namespace function definition.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown documents, cancellation, or invalid UTF-16 positions.
+    pub fn definition(
+        &self,
+        uri: &DocumentUri,
+        position: ProtocolPosition,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Definition>, LanguageServerError> {
+        cancellation
+            .check()
+            .map_err(|_| LanguageServerError::Cancelled)?;
+        let document = self
+            .documents
+            .get(uri)
+            .ok_or_else(|| LanguageServerError::DocumentNotOpen { uri: uri.clone() })?;
+        let Some(offset) = source_offset(document.source.text(), position) else {
+            return Ok(None);
+        };
+        Ok(document
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.selection.start() <= offset && offset < definition.selection.end()
+            })
+            .map(|definition| definition.target.clone()))
     }
 
     /// Returns compiler-proven direct-call parameter hints in one range.
@@ -850,15 +920,16 @@ impl LanguageServer {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut updates = Vec::with_capacity(analyzed.len());
-        for (uri, (analysis, declarations, inlay_hints)) in analyzed {
+        for (uri, analyzed) in analyzed {
             let document = self
                 .documents
                 .get_mut(&uri)
                 .expect("analyzed document remains open");
-            document.analysis = analysis.clone();
-            document.declarations = declarations;
-            document.inlay_hints = inlay_hints;
-            updates.push((uri, analysis));
+            document.analysis = analyzed.analysis.clone();
+            document.declarations = analyzed.declarations;
+            document.definitions = analyzed.definitions;
+            document.inlay_hints = analyzed.inlay_hints;
+            updates.push((uri, analyzed.analysis));
         }
         Ok(updates)
     }
@@ -922,22 +993,24 @@ fn analyze_document(
     source: &SourceFile,
     version: DocumentVersion,
     cancellation: &CancellationToken,
-) -> Result<(DocumentAnalysis, Vec<AnalyzedDeclaration>, Vec<InlayHint>), LanguageServerError> {
+) -> Result<AnalyzedDocument, LanguageServerError> {
     cancellation
         .check()
         .map_err(|_| LanguageServerError::Cancelled)?;
-    let input = package_analysis_input(open_documents, source).unwrap_or_else(|| {
-        FrontEndBubbleInput::new(
-            BubbleId::from_raw(0),
-            NamespaceId::from_raw(0),
-            Vec::new(),
-            vec![FrontEndModule::new(
-                ModuleId::from_raw(source.id().raw()),
-                source.clone(),
-            )],
-        )
-    });
-    let result = analyze_bubble(input);
+    let input =
+        package_analysis_input(open_documents, source).unwrap_or_else(|| AnalysisSnapshotInput {
+            bubble: FrontEndBubbleInput::new(
+                BubbleId::from_raw(0),
+                NamespaceId::from_raw(0),
+                Vec::new(),
+                vec![FrontEndModule::new(
+                    ModuleId::from_raw(source.id().raw()),
+                    source.clone(),
+                )],
+            ),
+            sources: BTreeMap::from([(source.id(), source.clone())]),
+        });
+    let result = analyze_bubble(input.bubble);
     cancellation
         .check()
         .map_err(|_| LanguageServerError::Cancelled)?;
@@ -978,7 +1051,8 @@ fn analyze_document(
                     .and_then(|fragment| documentation_summary(fragment)),
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let definitions = analyzed_definitions(&result, &input.sources, source.id());
     let inlay_hints = result
         .tooling_inlay_hints()
         .iter()
@@ -992,15 +1066,43 @@ fn analyze_document(
             })
         })
         .collect();
-    Ok((
-        DocumentAnalysis {
+    Ok(AnalyzedDocument {
+        analysis: DocumentAnalysis {
             file: source.id(),
             version,
             diagnostics,
         },
         declarations,
+        definitions,
         inlay_hints,
-    ))
+    })
+}
+
+fn analyzed_definitions(
+    result: &FrontEndResult,
+    sources: &BTreeMap<FileId, SourceFile>,
+    active: FileId,
+) -> Vec<AnalyzedDefinitionOccurrence> {
+    result
+        .tooling_definition_occurrences()
+        .iter()
+        .filter(|occurrence| occurrence.selection_span().file() == active)
+        .filter_map(|occurrence| {
+            let declaration = result
+                .tooling_declarations()
+                .iter()
+                .find(|declaration| occurrence.identity() == declaration.identity())?;
+            let destination = sources.get(&declaration.selection_span().file())?;
+            Some(AnalyzedDefinitionOccurrence {
+                selection: occurrence.selection_span().range(),
+                target: Definition {
+                    uri: DocumentUri::new(Arc::<str>::from(destination.path())).ok()?,
+                    range: protocol_range(destination.text(), declaration.selection_span().range())
+                        .ok()?,
+                },
+            })
+        })
+        .collect()
 }
 
 fn active_analysis(
@@ -1018,24 +1120,33 @@ fn active_analysis(
 fn package_analysis_input(
     open_documents: &BTreeMap<DocumentUri, OpenDocument>,
     active: &SourceFile,
-) -> Option<FrontEndBubbleInput> {
+) -> Option<AnalysisSnapshotInput> {
     let selection = package_analysis_selection(active)?;
     let mut modules = Vec::new();
+    let mut sources = BTreeMap::new();
     let mut implicit_main = None;
     for (index, relative) in selection.bubble.modules().iter().enumerate() {
         let path = selection.root.join(relative);
         let module = ModuleId::from_raw(u32::try_from(index).ok()?);
-        let file = if relative == &selection.relative_active {
-            active.id()
+        let uri = file_uri(&path)?;
+        let (file, text) = if relative == &selection.relative_active {
+            (active.id(), Arc::<str>::from(active.text()))
+        } else if let Some(document) = open_document(open_documents, &uri) {
+            (
+                document.source.id(),
+                Arc::<str>::from(document.source.text()),
+            )
         } else {
-            FileId::from_raw(u32::MAX.checked_sub(u32::try_from(index).ok()?)?)
+            (
+                FileId::from_raw(u32::MAX.checked_sub(u32::try_from(index).ok()?)?),
+                fs::read_to_string(&path).ok().map(Arc::<str>::from)?,
+            )
         };
-        let text = open_document_text(open_documents, &path)
-            .or_else(|| fs::read_to_string(&path).ok().map(Arc::<str>::from))?;
-        let source = SourceFile::new(file, Arc::<str>::from(file_uri(&path)?), text).ok()?;
+        let source = SourceFile::new(file, Arc::<str>::from(uri), text).ok()?;
         if selection.bubble.kind() == BubbleKind::Binary && relative == selection.bubble.root() {
             implicit_main = Some(module);
         }
+        sources.insert(file, source.clone());
         modules.push(FrontEndModule::new(module, source));
     }
     let input = FrontEndBubbleInput::new(
@@ -1044,11 +1155,12 @@ fn package_analysis_input(
         Vec::new(),
         modules,
     );
-    Some(if let Some(module) = implicit_main {
+    let bubble = if let Some(module) = implicit_main {
         input.with_implicit_main_entry(module)
     } else {
         input
-    })
+    };
+    Some(AnalysisSnapshotInput { bubble, sources })
 }
 
 fn analysis_scope(source: &SourceFile) -> AnalysisScope {
@@ -1180,15 +1292,14 @@ fn relative_pop_path(root: &Path, path: &Path) -> Option<String> {
     )
 }
 
-fn open_document_text(
-    documents: &BTreeMap<DocumentUri, OpenDocument>,
-    path: &Path,
-) -> Option<Arc<str>> {
-    let uri = file_uri(path)?;
+fn open_document<'a>(
+    documents: &'a BTreeMap<DocumentUri, OpenDocument>,
+    uri: &str,
+) -> Option<&'a OpenDocument> {
     documents
         .iter()
         .find(|(candidate, _)| candidate.as_str() == uri)
-        .map(|(_, document)| Arc::<str>::from(document.source.text()))
+        .map(|(_, document)| document)
 }
 
 fn file_uri_path(uri: &str) -> Option<PathBuf> {

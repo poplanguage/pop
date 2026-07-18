@@ -3330,6 +3330,7 @@ impl Verifier<'_> {
                 is_async,
                 type_arguments,
                 arguments,
+                ..
             } => {
                 self.verify_call(
                     dispatch,

@@ -124,6 +124,7 @@ pub struct FrontEndResult {
     pub(crate) reference_metadata: Result<ReferenceMetadata, ReferenceMetadataError>,
     pub(crate) checked_documentation: Vec<CheckedDocumentation>,
     pub(crate) tooling_declarations: Vec<ToolingDeclaration>,
+    pub(crate) tooling_definition_occurrences: Vec<ToolingDefinitionOccurrence>,
     pub(crate) tooling_inlay_hints: Vec<ToolingInlayHint>,
 }
 
@@ -191,6 +192,25 @@ pub enum ToolingDeclarationKind {
     Class,
     Interface,
     Enum,
+}
+
+/// Compiler-resolved source occurrence for private definition navigation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolingDefinitionOccurrence {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) selection_span: SourceSpan,
+}
+
+impl ToolingDefinitionOccurrence {
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn selection_span(&self) -> SourceSpan {
+        self.selection_span
+    }
 }
 
 /// Compiler-proven parameter name attached to one direct-call argument.
@@ -739,6 +759,11 @@ impl FrontEndResult {
     #[must_use]
     pub fn tooling_declarations(&self) -> &[ToolingDeclaration] {
         &self.tooling_declarations
+    }
+
+    #[must_use]
+    pub fn tooling_definition_occurrences(&self) -> &[ToolingDefinitionOccurrence] {
+        &self.tooling_definition_occurrences
     }
 
     #[must_use]

@@ -14,6 +14,8 @@ The implemented bootstrap slice owns:
   warning metadata, and current safe source fixes;
 - checked-documentation hover and document symbols;
 - compiler-proven direct-call parameter inlay hints;
+- compiler-resolved definition navigation for namespace-scope functions and
+  direct calls in the current same-Bubble snapshot;
 - conservative same-Bubble analysis for dependency-free conventional Packages;
 - atomic reanalysis and diagnostic republication for affected open Modules,
   using a retained Package/Bubble scope without republishing same-named target
@@ -23,14 +25,14 @@ The implemented bootstrap slice owns:
 The `pop-language-server` executable exposes that engine through a bounded LSP
 3.17 JSON-RPC stdio adapter. It advertises full-text document synchronization,
 compiler diagnostics, checked-documentation hover, document symbols, code
-actions, and inlay hints. The
+actions, inlay hints, and definition navigation. The
 initialization `locale`
 selects presentation first; when absent, `POP_LANGUAGE`, tool configuration,
 the system locale, and English follow ADR 0088 precedence.
 
-The current crate does not implement completion, signature help, cross-Bubble
-navigation, references, rename, formatting, semantic tokens, incremental text
-edits, complete Workspace/dependency analysis, or public syntax values. Those
-surfaces depend on reviewed schemas in the independently
+The current crate does not implement completion, signature help, local/member
+or cross-Bubble navigation, references, rename, formatting, semantic tokens,
+incremental text edits, complete Workspace/dependency analysis, or public
+syntax values. Those surfaces depend on reviewed schemas in the independently
 installed `Pop.Rpc`, `Pop.Syntax`, and `Pop.Lsp` Packages. The private compiler
 syntax tree and query handles must not be exported as a shortcut.

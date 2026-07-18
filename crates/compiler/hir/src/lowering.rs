@@ -768,6 +768,7 @@ fn lower_call(call: &TypedCall, interface_slots: &HirInterfaceSlotMap) -> HirCal
                             .map(|argument| lower_expression(argument, interface_slots)),
                     )
                     .collect(),
+                callee_span: call.callee_span(),
                 span: call.span(),
             };
         }
@@ -791,6 +792,7 @@ fn lower_call(call: &TypedCall, interface_slots: &HirInterfaceSlotMap) -> HirCal
                             .map(|argument| lower_expression(argument, interface_slots)),
                     )
                     .collect(),
+                callee_span: call.callee_span(),
                 span: call.span(),
             };
         }
@@ -813,6 +815,7 @@ fn lower_call(call: &TypedCall, interface_slots: &HirInterfaceSlotMap) -> HirCal
                             .map(|argument| lower_expression(argument, interface_slots)),
                     )
                     .collect(),
+                callee_span: call.callee_span(),
                 span: call.span(),
             };
         }
@@ -829,6 +832,7 @@ fn lower_call(call: &TypedCall, interface_slots: &HirInterfaceSlotMap) -> HirCal
             .iter()
             .map(|argument| lower_expression(argument, interface_slots))
             .collect(),
+        callee_span: call.callee_span(),
         span: call.span(),
     }
 }
@@ -1268,7 +1272,7 @@ fn lower_expression(
         | TypedExpressionKind::DirectMethodCall { .. }
         | TypedExpressionKind::InterfaceMethodCall { .. }
         | TypedExpressionKind::BuiltinInterfaceMethodCall { .. }) => {
-            lower_call_expression(call, interface_slots)
+            lower_call_expression(call, expression.span(), interface_slots)
         }
         TypedExpressionKind::InterfaceUpcast { value, interface } => {
             HirExpressionKind::InterfaceUpcast {
@@ -1292,6 +1296,7 @@ fn lower_expression(
 
 fn lower_call_expression(
     call: &TypedExpressionKind,
+    expression_span: SourceSpan,
     interface_slots: &HirInterfaceSlotMap,
 ) -> HirExpressionKind {
     match call {
@@ -1308,12 +1313,14 @@ fn lower_call_expression(
                 .iter()
                 .map(|argument| lower_expression(argument, interface_slots))
                 .collect(),
+            callee_span: expression_span,
         },
         TypedExpressionKind::DirectCall {
             function,
             is_async,
             type_arguments,
             arguments,
+            callee_span,
         } => HirExpressionKind::Call {
             dispatch: HirCallDispatch::Direct {
                 function: *function,
@@ -1324,12 +1331,14 @@ fn lower_call_expression(
                 .iter()
                 .map(|argument| lower_expression(argument, interface_slots))
                 .collect(),
+            callee_span: *callee_span,
         },
         TypedExpressionKind::ReferencedCall {
             function,
             is_async,
             type_arguments,
             arguments,
+            callee_span,
         } => HirExpressionKind::Call {
             dispatch: HirCallDispatch::Referenced {
                 function: *function,
@@ -1340,6 +1349,7 @@ fn lower_call_expression(
                 .iter()
                 .map(|argument| lower_expression(argument, interface_slots))
                 .collect(),
+            callee_span: *callee_span,
         },
         TypedExpressionKind::IndirectCall {
             callee,
@@ -1355,6 +1365,7 @@ fn lower_call_expression(
                 .iter()
                 .map(|argument| lower_expression(argument, interface_slots))
                 .collect(),
+            callee_span: expression_span,
         },
         TypedExpressionKind::DirectMethodCall {
             method,
@@ -1373,6 +1384,7 @@ fn lower_call_expression(
                         .map(|argument| lower_expression(argument, interface_slots)),
                 )
                 .collect(),
+            callee_span: expression_span,
         },
         TypedExpressionKind::InterfaceMethodCall {
             interface,
@@ -1394,6 +1406,7 @@ fn lower_call_expression(
                         .map(|argument| lower_expression(argument, interface_slots)),
                 )
                 .collect(),
+            callee_span: expression_span,
         },
         TypedExpressionKind::BuiltinInterfaceMethodCall {
             interface,
@@ -1414,6 +1427,7 @@ fn lower_call_expression(
                         .map(|argument| lower_expression(argument, interface_slots)),
                 )
                 .collect(),
+            callee_span: expression_span,
         },
         _ => unreachable!("call lowering accepts only typed call expressions"),
     }
