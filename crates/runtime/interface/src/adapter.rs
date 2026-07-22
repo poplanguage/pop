@@ -1,9 +1,12 @@
 use crate::{
     ArrayAllocationRequest, FfiAbiLayoutId, FfiBufferBorrow, FfiBufferBorrowId,
-    FfiBufferOpenFailure, FfiBufferOpenRequest, FfiBytesBorrow, FfiBytesBorrowId, ForeignAddress,
-    ForeignCallMode, ForeignTransitionId, GarbageCollectorContract, ManagedReference,
-    ManagedThreadBindingId, ObjectAllocationRequest, PanicPayload, PinHandle, RootHandle,
-    RootPublication, RuntimeFailure, SchedulerId, TableAllocationRequest, Trap, WriteBarrier,
+    FfiBufferOpenFailure, FfiBufferOpenRequest, FfiBytesBorrow, FfiBytesBorrowId,
+    FfiCallbackCloseFailure, FfiCallbackEntry, FfiCallbackOpenFailure, FfiCallbackOpenRequest,
+    FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId, FfiCallbackTransitionId,
+    ForeignAddress, ForeignCallMode, ForeignTransitionId, GarbageCollectorContract,
+    ManagedReference, ManagedThreadBindingId, ObjectAllocationRequest, PanicPayload, PinHandle,
+    RootHandle, RootPublication, RuntimeFailure, SchedulerId, TableAllocationRequest, Trap,
+    WriteBarrier,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -216,6 +219,36 @@ pub trait RuntimeAdapter {
         Err(RuntimeFailure::runtime_invariant())
     }
 
+    /// Returns the exact byte length of verified immutable `Bytes` storage.
+    ///
+    /// This typed storage operation neither pins nor creates a borrow token.
+    ///
+    /// # Errors
+    ///
+    /// Rejects forged or non-`Bytes` managed references.
+    fn immutable_bytes_length(&self, bytes: ManagedReference) -> Result<u64, RuntimeFailure> {
+        let _ = bytes;
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Copies one already bounds-checked immutable byte range.
+    ///
+    /// This typed storage operation never exposes an address and creates no
+    /// runtime borrow state.
+    ///
+    /// # Errors
+    ///
+    /// Rejects forged storage or a range inconsistent with the target length.
+    fn immutable_bytes_read(
+        &self,
+        bytes: ManagedReference,
+        offset: u64,
+        target: &mut [u8],
+    ) -> Result<(), RuntimeFailure> {
+        let _ = (bytes, offset, target);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
     /// Pins one exact immutable byte payload and returns its packed address.
     ///
     /// # Errors
@@ -241,6 +274,67 @@ pub trait RuntimeAdapter {
     ) -> Result<(), RuntimeFailure> {
         let _ = (bytes, borrow);
         Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Retains one exact callback environment and publishes its opaque context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invariant failure without publishing a registration when the
+    /// callback contract or environment cannot be retained.
+    fn ffi_callback_open(
+        &mut self,
+        request: FfiCallbackOpenRequest,
+    ) -> Result<FfiCallbackRegistration, FfiCallbackOpenFailure> {
+        let _ = request;
+        Err(FfiCallbackOpenFailure::Invariant(
+            RuntimeFailure::runtime_invariant(),
+        ))
+    }
+
+    /// Enters managed execution through one validated callback context/site.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale, forged, wrong-site, wrong-thread, overlapping, or
+    /// reentrant entry before returning the managed environment.
+    fn ffi_callback_enter(
+        &mut self,
+        context: ForeignAddress,
+        site: FfiCallbackSiteId,
+    ) -> Result<FfiCallbackEntry, RuntimeFailure> {
+        let _ = (context, site);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Leaves and consumes one exact callback transition.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale, forged, wrong-thread, or duplicate transitions.
+    fn ffi_callback_leave(
+        &mut self,
+        transition: FfiCallbackTransitionId,
+    ) -> Result<(), RuntimeFailure> {
+        let _ = transition;
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Invalidates one callback context before releasing its environment root.
+    ///
+    /// # Errors
+    ///
+    /// Leaves an active registration unchanged when callback entry is active.
+    fn ffi_callback_close(
+        &mut self,
+        registration: FfiCallbackRegistrationId,
+        context: ForeignAddress,
+        site: FfiCallbackSiteId,
+    ) -> Result<(), FfiCallbackCloseFailure> {
+        let _ = (registration, context, site);
+        Err(FfiCallbackCloseFailure::Invariant(
+            RuntimeFailure::runtime_invariant(),
+        ))
     }
 
     /// Reads exact ABI bytes through a verified foreign pointer.

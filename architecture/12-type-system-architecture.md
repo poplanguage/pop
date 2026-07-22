@@ -34,6 +34,7 @@ Union(members)
 Optional(inner)
 TypeParameter(ParameterId)
 Opaque(OpaqueId)
+BorrowedView(Text | Bytes)
 Never
 Error                 // compiler recovery only
 ```
@@ -41,6 +42,11 @@ Error                 // compiler recovery only
 `Error` suppresses cascading diagnostics but cannot appear in a valid HIR/MIR
 module. An internal top type, if useful to constraint solving, has no member or
 call operations and must be eliminated/narrowed before valid HIR.
+
+`BorrowedView` is the closed compiler representation of the nominal
+`Text.View`/`Bytes.View` types from ADR 0097. Its lender and borrow `LifetimeId`
+are value-provenance facts, not source-visible type arguments or runtime type
+metadata.
 
 ## Inference strategy
 
@@ -70,6 +76,21 @@ Examples requiring diagnostics include:
 - a union member access not valid for every remaining variant;
 - a table write inconsistent with its inferred key/value type;
 - an overload set with no unique best statically valid candidate.
+
+## Compiler-proven borrowed views
+
+The first release permits a view only as a direct local, parameter, or exact
+parameter-alias result. Direct assignment and branch joins preserve one lender
+provenance. Embedding a view in a tuple, record, union, optional, result,
+collection, class, capture, coroutine frame, ownership transfer, or FFI type is
+rejected before HIR.
+
+Every callable type carries ADR 0097's closed parameter-retention and
+result-provenance summary in addition to ADR 0022 effects. A view argument
+requires `DoesNotRetain`; a view result requires
+`ReturnsAlias(sourceParameter)`. Missing/conservative facts reject views rather
+than selecting a dynamic or managed-borrow fallback. No lifetime punctuation,
+implicit copy, runtime borrow check, or string-selected operation exists.
 
 ## Exact source overloads
 
@@ -183,8 +204,14 @@ signatures. Class-to-interface conversion is a static implicit upcast. Interface
 calls retain the `InterfaceId` and resolved interface method; matching shape
 without the clause is rejected.
 
-Downcasts are explicit and return a typed optional/result. There is no universal
-object type offering reflection or string member access.
+The first checked downcast is an explicit interface-to-named-class target-type
+call. For a non-optional nominal interface value `reader`,
+`FileReader(reader)` has type `FileReader?` when the fully resolved target class
+nominally implements that exact interface. It succeeds for the exact specialized
+class or a descendant and preserves object identity. Class-to-class,
+interface-to-interface, structural, type-parameter, optional-operand, and
+string-selected casts are outside this first slice. There is no universal
+object type offering reflection or string member access. See ADR 0095.
 
 The reserved `Result<T, TError>` type has exact `Ok(T)` and `Error(TError)`
 cases. Prefix `try` requires an enclosing single-result function of type
@@ -281,6 +308,12 @@ upcast, and checked downcast are distinct conversion kinds in HIR. No conversion
 is labeled “dynamic.” Lossy conversions require explicit syntax unless an ADR
 proves a safe implicit rule.
 
+ADR 0095 fixes checked nominal casts as compiler-known target-type calls rather
+than ordinary overloads. The checker records the exact source interface,
+target class, canonical arguments, nominal witness relation, and optional
+result. The conversion has no source-visible effect and cannot widen an inferred
+effect summary.
+
 ADR 0040 fixes numeric conversion syntax as a call whose callee is a built-in
 numeric type, for example `UInt32(value)`. The checker resolves that type in the
 type namespace, requires one numeric operand, and records the exact source and
@@ -350,6 +383,17 @@ rejected statically. HIR and MIR retain the closure identity and
 `BorrowRegionId`; there is no runtime lifetime test or unrestricted matching
 function-value conversion.
 
+ADR 0092 gives callbacks a distinct static capability. One non-async callback
+signature contains exactly one opaque `Ffi.CallbackContext` parameter and only
+accepted ABI storage parameters/results. `Ffi.withCallback` supplies one
+inseparable `Ffi.Function<TSignature>`/context pair to an immediate synchronous
+scope; only an exact trusted call-scoped foreign parameter pair may consume it.
+Owned `Ffi.RegisteredCallback<TSignature>` resources retain the exact typed
+environment until deterministic close. Scoped escape, mismatched pairs,
+managed ABI values, suspension, overlapping entry, and reentry are rejected
+without a dynamic signature or runtime type test. See
+[ADR 0092](./decisions/0092-typed-ffi-callbacks-and-native-transition-abi.md).
+
 ADR 0086 makes that proof reproducible: the compiler recognizes the exact
 trusted `Ffi.C.Layout` identity on records, constructs canonical target/ABI
 descriptors, and binds their full SHA-256 fingerprints and compact
@@ -367,6 +411,15 @@ untyped metadata value.
 Symbol/type handles exist only in the compile-time type universe. Escape
 analysis rejects storing them in runtime globals, fields, returned runtime
 values, or retained metadata projections.
+
+ADR 0096 retention checking is a closed type-graph validation, not structural
+reflection. Only a non-generic record, enum, or tagged union with exact
+`Metadata.Use.Codec` and nonzero application schema version is eligible. Its
+recursive projection admits only the fixed scalar leaves, optional/tuple/array/
+list constructors, and visibly retained nominal data types fixed by that ADR.
+Success reserves the exact sibling type
+`TargetSchema: Codec.Schema<Target>`; unsupported or inaccessible nodes are
+errors and never become an opaque/dynamic type.
 
 ## Type checking output
 

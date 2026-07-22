@@ -8,7 +8,8 @@ use std::collections::BTreeSet;
 use pop_compile_time::{CompileTimeValue, EvaluationFailure, EvaluationResult};
 use pop_documentation::XmlFragment;
 use pop_foundation::{
-    BubbleId, Diagnostic, ModuleId, NamespaceId, SourceSpan, SymbolId, SymbolIdentity, TypeId,
+    BubbleId, BuiltinTypeId, Diagnostic, ModuleId, NamespaceId, SourceSpan, SymbolId,
+    SymbolIdentity, TypeId,
 };
 use pop_hir::{HirBubble, HirDeclaration, HirFunction, HirMethod};
 use pop_library_bridge::{FoundationBubble, NativeEffect, NativeExport, PopAbiType};
@@ -19,6 +20,7 @@ use pop_types::{
 use serde::{Deserialize, Serialize};
 
 use crate::front_end::diagnostic_snapshot;
+use crate::retained_metadata::{RetainedMetadataArtifacts, RetainedMetadataError};
 
 #[derive(Clone, Debug)]
 pub struct FrontEndModule {
@@ -52,6 +54,8 @@ pub struct FrontEndBubbleInput {
     pub(crate) modules: Vec<FrontEndModule>,
     pub(crate) implicit_main_module: Option<ModuleId>,
     pub(crate) reference_metadata: Vec<ReferenceMetadata>,
+    pub(crate) reference_retained_adapters_popc: Vec<(BubbleId, Vec<u8>)>,
+    pub(crate) generated_ffi_bindings: Vec<crate::ffi_generate::VerifiedFfiGeneratedBindings>,
 }
 
 impl FrontEndBubbleInput {
@@ -73,6 +77,8 @@ impl FrontEndBubbleInput {
             modules,
             implicit_main_module: None,
             reference_metadata: Vec::new(),
+            reference_retained_adapters_popc: Vec::new(),
+            generated_ffi_bindings: Vec::new(),
         }
     }
 
@@ -107,6 +113,32 @@ impl FrontEndBubbleInput {
         self.reference_metadata = metadata;
         self
     }
+
+    /// Supplies exact public `retained-adapters.popc` bytes from verified
+    /// direct-dependency `.poplib` artifacts. Analysis validates every file
+    /// against that Bubble's reference-metadata inventory before attaching any
+    /// generated adapter catalog entry.
+    #[must_use]
+    pub fn with_reference_retained_adapters_popc(
+        mut self,
+        mut descriptors: Vec<(BubbleId, Vec<u8>)>,
+    ) -> Self {
+        descriptors.sort_by_key(|(bubble, _)| *bubble);
+        self.reference_retained_adapters_popc = descriptors;
+        self
+    }
+
+    /// Supplies callback contracts returned by manifest-selected generated
+    /// `.popc` preflight. Ordinary source cannot construct these values.
+    #[must_use]
+    pub fn with_verified_ffi_generated_bindings(
+        mut self,
+        mut bindings: Vec<crate::ffi_generate::VerifiedFfiGeneratedBindings>,
+    ) -> Self {
+        bindings.sort_by(|left, right| left.source_path().cmp(right.source_path()));
+        self.generated_ffi_bindings = bindings;
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -122,6 +154,7 @@ pub struct FrontEndResult {
     pub(crate) constants: Vec<FrontEndConstant>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) reference_metadata: Result<ReferenceMetadata, ReferenceMetadataError>,
+    pub(crate) retained_metadata: Result<RetainedMetadataArtifacts, RetainedMetadataError>,
     pub(crate) checked_documentation: Vec<CheckedDocumentation>,
     pub(crate) tooling_declarations: Vec<ToolingDeclaration>,
     pub(crate) tooling_inlay_hints: Vec<ToolingInlayHint>,
@@ -258,12 +291,20 @@ impl CheckedDocumentation {
 pub enum ReferenceType {
     Primitive(PrimitiveType),
     TypeParameter(u16),
+    /// One public nominal record declaration in the producer Bubble.
+    Record(SymbolIdentity),
+    /// One fully applied public nominal class identity.
+    Class(ReferenceNominalType),
+    /// One fully applied public nominal interface identity.
+    Interface(ReferenceNominalType),
     Tuple(Vec<ReferenceType>),
     Function {
         is_async: bool,
         parameters: Vec<ReferenceType>,
         results: Vec<ReferenceType>,
         effects: pop_types::EffectSummary,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lifetime_summary: Option<pop_types::CallableLifetimeSummary>,
     },
     Array(Box<ReferenceType>),
     Table {
@@ -276,6 +317,302 @@ pub enum ReferenceType {
         arguments: Vec<ReferenceType>,
     },
     Union(Vec<ReferenceType>),
+}
+
+/// Stable cross-Bubble nominal identity plus its complete canonical arguments.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ReferenceNominalType {
+    pub(crate) definition: SymbolIdentity,
+    pub(crate) arguments: Vec<ReferenceType>,
+}
+
+impl ReferenceNominalType {
+    #[must_use]
+    pub const fn definition(&self) -> SymbolIdentity {
+        self.definition
+    }
+
+    #[must_use]
+    pub fn arguments(&self) -> &[ReferenceType] {
+        &self.arguments
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceRecordField {
+    pub(crate) name: String,
+    pub(crate) field_type: ReferenceType,
+}
+
+impl ReferenceRecordField {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn field_type(&self) -> &ReferenceType {
+        &self.field_type
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceRecord {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) fields: Vec<ReferenceRecordField>,
+    pub(crate) span: SourceSpan,
+}
+
+impl ReferenceRecord {
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn fields(&self) -> &[ReferenceRecordField] {
+        &self.fields
+    }
+
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+/// Public nominal interface declaration needed for typed artifact resolution.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceInterface {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) type_parameter_count: u16,
+    pub(crate) span: SourceSpan,
+}
+
+impl ReferenceInterface {
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn type_parameter_count(&self) -> u16 {
+        self.type_parameter_count
+    }
+
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+/// Public nominal class declaration and the exact cast-validation facts.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceClass {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) type_parameter_count: u16,
+    pub(crate) is_open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) direct_base: Option<ReferenceNominalType>,
+    pub(crate) interface_witnesses: Vec<ReferenceNominalType>,
+    pub(crate) span: SourceSpan,
+}
+
+impl ReferenceClass {
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn type_parameter_count(&self) -> u16 {
+        self.type_parameter_count
+    }
+
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    #[must_use]
+    pub const fn direct_base(&self) -> Option<&ReferenceNominalType> {
+        self.direct_base.as_ref()
+    }
+
+    #[must_use]
+    pub fn interface_witnesses(&self) -> &[ReferenceNominalType] {
+        &self.interface_witnesses
+    }
+
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceFfiLayoutField {
+    pub(crate) name: String,
+    pub(crate) source_index: u32,
+    pub(crate) layout: u64,
+    pub(crate) offset: u64,
+}
+
+impl ReferenceFfiLayoutField {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn source_index(&self) -> u32 {
+        self.source_index
+    }
+
+    #[must_use]
+    pub const fn layout(&self) -> u64 {
+        self.layout
+    }
+
+    #[must_use]
+    pub const fn offset(&self) -> u64 {
+        self.offset
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ReferenceFfiValueClass {
+    Integer,
+    Float,
+    Pointer,
+    FunctionPointer,
+    Handle,
+    Record(Vec<ReferenceFfiLayoutField>),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceFfiLayout {
+    pub(crate) id: u64,
+    pub(crate) element: ReferenceType,
+    pub(crate) size: u64,
+    pub(crate) alignment: u64,
+    pub(crate) value_class: ReferenceFfiValueClass,
+    pub(crate) abi: pop_types::ForeignAbi,
+    pub(crate) descriptor: String,
+    pub(crate) fingerprint: String,
+}
+
+impl ReferenceFfiLayout {
+    #[must_use]
+    pub const fn id(&self) -> u64 {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn element(&self) -> &ReferenceType {
+        &self.element
+    }
+
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        self.size
+    }
+
+    #[must_use]
+    pub const fn alignment(&self) -> u64 {
+        self.alignment
+    }
+
+    #[must_use]
+    pub const fn value_class(&self) -> &ReferenceFfiValueClass {
+        &self.value_class
+    }
+
+    #[must_use]
+    pub const fn abi(&self) -> pop_types::ForeignAbi {
+        self.abi
+    }
+
+    #[must_use]
+    pub fn descriptor(&self) -> &str {
+        &self.descriptor
+    }
+
+    #[must_use]
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceFfiLayoutCatalog {
+    pub(crate) target: String,
+    pub(crate) entries: Vec<ReferenceFfiLayout>,
+}
+
+impl ReferenceFfiLayoutCatalog {
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    #[must_use]
+    pub fn entries(&self) -> &[ReferenceFfiLayout] {
+        &self.entries
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -326,6 +663,8 @@ pub struct ReferenceFunction {
     pub(crate) results: Vec<ReferenceType>,
     pub(crate) effects: pop_types::EffectSummary,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lifetime_summary: Option<pop_types::CallableLifetimeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) foreign_declaration: Option<ForeignFunctionDeclaration>,
     pub(crate) span: SourceSpan,
     pub(crate) specialization_capsule: Option<ReferenceSpecializationCapsule>,
@@ -375,6 +714,11 @@ impl ReferenceFunction {
     #[must_use]
     pub const fn effects(&self) -> pop_types::EffectSummary {
         self.effects
+    }
+
+    #[must_use]
+    pub const fn lifetime_summary(&self) -> Option<&pop_types::CallableLifetimeSummary> {
+        self.lifetime_summary.as_ref()
     }
 
     #[must_use]
@@ -441,10 +785,119 @@ impl ReferenceSpecializationCapsule {
     }
 }
 
+/// Stable generated Item identity derived from the retained target, exact
+/// `Metadata.Use.Codec` identity, and adapter protocol version.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ReferenceRetainedAdapterIdentity {
+    pub(crate) adapter: SymbolIdentity,
+    pub(crate) target: SymbolIdentity,
+    pub(crate) use_definition: BuiltinTypeId,
+    pub(crate) use_case: u16,
+    pub(crate) adapter_protocol_version: u16,
+}
+
+impl ReferenceRetainedAdapterIdentity {
+    #[must_use]
+    pub const fn adapter(self) -> SymbolIdentity {
+        self.adapter
+    }
+    #[must_use]
+    pub const fn target(self) -> SymbolIdentity {
+        self.target
+    }
+
+    #[must_use]
+    pub const fn use_definition(self) -> BuiltinTypeId {
+        self.use_definition
+    }
+
+    #[must_use]
+    pub const fn use_case(self) -> u16 {
+        self.use_case
+    }
+
+    #[must_use]
+    pub const fn adapter_protocol_version(self) -> u16 {
+        self.adapter_protocol_version
+    }
+}
+
+/// Public adapter-only reference facts. The structural projection is absent by
+/// construction and remains exclusively in `retained-adapters.popc`.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ReferenceRetainedAdapter {
+    pub(crate) identity: ReferenceRetainedAdapterIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) schema_definition: BuiltinTypeId,
+    pub(crate) descriptor_path: String,
+    pub(crate) descriptor_size: u64,
+    pub(crate) descriptor_sha256: String,
+    pub(crate) projection_sha256: String,
+}
+
+impl ReferenceRetainedAdapter {
+    #[must_use]
+    pub const fn identity(&self) -> ReferenceRetainedAdapterIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn schema_definition(&self) -> BuiltinTypeId {
+        self.schema_definition
+    }
+
+    #[must_use]
+    pub fn descriptor_path(&self) -> &str {
+        &self.descriptor_path
+    }
+
+    #[must_use]
+    pub const fn descriptor_size(&self) -> u64 {
+        self.descriptor_size
+    }
+
+    #[must_use]
+    pub fn descriptor_sha256(&self) -> &str {
+        &self.descriptor_sha256
+    }
+
+    #[must_use]
+    pub fn projection_sha256(&self) -> &str {
+        &self.projection_sha256
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReferenceMetadata {
     pub(crate) bubble: BubbleId,
+    #[serde(default)]
+    pub(crate) records: Vec<ReferenceRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) interfaces: Vec<ReferenceInterface>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) classes: Vec<ReferenceClass>,
     pub(crate) functions: Vec<ReferenceFunction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) retained_adapters: Vec<ReferenceRetainedAdapter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ffi_layout_catalog: Option<ReferenceFfiLayoutCatalog>,
 }
 
 impl ReferenceMetadata {
@@ -457,6 +910,31 @@ impl ReferenceMetadata {
     pub fn functions(&self) -> &[ReferenceFunction] {
         &self.functions
     }
+
+    #[must_use]
+    pub fn records(&self) -> &[ReferenceRecord] {
+        &self.records
+    }
+
+    #[must_use]
+    pub fn interfaces(&self) -> &[ReferenceInterface] {
+        &self.interfaces
+    }
+
+    #[must_use]
+    pub fn classes(&self) -> &[ReferenceClass] {
+        &self.classes
+    }
+
+    #[must_use]
+    pub fn retained_adapters(&self) -> &[ReferenceRetainedAdapter] {
+        &self.retained_adapters
+    }
+
+    #[must_use]
+    pub const fn ffi_layout_catalog(&self) -> Option<&ReferenceFfiLayoutCatalog> {
+        self.ffi_layout_catalog.as_ref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -467,6 +945,9 @@ pub enum ReferenceMetadataError {
         function: SymbolIdentity,
         type_id: TypeId,
     },
+    InvalidFfiLayout,
+    InvalidNominalMetadata,
+    InvalidRetainedMetadata,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -726,6 +1207,24 @@ impl FrontEndResult {
     /// contains a type outside the current metadata schema.
     pub const fn reference_metadata(&self) -> Result<&ReferenceMetadata, ReferenceMetadataError> {
         match &self.reference_metadata {
+            Ok(metadata) => Ok(metadata),
+            Err(error) => Err(*error),
+        }
+    }
+
+    /// Returns the verified typed `retained-adapters.popc` projection.
+    ///
+    /// Structural schema is available only through this `.popc` artifact; it
+    /// is never duplicated into JSON reference metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns the closed retained-metadata analysis failure when schema
+    /// projection or canonical descriptor verification failed.
+    pub const fn retained_metadata(
+        &self,
+    ) -> Result<&RetainedMetadataArtifacts, RetainedMetadataError> {
+        match &self.retained_metadata {
             Ok(metadata) => Ok(metadata),
             Err(error) => Err(*error),
         }

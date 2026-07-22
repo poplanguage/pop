@@ -6,12 +6,12 @@
 //! emission parses and verifies that private output with Inkwell before asking
 //! LLVM's target machine to write the artifact.
 
-use pop_foundation::{BlockId, BubbleId, FieldId, SymbolId, TypeId, ValueId};
+use pop_foundation::{BlockId, BubbleId, ClassId, FieldId, SymbolId, TypeId, ValueId};
 use pop_mir::{
     MirBubble, MirEffect, MirEffectSummary, MirForeignFunction, MirInstructionKind, MirTerminator,
     verify_mir_bubble,
 };
-use pop_runtime_interface::{ArrayElementMap, RuntimeOperation};
+use pop_runtime_interface::{ArrayElementMap, FfiAbiLayoutId, RuntimeOperation};
 use pop_target::{CAbiScalarKind, CAbiSignedness, TargetCapability, TargetSpec};
 use pop_types::{
     ForeignAbi, IntegerKind, PrimitiveType, SemanticType, TypeArena, embedded_bootstrap_schema,
@@ -21,6 +21,7 @@ use std::fmt;
 
 use crate::api::{LlvmLoweringError, LlvmLoweringOptions, LlvmModule};
 use crate::async_lowering::{lower_async_function, lower_async_nested};
+use crate::ffi_buffer::marshalling;
 use crate::instruction_lowering::{
     llvm_results, llvm_type, lower_instruction, lower_runtime_slot_load, lower_terminator,
 };
@@ -32,10 +33,11 @@ pub(crate) enum CaptureEnvironment<'a> {
     Scoped(&'a [pop_mir::MirCapture]),
 }
 use crate::module_lowering::{
-    analyze_memory_none_functions, checked_integer_declarations, collect_field_layout,
-    collect_record_field_types, collect_record_fields, collect_self_capture_slots,
-    collect_string_literals, direct_scalar_array_fill_function,
-    lower_async_indirect_create_dispatchers, lower_builtin_interface_dispatchers,
+    ClassRuntimeKeys, analyze_memory_none_functions, checked_integer_declarations,
+    collect_class_runtime_keys, collect_field_layout, collect_record_field_types,
+    collect_record_fields, collect_self_capture_slots, collect_string_literals,
+    direct_scalar_array_fill_function, lower_async_indirect_create_dispatchers,
+    lower_builtin_interface_dispatchers, lower_checked_downcast_helpers,
     lower_indirect_dispatchers, lower_interface_dispatchers, render_string_literals,
     runtime_declarations,
 };
@@ -97,11 +99,20 @@ pub fn lower_mir_to_llvm_ir(
         ));
     }
     let field_layout = collect_field_layout(bubble);
+    let class_runtime_keys = collect_class_runtime_keys(bubble, types);
     let record_fields = collect_record_fields(bubble);
     let record_field_types = collect_record_field_types(bubble);
     let string_literals = collect_string_literals(bubble);
     let self_capture_slots = collect_self_capture_slots(bubble);
     let memory_none_functions = analyze_memory_none_functions(bubble);
+    let callback_plan = crate::ffi_callback::plan_callbacks(bubble)?;
+    let callback_thunks = crate::ffi_callback::lower_thunks(bubble, &callback_plan, types, target)?;
+    let has_callback_thunks = !callback_thunks.is_empty();
+    let foreign_functions = bubble
+        .foreign_functions()
+        .iter()
+        .map(|function| (function.symbol(), function))
+        .collect::<BTreeMap<_, _>>();
     let mut functions = Vec::new();
     for function in bubble.functions() {
         if function.is_async() {
@@ -110,11 +121,15 @@ pub fn lower_mir_to_llvm_ir(
                 function,
                 types,
                 bubble.ffi_layouts(),
+                &foreign_functions,
                 options,
                 &field_layout,
+                &class_runtime_keys,
                 &record_fields,
                 &record_field_types,
                 &string_literals,
+                &callback_plan,
+                bubble.generated_codec_adapters(),
             )?);
         } else {
             functions.push(lower_function(
@@ -122,12 +137,16 @@ pub fn lower_mir_to_llvm_ir(
                 function,
                 types,
                 bubble.ffi_layouts(),
+                &foreign_functions,
                 options,
                 memory_none_functions.contains(&function.symbol()),
                 &field_layout,
+                &class_runtime_keys,
                 &record_fields,
                 &record_field_types,
                 &string_literals,
+                &callback_plan,
+                bubble.generated_codec_adapters(),
             )?);
         }
     }
@@ -137,12 +156,16 @@ pub fn lower_mir_to_llvm_ir(
             method.function(),
             types,
             bubble.ffi_layouts(),
+            &foreign_functions,
             options,
             false,
             &field_layout,
+            &class_runtime_keys,
             &record_fields,
             &record_field_types,
             &string_literals,
+            &callback_plan,
+            bubble.generated_codec_adapters(),
         )?;
         lowered.name = method_name(bubble.bubble(), method.method());
         functions.push(lowered);
@@ -167,6 +190,9 @@ pub fn lower_mir_to_llvm_ir(
         .filter_map(|instruction| match instruction.kind() {
             MirInstructionKind::CallScopedBorrow {
                 owner, function, ..
+            }
+            | MirInstructionKind::CallCallbackPair {
+                owner, function, ..
             } => Some((*owner, *function)),
             _ => None,
         })
@@ -182,12 +208,16 @@ pub fn lower_mir_to_llvm_ir(
                 nested,
                 types,
                 bubble.ffi_layouts(),
+                &foreign_functions,
                 options,
                 &field_layout,
+                &class_runtime_keys,
                 &record_fields,
                 &record_field_types,
                 &string_literals,
                 &self_slots,
+                &callback_plan,
+                bubble.generated_codec_adapters(),
             )?);
             continue;
         }
@@ -202,6 +232,7 @@ pub fn lower_mir_to_llvm_ir(
         };
         functions.push(lower_function_parts(
             bubble.bubble(),
+            nested.owner(),
             nested_name(bubble.bubble(), nested.owner(), nested.function()),
             nested.parameters(),
             nested.results(),
@@ -211,23 +242,39 @@ pub fn lower_mir_to_llvm_ir(
             environment,
             types,
             bubble.ffi_layouts(),
+            &foreign_functions,
             options,
             &field_layout,
+            &class_runtime_keys,
             &record_fields,
             &record_field_types,
             &string_literals,
+            &callback_plan,
+            bubble.generated_codec_adapters(),
         )?);
     }
     let mut foreign_declarations = Vec::new();
     for foreign in bubble.foreign_functions() {
-        let (function, declaration) =
-            lower_foreign_function(bubble.bubble(), foreign, types, target)?;
-        functions.push(function);
-        foreign_declarations.push(declaration);
+        foreign_declarations.push(lower_foreign_declaration(
+            foreign,
+            types,
+            target,
+            bubble.ffi_layouts(),
+        )?);
     }
     functions.push(direct_scalar_array_fill_function(bubble.bubble()));
-    functions.extend(lower_interface_dispatchers(bubble, types)?);
-    functions.extend(lower_builtin_interface_dispatchers(bubble, types)?);
+    functions.extend(callback_thunks);
+    functions.extend(lower_checked_downcast_helpers(bubble, &class_runtime_keys));
+    functions.extend(lower_interface_dispatchers(
+        bubble,
+        types,
+        &class_runtime_keys,
+    )?);
+    functions.extend(lower_builtin_interface_dispatchers(
+        bubble,
+        types,
+        &class_runtime_keys,
+    )?);
     functions.extend(lower_indirect_dispatchers(bubble, types)?);
     functions.extend(lower_async_indirect_create_dispatchers(bubble, types)?);
     let entry_point = options
@@ -340,6 +387,30 @@ pub fn lower_mir_to_llvm_ir(
             native_runtime_symbol(RuntimeOperation::LeaveForeign)
         ),
         format!(
+            "declare i64 @{}(i64, i64, i32, i8, i8, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::FfiCallbackOpen)
+        ),
+        format!(
+            "declare i64 @{}(i64, i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::FfiCallbackEnter)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::FfiCallbackLeave)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::FfiCallbackClose)
+        ),
+        format!(
+            "declare i8 @{}(i64, i8, i32, ptr, i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::CodecWriteEvent)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr, ptr, ptr, ptr, ptr, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::CodecReadEvent)
+        ),
+        format!(
             "declare void @{}(i64)",
             native_runtime_symbol(RuntimeOperation::SatbWriteBarrier)
         ),
@@ -444,10 +515,14 @@ pub fn lower_mir_to_llvm_ir(
         "declare i64 @pop_rt_process_arguments(i32, ptr)".to_owned(),
         "declare i1 @llvm.expect.i1(i1, i1)".to_owned(),
         "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1 immarg)".to_owned(),
+        "declare i32 @memcmp(ptr, ptr, i64) nounwind readonly".to_owned(),
         "declare noalias ptr @malloc(i64) nounwind".to_owned(),
         "declare void @free(ptr) nounwind".to_owned(),
     ];
     if c_unwind.is_some() {
+        declarations.push("declare i32 @__gcc_personality_v0(...)".to_owned());
+    }
+    if has_callback_thunks && c_unwind.is_none() {
         declarations.push("declare i32 @__gcc_personality_v0(...)".to_owned());
     }
     declarations.extend(foreign_declarations);
@@ -492,7 +567,12 @@ pub fn lower_mir_to_llvm_ir(
     Ok(LlvmModule {
         triple: target.triple().to_owned(),
         private: PrivateModule {
-            globals: render_string_literals(&string_literals),
+            globals: render_string_literals(&string_literals)
+                .into_iter()
+                .chain(crate::module_lowering::render_class_runtime_descriptors(
+                    &class_runtime_keys,
+                ))
+                .collect(),
             declarations,
             entry_point,
             functions,
@@ -517,6 +597,7 @@ pub(crate) struct PrivateFunction {
     pub(crate) result: String,
     pub(crate) blocks: Vec<PrivateBlock>,
     pub(crate) attributes: Vec<&'static str>,
+    pub(crate) internal: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -634,25 +715,26 @@ pub(crate) fn function_name(bubble: BubbleId, symbol: SymbolId) -> String {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ForeignConversion {
+pub(crate) enum ForeignConversion {
     Direct,
     SignedInteger,
     UnsignedInteger,
     Pointer,
+    Layout(FfiAbiLayoutId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ForeignPhysicalType {
-    llvm: String,
-    conversion: ForeignConversion,
+pub(crate) struct ForeignPhysicalType {
+    pub(crate) llvm: String,
+    pub(crate) conversion: ForeignConversion,
 }
 
-fn lower_foreign_function(
-    bubble: BubbleId,
+fn lower_foreign_declaration(
     function: &MirForeignFunction,
     types: &TypeArena,
     target: &TargetSpec,
-) -> Result<(PrivateFunction, String), LlvmLoweringError> {
+    layouts: &pop_mir::MirFfiLayoutCatalog,
+) -> Result<String, LlvmLoweringError> {
     if function.results().len() > 1
         || function.declaration().abi() == ForeignAbi::System
             && target.operating_system() == pop_target::OperatingSystem::None
@@ -664,54 +746,17 @@ fn lower_foreign_function(
     let physical_parameters = function
         .parameters()
         .iter()
-        .map(|type_id| foreign_physical_type(*type_id, types, target))
+        .zip(function.parameter_layouts())
+        .map(|(type_id, layout)| foreign_physical_type(*type_id, *layout, types, target, layouts))
         .collect::<Result<Vec<_>, _>>()?;
     let physical_result = function
         .results()
         .first()
-        .map(|type_id| foreign_physical_type(*type_id, types, target))
+        .zip(function.result_layouts().first())
+        .map(|(type_id, layout)| foreign_physical_type(*type_id, *layout, types, target, layouts))
         .transpose()?;
-    let internal_parameters = function
-        .parameters()
-        .iter()
-        .enumerate()
-        .map(|(index, type_id)| Ok(format!("{} %v{index}", llvm_type(*type_id, types)?)))
-        .collect::<Result<Vec<_>, LlvmLoweringError>>()?;
-    let mut instructions = Vec::new();
-    let mut external_arguments = Vec::new();
-    for (index, physical) in physical_parameters.iter().enumerate() {
-        let internal = llvm_type(function.parameters()[index], types)?;
-        let value = lower_foreign_argument(index, &internal, physical, &mut instructions);
-        external_arguments.push(format!("{} {value}", physical.llvm));
-    }
     let external = llvm_global_name(function.declaration().external_symbol());
-    let result = function.results().first().map_or_else(
-        || Ok("void".to_owned()),
-        |type_id| llvm_type(*type_id, types),
-    )?;
-    let terminator = if let Some(physical) = &physical_result {
-        let internal = result.clone();
-        let external_result =
-            if physical.conversion == ForeignConversion::Direct && physical.llvm == internal {
-                "%pop_result"
-            } else {
-                "%foreign_result"
-            };
-        instructions.push(format!(
-            "{external_result} = call {} {external}({})",
-            physical.llvm,
-            external_arguments.join(", ")
-        ));
-        lower_foreign_result(&internal, physical, external_result, &mut instructions);
-        format!("ret {internal} %pop_result")
-    } else {
-        instructions.push(format!(
-            "call void {external}({})",
-            external_arguments.join(", ")
-        ));
-        "ret void".to_owned()
-    };
-    let declaration = format!(
+    Ok(format!(
         "declare {} {external}({})",
         physical_result
             .as_ref()
@@ -721,84 +766,26 @@ fn lower_foreign_function(
             .map(|physical| physical.llvm.as_str())
             .collect::<Vec<_>>()
             .join(", ")
-    );
-    Ok((
-        PrivateFunction {
-            name: function_name(bubble, function.symbol()),
-            parameters: internal_parameters,
-            result,
-            blocks: vec![PrivateBlock {
-                label: "entry".to_owned(),
-                instructions,
-                terminator,
-            }],
-            attributes: Vec::new(),
-        },
-        declaration,
     ))
 }
 
-fn lower_foreign_argument(
-    index: usize,
-    internal: &str,
-    physical: &ForeignPhysicalType,
-    instructions: &mut Vec<String>,
-) -> String {
-    let source = format!("%v{index}");
-    match physical.conversion {
-        ForeignConversion::Pointer => {
-            let converted = format!("%ffi_arg{index}");
-            instructions.push(format!("{converted} = inttoptr {internal} {source} to ptr"));
-            converted
-        }
-        ForeignConversion::SignedInteger | ForeignConversion::UnsignedInteger
-            if internal != physical.llvm =>
-        {
-            let converted = format!("%ffi_arg{index}");
-            instructions.push(format!(
-                "{converted} = trunc {internal} {source} to {}",
-                physical.llvm
-            ));
-            converted
-        }
-        _ => source,
-    }
-}
-
-fn lower_foreign_result(
-    internal: &str,
-    physical: &ForeignPhysicalType,
-    external_result: &str,
-    instructions: &mut Vec<String>,
-) {
-    if external_result == "%pop_result" {
-        return;
-    }
-    let conversion = match physical.conversion {
-        ForeignConversion::Pointer => {
-            format!("%pop_result = ptrtoint ptr {external_result} to {internal}")
-        }
-        ForeignConversion::SignedInteger => format!(
-            "%pop_result = sext {} {external_result} to {internal}",
-            physical.llvm
-        ),
-        ForeignConversion::UnsignedInteger => format!(
-            "%pop_result = zext {} {external_result} to {internal}",
-            physical.llvm
-        ),
-        ForeignConversion::Direct => format!(
-            "%pop_result = bitcast {} {external_result} to {internal}",
-            physical.llvm
-        ),
-    };
-    instructions.push(conversion);
-}
-
-fn foreign_physical_type(
+pub(crate) fn foreign_physical_type(
     type_id: TypeId,
+    layout: Option<FfiAbiLayoutId>,
     types: &TypeArena,
     target: &TargetSpec,
+    layouts: &pop_mir::MirFfiLayoutCatalog,
 ) -> Result<ForeignPhysicalType, LlvmLoweringError> {
+    if let Some(layout) = layout {
+        let entry = layouts
+            .get(layout)
+            .filter(|entry| entry.element() == type_id)
+            .ok_or(LlvmLoweringError::InvalidFfiLayout(layout))?;
+        return Ok(ForeignPhysicalType {
+            llvm: marshalling::physical_type(entry, layouts)?,
+            conversion: ForeignConversion::Layout(layout),
+        });
+    }
     match types.get(type_id) {
         Some(SemanticType::Primitive(PrimitiveType::Integer(kind))) => Ok(ForeignPhysicalType {
             llvm: format!("i{}", kind.bit_width()),
@@ -839,7 +826,8 @@ fn foreign_builtin_physical_type(name: &str, target: &TargetSpec) -> Option<Fore
         | "Ffi.ReadOnlyPointer"
         | "Ffi.OptionalReadOnlyPointer"
         | "Ffi.Function"
-        | "Ffi.OptionalFunction" => {
+        | "Ffi.OptionalFunction"
+        | "Ffi.CallbackContext" => {
             return Some(ForeignPhysicalType {
                 llvm: "ptr".to_owned(),
                 conversion: ForeignConversion::Pointer,
@@ -873,7 +861,7 @@ fn foreign_builtin_physical_type(name: &str, target: &TargetSpec) -> Option<Fore
     })
 }
 
-fn llvm_global_name(name: &str) -> String {
+pub(crate) fn llvm_global_name(name: &str) -> String {
     let mut characters = name.chars();
     let simple = characters
         .next()
@@ -991,9 +979,26 @@ pub(crate) fn direct_scalar_array_fill_name(bubble: BubbleId) -> String {
     format!("pop_b{}_llvm_fill_scalar_array", bubble.raw())
 }
 
+pub(crate) fn checked_downcast_name(
+    bubble: BubbleId,
+    target: ClassId,
+    target_type: TypeId,
+) -> String {
+    format!(
+        "pop_b{}_checked_downcast_c{}_t{}",
+        bubble.raw(),
+        target.raw(),
+        target_type.raw()
+    )
+}
+
 impl PrivateFunction {
-    fn render(&self, formatter: &mut fmt::Formatter<'_>, internal: bool) -> fmt::Result {
-        let linkage = if internal { "internal " } else { "" };
+    fn render(&self, formatter: &mut fmt::Formatter<'_>, module_internal: bool) -> fmt::Result {
+        let linkage = if module_internal || self.internal {
+            "internal "
+        } else {
+            ""
+        };
         let attributes = if self.attributes.is_empty() {
             String::new()
         } else {
@@ -1023,15 +1028,20 @@ pub(crate) fn lower_function(
     function: &pop_mir::MirFunction,
     types: &TypeArena,
     ffi_layouts: &pop_mir::MirFfiLayoutCatalog,
+    foreign_functions: &BTreeMap<SymbolId, &MirForeignFunction>,
     options: LlvmLoweringOptions,
     memory_none: bool,
     field_layout: &BTreeMap<FieldId, u32>,
+    class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
     string_literals: &BTreeMap<String, String>,
+    callback_plan: &crate::ffi_callback::CallbackPlan,
+    codec_adapters: &[pop_mir::MirGeneratedCodecAdapter],
 ) -> Result<PrivateFunction, LlvmLoweringError> {
     lower_function_parts(
         bubble,
+        function.symbol(),
         function_name(bubble, function.symbol()),
         function.parameters(),
         function.results(),
@@ -1041,11 +1051,15 @@ pub(crate) fn lower_function(
         CaptureEnvironment::None,
         types,
         ffi_layouts,
+        foreign_functions,
         options,
         field_layout,
+        class_runtime_keys,
         record_fields,
         record_field_types,
         string_literals,
+        callback_plan,
+        codec_adapters,
     )
 }
 
@@ -1238,6 +1252,11 @@ impl DirectScalarArrays {
                         rejected.insert(*origin);
                     }
                 }
+                MirTerminator::CodecErrorSwitch { scrutinee, .. } => {
+                    if let Some(origin) = aliases.get(scrutinee) {
+                        rejected.insert(*origin);
+                    }
+                }
                 MirTerminator::Suspend {
                     operation,
                     live_frame,
@@ -1306,6 +1325,7 @@ pub(crate) fn is_direct_scalar_element(type_id: TypeId, types: &TypeArena) -> bo
 #[allow(clippy::too_many_lines)]
 pub(crate) fn lower_function_parts(
     bubble: BubbleId,
+    owner: SymbolId,
     name: String,
     parameter_types: &[TypeId],
     result_types: &[TypeId],
@@ -1315,11 +1335,15 @@ pub(crate) fn lower_function_parts(
     environment: CaptureEnvironment<'_>,
     types: &TypeArena,
     ffi_layouts: &pop_mir::MirFfiLayoutCatalog,
+    foreign_functions: &BTreeMap<SymbolId, &MirForeignFunction>,
     options: LlvmLoweringOptions,
     field_layout: &BTreeMap<FieldId, u32>,
+    class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
     string_literals: &BTreeMap<String, String>,
+    callback_plan: &crate::ffi_callback::CallbackPlan,
+    codec_adapters: &[pop_mir::MirGeneratedCodecAdapter],
 ) -> Result<PrivateFunction, LlvmLoweringError> {
     let proven_non_overflow_adds = proven_counted_reduction_adds(function_blocks);
     let has_gc_safe_point = function_blocks
@@ -1338,6 +1362,7 @@ pub(crate) fn lower_function_parts(
         }
     }
     let direct_scalar_arrays = DirectScalarArrays::analyze(function_blocks, &value_types, types);
+    let view_lenders = crate::views::collect_lenders(function_blocks, &value_types, types);
     let writable_roots = matches!(
         options.runtime_profile,
         pop_backend_api::RuntimeProfile::ProductionGenerational
@@ -1398,7 +1423,12 @@ pub(crate) fn lower_function_parts(
             &writable_root_values,
             types,
         )?;
-        instructions.extend(initialize_block_root_cells(block, &writable_root_values));
+        instructions.extend(initialize_block_root_cells(
+            block,
+            &writable_root_values,
+            &value_types,
+            types,
+        ));
         if block_index == 0 {
             let mut initialization =
                 initialize_gc_poll(has_gc_safe_point, options.gc_poll_interval.get());
@@ -1418,31 +1448,79 @@ pub(crate) fn lower_function_parts(
             if options.emit_comments {
                 instructions.push(format!("; mir v{}", instruction.result().raw()));
             }
-            let use_aliases = load_root_cell_uses(
-                instruction
-                    .operands()
-                    .into_iter()
-                    .chain(match instruction.kind() {
-                        MirInstructionKind::GcSafePoint { roots, .. } => roots.clone(),
-                        _ => Vec::new(),
-                    }),
+            let operands = instruction.operands();
+            let explicit_roots = match instruction.kind() {
+                MirInstructionKind::GcSafePoint { roots, .. } => roots.clone(),
+                _ => Vec::new(),
+            };
+            let relocated_roots = operands
+                .iter()
+                .chain(&explicit_roots)
+                .filter_map(|value| view_lenders.get(value).copied())
+                .collect::<Vec<_>>();
+            let root_aliases = load_root_cell_uses(
+                operands
+                    .iter()
+                    .chain(&explicit_roots)
+                    .copied()
+                    .chain(relocated_roots),
                 &writable_root_values,
                 &format!("v{}", instruction.result().raw()),
                 &mut instructions,
             );
+            let mut use_aliases = root_aliases
+                .iter()
+                .filter(|(value, _)| {
+                    !is_view_value(**value, &value_types, types)
+                        || matches!(instruction.kind(), MirInstructionKind::GcSafePoint { .. })
+                })
+                .map(|(value, alias)| (*value, alias.clone()))
+                .collect::<BTreeMap<_, _>>();
+            if let MirInstructionKind::GcSafePoint { roots, .. } = instruction.kind() {
+                for root in roots {
+                    if is_view_value(*root, &value_types, types) && !use_aliases.contains_key(root)
+                    {
+                        let alias = format!(
+                            "%v{}_lender_before_v{}",
+                            root.raw(),
+                            instruction.result().raw()
+                        );
+                        instructions.push(format!(
+                            "{alias} = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0",
+                            root.raw()
+                        ));
+                        use_aliases.insert(*root, alias);
+                    }
+                }
+            }
+            use_aliases.extend(rebase_view_values(
+                operands,
+                &view_lenders,
+                &root_aliases,
+                &value_types,
+                types,
+                &format!("v{}", instruction.result().raw()),
+                &mut instructions,
+            ));
             let lowered = lower_instruction(
                 bubble,
+                owner,
                 instruction,
                 &value_types,
                 types,
                 ffi_layouts,
+                foreign_functions,
                 field_layout,
+                class_runtime_keys,
                 record_fields,
                 record_field_types,
                 string_literals,
                 environment,
                 &proven_non_overflow_adds,
                 &direct_scalar_arrays,
+                callback_plan,
+                codec_adapters,
+                &view_lenders,
                 options,
             )?;
             let lowered = rewrite_relocated_value_uses(&lowered, &use_aliases);
@@ -1479,11 +1557,24 @@ pub(crate) fn lower_function_parts(
                     }
                 }
             } else if writable_root_values.contains(&instruction.result()) {
-                instructions.push(format!(
-                    "store i64 %v{}, ptr %v{}_gc_root",
-                    instruction.result().raw(),
-                    instruction.result().raw()
-                ));
+                if is_view_value(instruction.result(), &value_types, types) {
+                    instructions.push(format!(
+                        "%v{}_gc_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0",
+                        instruction.result().raw(),
+                        instruction.result().raw()
+                    ));
+                    instructions.push(format!(
+                        "store i64 %v{}_gc_lender, ptr %v{}_gc_root",
+                        instruction.result().raw(),
+                        instruction.result().raw()
+                    ));
+                } else {
+                    instructions.push(format!(
+                        "store i64 %v{}, ptr %v{}_gc_root",
+                        instruction.result().raw(),
+                        instruction.result().raw()
+                    ));
+                }
             }
         }
         let mut terminator_prefix = Vec::new();
@@ -1493,12 +1584,31 @@ pub(crate) fn lower_function_parts(
             types,
             &direct_scalar_arrays,
         )?;
-        let terminator_aliases = load_root_cell_uses(
-            terminator_values(block.terminator()),
+        let terminator_values = terminator_values(block.terminator());
+        let relocated_roots = terminator_values
+            .iter()
+            .filter_map(|value| view_lenders.get(value).copied())
+            .collect::<Vec<_>>();
+        let root_aliases = load_root_cell_uses(
+            terminator_values.iter().copied().chain(relocated_roots),
             &writable_root_values,
             &format!("b{}_exit", block.block().raw()),
             &mut terminator_prefix,
         );
+        let mut terminator_aliases = root_aliases
+            .iter()
+            .filter(|(value, _)| !is_view_value(**value, &value_types, types))
+            .map(|(value, alias)| (*value, alias.clone()))
+            .collect::<BTreeMap<_, _>>();
+        terminator_aliases.extend(rebase_view_values(
+            terminator_values,
+            &view_lenders,
+            &root_aliases,
+            &value_types,
+            types,
+            &format!("b{}_exit", block.block().raw()),
+            &mut terminator_prefix,
+        ));
         instructions.extend(terminator_prefix);
         let terminator = rewrite_relocated_value_uses(&terminator, &terminator_aliases);
         verify_rewritten_root_uses(
@@ -1557,6 +1667,7 @@ pub(crate) fn lower_function_parts(
         result: llvm_results(result_types, types)?,
         blocks,
         attributes,
+        internal: false,
     })
 }
 
@@ -1574,17 +1685,35 @@ fn rewrite_relocated_value_uses(
 fn initialize_block_root_cells(
     block: &pop_mir::MirBlock,
     writable_root_values: &BTreeSet<ValueId>,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
 ) -> Vec<String> {
     block
         .arguments()
         .iter()
         .filter(|argument| writable_root_values.contains(&argument.value()))
-        .map(|argument| {
-            format!(
-                "store i64 %v{}, ptr %v{}_gc_root",
-                argument.value().raw(),
-                argument.value().raw()
-            )
+        .flat_map(|argument| {
+            let value = argument.value();
+            if is_view_value(value, value_types, types) {
+                vec![
+                    format!(
+                        "%v{}_initial_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0",
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "store i64 %v{}_initial_lender, ptr %v{}_gc_root",
+                        value.raw(),
+                        value.raw()
+                    ),
+                ]
+            } else {
+                vec![format!(
+                    "store i64 %v{}, ptr %v{}_gc_root",
+                    value.raw(),
+                    value.raw()
+                )]
+            }
         })
         .collect()
 }
@@ -1608,12 +1737,60 @@ fn load_root_cell_uses(
         .collect()
 }
 
+fn is_view_value(
+    value: ValueId,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+) -> bool {
+    value_types
+        .get(&value)
+        .and_then(|type_id| types.get(*type_id))
+        .is_some_and(|semantic| {
+            matches!(
+                semantic,
+                SemanticType::Builtin { definition, arguments }
+                    if arguments.is_empty()
+                        && matches!(
+                            *definition,
+                            pop_types::BYTES_VIEW_TYPE_ID | pop_types::TEXT_VIEW_TYPE_ID
+                        )
+            )
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rebase_view_values(
+    values: impl IntoIterator<Item = ValueId>,
+    view_lenders: &BTreeMap<ValueId, ValueId>,
+    root_aliases: &BTreeMap<ValueId, String>,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    location: &str,
+    instructions: &mut Vec<String>,
+) -> BTreeMap<ValueId, String> {
+    values
+        .into_iter()
+        .filter(|value| is_view_value(*value, value_types, types))
+        .filter_map(|view| {
+            let lender = view_lenders.get(&view)?;
+            let lender = root_aliases.get(lender)?;
+            let alias = format!("%v{}_rebased_{location}", view.raw());
+            instructions.push(format!(
+                "{alias} = insertvalue {{ i64, i64, i64, i64 }} %v{}, i64 {lender}, 0",
+                view.raw()
+            ));
+            Some((view, alias))
+        })
+        .collect()
+}
+
 fn terminator_values(terminator: &MirTerminator) -> Vec<ValueId> {
     match terminator {
         MirTerminator::Branch { arguments, .. } => arguments.clone(),
         MirTerminator::ConditionalBranch { condition, .. } => vec![*condition],
         MirTerminator::UnionSwitch { scrutinee, .. }
-        | MirTerminator::ErrorSwitch { scrutinee, .. } => vec![*scrutinee],
+        | MirTerminator::ErrorSwitch { scrutinee, .. }
+        | MirTerminator::CodecErrorSwitch { scrutinee, .. } => vec![*scrutinee],
         MirTerminator::Return { values } => values.clone(),
         MirTerminator::Suspend {
             operation,
@@ -1827,6 +2004,9 @@ pub(crate) fn can_reach_block(
             MirTerminator::ErrorSwitch { arms, .. } => {
                 pending.extend(arms.iter().map(|arm| arm.target()));
             }
+            MirTerminator::CodecErrorSwitch { arms, .. } => {
+                pending.extend(arms.iter().map(|arm| arm.target()));
+            }
             MirTerminator::Suspend {
                 resume,
                 cancellation,
@@ -2029,6 +2209,7 @@ pub(crate) fn llvm_block_exit_label(
                 MirInstructionKind::GcSafePoint { .. } => "poll_continue",
                 MirInstructionKind::ArrayCreate { .. } => "create",
                 MirInstructionKind::ListCreate { .. } => "create",
+                MirInstructionKind::RangeCreate { .. } => "create",
                 MirInstructionKind::ArrayLength { array }
                 | MirInstructionKind::ArrayGetChecked { array, .. } => {
                     let _ = direct_scalar_arrays.origin(*array);

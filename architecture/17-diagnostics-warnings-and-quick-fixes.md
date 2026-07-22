@@ -198,6 +198,23 @@ help: check for `nil` before this call
 Full solver graphs remain available in machine/debug output, not dumped into the
 normal message.
 
+ADR 0095 reserves `POP2032` for a checked-cast target that is not one fully
+applied named class, `POP2033` for an operand that is not one non-optional
+nominal interface value, and `POP2034` for a target without the exact nominal
+source-interface implementation. These diagnostics carry typed source/target
+identities and spans where available. No automatic fix changes the target,
+inserts an unchecked assertion, enables reflection, or silently unwraps the
+optional result.
+
+ADR 0097 reserves `POP2035` for a borrowed view escaping its lender, `POP2036`
+for a view passed to a retaining/conservative callable position, `POP2037` for
+a view live across suspension, and `POP2038` for a callable view signature
+without exact usable result provenance. `POP7040` reports invalid artifact or
+MIR lifetime-summary/provenance facts. These diagnostics carry typed view kind,
+lender, destination/call, reason, and summary facts. Explicit `Text.toString`
+or `Bytes.toBytes` materialization may be a `RequiresReview` action because it
+copies and may allocate; it is never a safe unattended fix.
+
 ## Warning system
 
 ### Warning groups

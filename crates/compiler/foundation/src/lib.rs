@@ -63,7 +63,10 @@ typed_id!(
     AttributeId,
     FunctionId,
     CleanupScopeId,
+    AllocationSiteId,
+    LifetimeId,
     BorrowRegionId,
+    FfiCallbackSiteId,
     CoroutineStateId,
     BlockId,
     ValueId,
@@ -306,6 +309,7 @@ impl MessageKey {
 pub enum DiagnosticArgument {
     Character(char),
     Identifier(String),
+    Type { type_id: TypeId, display: String },
     Unsigned(u64),
     SyntaxExpectation(&'static str),
     Token(String),

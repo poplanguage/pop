@@ -352,6 +352,98 @@ fn ffi_layout_records_flow_from_trusted_source_attributes_into_the_target_catalo
 }
 
 #[test]
+fn by_value_foreign_layouts_bind_exact_catalog_entries_in_canonical_mir() {
+    let ffi = BubbleId::from_raw(20);
+    let module = FrontEndModule::new(
+        ModuleId::from_raw(0),
+        SourceFile::new(
+            FileId::from_raw(0),
+            "src/byValueLayout.pop",
+            "namespace Native.Unsafe\n\
+             @Ffi.C.Layout\n\
+             internal record Inner\n\
+                 value: Int32\n\
+                 marker: UInt8\n\
+             end\n\
+             @Ffi.C.Layout\n\
+             internal record Outer\n\
+                 prefix: UInt8\n\
+                 inner: Inner\n\
+                 tail: Int\n\
+             end\n\
+             @Ffi.Foreign(\"transform_outer\")\n\
+             internal function transform(value: Outer): Outer\n\
+             end\n",
+        )
+        .expect("source"),
+    );
+    let result = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(10),
+            NamespaceId::from_raw(10),
+            vec![ffi],
+            vec![module],
+        )
+        .with_ffi_dependency(ffi),
+    );
+    assert!(
+        result.diagnostics().is_empty() && result.hir_build_errors().is_empty(),
+        "{}\n{:?}",
+        result.diagnostic_snapshot(),
+        result.hir_build_errors()
+    );
+
+    let mir = pop_mir::lower_hir_bubble_with_fingerprint(
+        result.hir().expect("layout HIR"),
+        result.types(),
+        pop_driver::artifact_sha256_hex,
+    )
+    .expect("by-value foreign layouts lower");
+    let foreign = mir
+        .foreign_functions()
+        .iter()
+        .find(|function| function.declaration().external_symbol() == "transform_outer")
+        .expect("foreign function");
+    let outer = foreign.parameters()[0];
+    let layout = mir
+        .ffi_layouts()
+        .entries()
+        .iter()
+        .find(|entry| entry.element() == outer && entry.abi() == ForeignAbi::C)
+        .expect("by-value record catalog entry");
+    assert!(matches!(
+        layout.value_class(),
+        pop_mir::MirFfiValueClass::Record(fields) if fields.len() == 3
+    ));
+    assert_eq!(foreign.parameter_layouts(), &[Some(layout.id())]);
+    assert_eq!(foreign.result_layouts(), &[Some(layout.id())]);
+    let dump = mir.dump();
+    assert!(
+        dump.contains(&format!(
+            "paramLayouts(layout#{0}) resultLayouts(layout#{0})",
+            layout.id().raw()
+        )),
+        "{dump}"
+    );
+    let corrupt = dump.replacen(
+        &format!("paramLayouts(layout#{})", layout.id().raw()),
+        "paramLayouts(layout#1)",
+        1,
+    );
+    let corrupt = pop_mir::parse_mir_dump(&corrupt)
+        .expect("corrupt foreign binding remains structurally parseable")
+        .with_ffi_layouts(mir.ffi_layouts().clone());
+    assert!(matches!(
+        pop_mir::verify_mir_bubble(&corrupt, result.types()),
+        Err(errors) if errors.iter().any(|error| matches!(
+            error,
+            pop_mir::MirVerificationError::InvalidForeignFunction(symbol)
+                if *symbol == foreign.symbol()
+        ))
+    ));
+}
+
+#[test]
 fn ffi_layout_records_reject_missing_trust_and_managed_fields() {
     let ffi = BubbleId::from_raw(20);
     for source in [
@@ -1326,7 +1418,7 @@ fn front_end_resolves_foreign_attributes_to_one_closed_typed_contract() {
 }
 
 #[test]
-fn foreign_declarations_accept_only_closed_layout_pointer_callback_and_handle_types() {
+fn foreign_declarations_accept_only_closed_layout_pointer_and_handle_types_without_metadata() {
     let ffi = BubbleId::from_raw(20);
     let module = FrontEndModule::new(
         ModuleId::from_raw(0),
@@ -1339,7 +1431,6 @@ fn foreign_declarations_accept_only_closed_layout_pointer_callback_and_handle_ty
                  left: Int32\n\
                  right: Ffi.C.Int\n\
              end\n\
-             private type Callback = function(input: Int32): Int32\n\
              @Ffi.Foreign(\"accept_pair\")\n\
              internal function acceptPair(value: Pair): Pair\n\
              end\n\
@@ -1348,9 +1439,6 @@ fn foreign_declarations_accept_only_closed_layout_pointer_callback_and_handle_ty
              end\n\
              @Ffi.Foreign(\"accept_handle\")\n\
              internal function acceptHandle(value: Ffi.Handle<String>)\n\
-             end\n\
-             @Ffi.Foreign(\"accept_callback\")\n\
-             internal function acceptCallback(value: Ffi.Function<Callback>)\n\
              end\n",
         )
         .expect("source"),
@@ -1370,7 +1458,7 @@ fn foreign_declarations_accept_only_closed_layout_pointer_callback_and_handle_ty
         "{}",
         result.diagnostic_snapshot()
     );
-    assert_eq!(result.foreign_declarations().len(), 4);
+    assert_eq!(result.foreign_declarations().len(), 3);
     assert!(result.hir().is_some());
 }
 
@@ -1625,6 +1713,17 @@ fn front_end_rejects_invalid_foreign_declaration_contracts() {
     }
 }
 
+#[test]
+fn front_end_rejects_an_unattached_callback_pair_declaration() {
+    assert_invalid_foreign_contract(
+        "unattachedCallbackPair",
+        "private type Callback = function(input: Int32, context: Ffi.CallbackContext): Int32\n\
+         @Ffi.Foreign(\"native_callback\")\n\
+         internal function invalid(callback: Ffi.Function<Callback>, context: Ffi.CallbackContext): Int32\n\
+         end\n",
+    );
+}
+
 fn assert_invalid_foreign_contract(name: &str, declaration: &str) {
     let ffi = BubbleId::from_raw(20);
     let source = format!("namespace Native\n{declaration}");
@@ -1649,4 +1748,166 @@ fn assert_invalid_foreign_contract(name: &str, declaration: &str) {
         result.diagnostic_snapshot()
     );
     assert!(result.foreign_declarations().is_empty());
+}
+
+#[test]
+fn ffi_callbacks_reject_pair_scopes_without_generated_contract_use() {
+    let ffi = BubbleId::from_raw(20);
+    let module = FrontEndModule::new(
+        ModuleId::from_raw(0),
+        SourceFile::new(
+            FileId::from_raw(0),
+            "src/callbacks.pop",
+            "namespace CallbackDemo\n\
+             private type CallbackSignature = function(value: Ffi.C.Int, context: Ffi.CallbackContext): Ffi.C.Int\n\
+             public function scoped(): Int\n\
+                 return Ffi.withCallback(\n\
+                     function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return value\n\
+                     end,\n\
+                     function(callbackFunction: Ffi.Function<CallbackSignature>, _: Ffi.CallbackContext): Int\n\
+                         return 17\n\
+                     end\n\
+                 )\n\
+             end\n\
+             public function openCallback(): Result<Ffi.RegisteredCallback<CallbackSignature>, Ffi.CallbackOpenError>\n\
+                 return Ffi.Callback.open(\n\
+                     function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return value\n\
+                     end,\n\
+                     Ffi.CallbackThread.AttachedThread\n\
+                 )\n\
+             end\n\
+             public function useCallback(callback: Ffi.RegisteredCallback<CallbackSignature>): Result<Int, Ffi.CallbackClosedError>\n\
+                 return Ffi.Callback.withPair(\n\
+                     callback,\n\
+                     function(callbackFunction: Ffi.Function<CallbackSignature>, _: Ffi.CallbackContext): Int\n\
+                         return 19\n\
+                     end\n\
+                 )\n\
+             end\n\
+             public function closeCallback(callback: Ffi.RegisteredCallback<CallbackSignature>)\n\
+                 Ffi.Callback.close(callback)\n\
+             end\n",
+        )
+        .expect("callback source"),
+    );
+    let result = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(10),
+            NamespaceId::from_raw(10),
+            vec![ffi],
+            vec![module],
+        )
+        .with_ffi_dependency(ffi),
+    );
+
+    assert!(result.hir().is_none());
+    assert!(
+        result.diagnostic_snapshot().contains("POP2003"),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn ffi_callbacks_reject_invalid_contexts_suspension_and_runtime_thread_selection() {
+    let cases = [
+        (
+            "callingThreadOwned",
+            "public function run()\n\
+                 Ffi.Callback.open(\n\
+                     function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return value\n\
+                     end,\n\
+                     Ffi.CallbackThread.CallingThread\n\
+                 )\n\
+             end\n",
+        ),
+        (
+            "duplicateContext",
+            "public function run()\n\
+                 Ffi.Callback.open(\n\
+                     function(first: Ffi.CallbackContext, second: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return 0\n\
+                     end,\n\
+                     Ffi.CallbackThread.AttachedThread\n\
+                 )\n\
+             end\n",
+        ),
+        (
+            "contextResult",
+            "public function run()\n\
+                 Ffi.Callback.open(\n\
+                     function(context: Ffi.CallbackContext): Ffi.CallbackContext\n\
+                         return context\n\
+                     end,\n\
+                     Ffi.CallbackThread.AttachedThread\n\
+                 )\n\
+             end\n",
+        ),
+        (
+            "asyncCallback",
+            "public function run()\n\
+                 Ffi.Callback.open(\n\
+                     async function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return value\n\
+                     end,\n\
+                     Ffi.CallbackThread.AttachedThread\n\
+                 )\n\
+             end\n",
+        ),
+        (
+            "suspendingCallback",
+            "private async function suspend(): Int\n\
+                 return 1\n\
+             end\n\
+             public function run()\n\
+                 Ffi.Callback.open(\n\
+                     function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         suspend()\n\
+                         return value\n\
+                     end,\n\
+                     Ffi.CallbackThread.AttachedThread\n\
+                 )\n\
+             end\n",
+        ),
+        (
+            "runtimeThread",
+            "public function run(thread: Ffi.CallbackThread)\n\
+                 Ffi.Callback.open(\n\
+                     function(value: Ffi.C.Int, _: Ffi.CallbackContext): Ffi.C.Int\n\
+                         return value\n\
+                     end,\n\
+                     thread\n\
+                 )\n\
+             end\n",
+        ),
+    ];
+
+    for (name, body) in cases {
+        let ffi = BubbleId::from_raw(20);
+        let source = format!("namespace CallbackInvalid\n{body}");
+        let module = FrontEndModule::new(
+            ModuleId::from_raw(0),
+            SourceFile::new(FileId::from_raw(0), format!("src/{name}.pop"), source)
+                .expect("callback source"),
+        );
+        let result = analyze_bubble(
+            FrontEndBubbleInput::new(
+                BubbleId::from_raw(10),
+                NamespaceId::from_raw(10),
+                vec![ffi],
+                vec![module],
+            )
+            .with_ffi_dependency(ffi),
+        );
+
+        assert!(result.hir().is_none(), "{name} must not reach HIR");
+        assert!(
+            result.diagnostic_snapshot().contains("POP2003"),
+            "{name} must produce the callback contract diagnostic: {}",
+            result.diagnostic_snapshot()
+        );
+    }
 }

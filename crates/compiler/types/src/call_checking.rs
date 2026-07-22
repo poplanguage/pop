@@ -4,7 +4,8 @@
 //! exact argument/result types, and no unknown-effect or runtime lookup path.
 
 use pop_diagnostics::{resolution as resolution_diagnostics, types as type_diagnostics};
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pop_foundation::{BuiltinTypeId, ParameterId, ResultCaseId, SourceSpan, TypeId};
 use pop_resolve::SymbolSpace;
@@ -37,6 +38,12 @@ enum FfiPointerOperationKind {
     ReadOnly,
     IsPresent,
     Require,
+}
+
+pub(crate) enum CheckedNominalCastInvocation {
+    NotCast,
+    Rejected,
+    Accepted(TypedExpression),
 }
 
 impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
@@ -155,6 +162,45 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .check_ffi_with_pin_invocation(arguments, span)
                     .map(CheckedInvocation::Value);
             }
+            if matches!(path.as_slice(), [ffi, operation]
+                if ffi == "Ffi" && operation == "withCallback")
+                && self.resolver.has_ffi_dependency()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbol()
+                    .is_none()
+            {
+                return self
+                    .check_ffi_with_callback_invocation(arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [ffi, callback, operation]
+                if ffi == "Ffi" && callback == "Callback"
+                    && matches!(operation.as_str(), "open" | "withPair" | "close"))
+                && self.resolver.has_ffi_dependency()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbol()
+                    .is_none()
+            {
+                return self
+                    .check_ffi_callback_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
             if matches!(path.as_slice(), [ffi, buffer, operation]
                 if ffi == "Ffi" && buffer == "Buffer"
                     && matches!(operation.as_str(), "length" | "read" | "write" | "close" | "withPointer"))
@@ -211,6 +257,29 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .check_ffi_unsafe_invocation(path, arguments, None, span)
                     .map(CheckedInvocation::Value);
             }
+            if matches!(path.as_slice(), [namespace, operation]
+                if matches!(namespace.as_str(), "Bytes" | "Text")
+                    && matches!(operation.as_str(), "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
+                && path
+                    .first()
+                    .is_some_and(|namespace| self.binding_by_name(namespace).is_none())
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_view_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
             if path.as_slice() == ["String"] {
                 return self
                     .check_string_conversion(arguments, span)
@@ -224,6 +293,13 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 return self
                     .check_numeric_conversion(path, arguments, span)
                     .map(CheckedInvocation::Value);
+            }
+            match self.check_checked_nominal_cast_invocation(path, callee.span(), arguments, span) {
+                CheckedNominalCastInvocation::NotCast => {}
+                CheckedNominalCastInvocation::Rejected => return None,
+                CheckedNominalCastInvocation::Accepted(value) => {
+                    return Some(CheckedInvocation::Value(value));
+                }
             }
             if matches!(
                 path.as_slice(),
@@ -323,6 +399,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             is_async,
             parameters,
             results,
+            lifetime_summary,
             ..
         }) = self.resolver.arena().get(callee.type_id()).cloned()
         else {
@@ -367,6 +444,17 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 .unwrap_or_else(|| ExpectedExpressionType::plain(parameter_type));
             let typed = self.check_expression_expected(argument, Some(expected))?;
             self.require_same_type(parameter_type, typed.type_id(), typed.span(), callee.span());
+            if self.resolver.arena().view_kind(typed.type_id()).is_some()
+                && lifetime_summary.parameter_retention().get(index)
+                    != Some(&crate::ParameterRetention::DoesNotRetain)
+            {
+                self.diagnostics
+                    .push(type_diagnostics::borrowed_view_retained(
+                        typed.span(),
+                        "View",
+                        "CallableMayRetain",
+                    ));
+            }
             typed_arguments.push(typed);
         }
         let dispatch = self.call_dispatch(callee);
@@ -381,6 +469,374 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             },
             results,
         }))
+    }
+
+    fn check_view_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let [namespace, operation] = path else {
+            return None;
+        };
+        let kind = match namespace.as_str() {
+            "Bytes" => crate::ViewKind::Bytes,
+            "Text" => crate::ViewKind::Text,
+            _ => return None,
+        };
+        let view_type = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: kind.type_definition(),
+                arguments: Vec::new(),
+            })
+            .ok()?;
+        let owner_type = match kind {
+            crate::ViewKind::Bytes => self.ffi_builtin_type("Bytes", Vec::new())?,
+            crate::ViewKind::Text => self.resolver.arena().source_type("String")?,
+        };
+        let integer = self.resolver.arena().source_type("Int")?;
+
+        match operation.as_str() {
+            "view" => {
+                self.require_view_arity(span, path, arguments, 1)?;
+                let lender = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(owner_type)),
+                )?;
+                self.require_same_type(owner_type, lender.type_id(), lender.span(), span);
+                let provenance = self.lender_for_expression(&lender);
+                let borrow = self.fresh_view_borrow(provenance);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewCreate {
+                        kind,
+                        lender: Box::new(lender),
+                        borrow,
+                    },
+                    type_id: view_type,
+                    span,
+                })
+            }
+            "slice" => {
+                self.require_view_arity(span, path, arguments, 3)?;
+                let supplied = self.check_expression(&arguments[0])?;
+                let parent_view = if supplied.type_id() == owner_type {
+                    let provenance = self.lender_for_expression(&supplied);
+                    let borrow = self.fresh_view_borrow(provenance);
+                    TypedExpression {
+                        kind: TypedExpressionKind::ViewCreate {
+                            kind,
+                            lender: Box::new(supplied),
+                            borrow,
+                        },
+                        type_id: view_type,
+                        span: arguments[0].span(),
+                    }
+                } else {
+                    self.require_same_type(view_type, supplied.type_id(), supplied.span(), span);
+                    supplied
+                };
+                let parent = self.view_borrow_for_expression(&parent_view).or_else(|| {
+                    self.diagnostics
+                        .push(type_diagnostics::borrowed_view_escape(
+                            parent_view.span(),
+                            namespace,
+                            "MissingLenderProvenance",
+                        ));
+                    None
+                })?;
+                let start = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                let length = self.check_expression_expected(
+                    &arguments[2],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(integer, start.type_id(), start.span(), span);
+                self.require_same_type(integer, length.type_id(), length.span(), span);
+                let borrow = self.fresh_view_borrow(parent.lender());
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewSlice {
+                        kind,
+                        view: Box::new(parent_view),
+                        start: Box::new(start),
+                        length: Box::new(length),
+                        parent,
+                        borrow,
+                    },
+                    type_id: view_type,
+                    span,
+                })
+            }
+            "length" => {
+                self.require_view_arity(span, path, arguments, 1)?;
+                let view = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(view_type)),
+                )?;
+                self.require_same_type(view_type, view.type_id(), view.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewLength {
+                        kind,
+                        view: Box::new(view),
+                    },
+                    type_id: integer,
+                    span,
+                })
+            }
+            "get" if kind == crate::ViewKind::Bytes => {
+                self.require_view_arity(span, path, arguments, 2)?;
+                let view = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(view_type)),
+                )?;
+                let index = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(view_type, view.type_id(), view.span(), span);
+                self.require_same_type(integer, index.type_id(), index.span(), span);
+                let byte = self.resolver.arena().source_type("Byte")?;
+                let result = self.resolver.arena_mut().optional(byte).ok()?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewGetByte {
+                        view: Box::new(view),
+                        index: Box::new(index),
+                    },
+                    type_id: result,
+                    span,
+                })
+            }
+            "toBytes" if kind == crate::ViewKind::Bytes => {
+                self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
+            }
+            "toString" if kind == crate::ViewKind::Text => {
+                self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
+            }
+            _ => {
+                self.diagnostics.push(type_diagnostics::invalid_operator(
+                    span,
+                    "view operation",
+                    path.join("."),
+                ));
+                None
+            }
+        }
+    }
+
+    fn check_view_materialize(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+        kind: crate::ViewKind,
+        view_type: TypeId,
+        result_type: TypeId,
+    ) -> Option<TypedExpression> {
+        self.require_view_arity(span, path, arguments, 1)?;
+        let view = self.check_expression_expected(
+            &arguments[0],
+            Some(ExpectedExpressionType::plain(view_type)),
+        )?;
+        self.require_same_type(view_type, view.type_id(), view.span(), span);
+        let allocation_site = self.fresh_allocation_site();
+        Some(TypedExpression {
+            kind: TypedExpressionKind::ViewMaterialize {
+                kind,
+                view: Box::new(view),
+                allocation_site,
+            },
+            type_id: result_type,
+            span,
+        })
+    }
+
+    fn require_view_arity(
+        &mut self,
+        span: SourceSpan,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        expected: usize,
+    ) -> Option<()> {
+        if arguments.len() == expected {
+            return Some(());
+        }
+        self.diagnostics.push(type_diagnostics::wrong_value_arity(
+            span,
+            path.join("."),
+            expected,
+            arguments.len(),
+        ));
+        None
+    }
+
+    fn check_checked_nominal_cast_invocation(
+        &mut self,
+        path: &[String],
+        target_span: SourceSpan,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> CheckedNominalCastInvocation {
+        let name = path.join(".");
+        let resolution =
+            self.resolver
+                .database()
+                .resolve(self.module, &name, SymbolSpace::Type, target_span);
+        if !resolution.diagnostics().is_empty() {
+            return CheckedNominalCastInvocation::NotCast;
+        }
+        let Some(symbol) = resolution.symbol() else {
+            return CheckedNominalCastInvocation::NotCast;
+        };
+        let Some(target_type) = self.resolver.declaration_type(symbol) else {
+            return CheckedNominalCastInvocation::NotCast;
+        };
+        let Some(target) = self.resolver.class_definition(symbol).cloned() else {
+            self.diagnostics
+                .push(type_diagnostics::invalid_checked_cast_target(
+                    target_span,
+                    target_type,
+                    self.type_name(target_type),
+                    "NotNamedClass",
+                ));
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        self.check_checked_nominal_cast_target(&target, target_type, target_span, arguments, span)
+    }
+
+    pub(crate) fn check_generic_checked_nominal_cast_invocation(
+        &mut self,
+        path: &[String],
+        type_arguments: &[pop_syntax::TypeSyntax],
+        target_span: SourceSpan,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> CheckedNominalCastInvocation {
+        let name = path.join(".");
+        let resolution =
+            self.resolver
+                .database()
+                .resolve(self.module, &name, SymbolSpace::Type, target_span);
+        if !resolution.diagnostics().is_empty() {
+            return CheckedNominalCastInvocation::NotCast;
+        }
+        let Some(symbol) = resolution.symbol() else {
+            return CheckedNominalCastInvocation::NotCast;
+        };
+        let Some(template) = self.resolver.class_definition(symbol).cloned() else {
+            return CheckedNominalCastInvocation::NotCast;
+        };
+        if template.type_parameters().len() != type_arguments.len() {
+            self.diagnostics.push(type_diagnostics::wrong_type_arity(
+                span,
+                &name,
+                u16::try_from(template.type_parameters().len()).unwrap_or(u16::MAX),
+                type_arguments.len(),
+            ));
+            return CheckedNominalCastInvocation::Rejected;
+        }
+        let Some(enclosing) = self.signature_stack.last().cloned() else {
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        let mut resolved_arguments = Vec::with_capacity(type_arguments.len());
+        for argument in type_arguments {
+            let (resolved, diagnostics) =
+                self.resolver
+                    .resolve_annotation(self.module, argument, &enclosing);
+            self.diagnostics.extend(diagnostics);
+            let Some(type_id) = resolved.and_then(|resolved| resolved.type_id()) else {
+                return CheckedNominalCastInvocation::Rejected;
+            };
+            resolved_arguments.push(type_id);
+        }
+        let Some(target) = self.resolver.instantiate_class(symbol, &resolved_arguments) else {
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        let target_type = target.type_id();
+        self.check_checked_nominal_cast_target(&target, target_type, target_span, arguments, span)
+    }
+
+    fn check_checked_nominal_cast_target(
+        &mut self,
+        target: &crate::ClassDefinition,
+        target_type: TypeId,
+        target_span: SourceSpan,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> CheckedNominalCastInvocation {
+        if self.resolver.arena().contains_type_parameter(target_type) {
+            self.diagnostics
+                .push(type_diagnostics::invalid_checked_cast_target(
+                    target_span,
+                    target_type,
+                    self.type_name(target_type),
+                    "NotFullyApplied",
+                ));
+            return CheckedNominalCastInvocation::Rejected;
+        }
+        if arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "checked nominal cast",
+                1,
+                arguments.len(),
+            ));
+            return CheckedNominalCastInvocation::Rejected;
+        }
+        let Some(value) = self.check_expression(&arguments[0]) else {
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        let source_type = value.type_id();
+        let Some(SemanticType::Interface {
+            interface: source_interface,
+            ..
+        }) = self.resolver.arena().get(source_type)
+        else {
+            self.diagnostics
+                .push(type_diagnostics::invalid_checked_cast_operand(
+                    value.span(),
+                    source_type,
+                    self.type_name(source_type),
+                    target_type,
+                    self.type_name(target_type),
+                    target_span,
+                ));
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        let source_interface = *source_interface;
+        if !target
+            .interfaces()
+            .iter()
+            .any(|implementation| implementation.interface_type() == source_type)
+        {
+            self.diagnostics
+                .push(type_diagnostics::incompatible_checked_cast(
+                    span,
+                    source_type,
+                    self.type_name(source_type),
+                    target_type,
+                    self.type_name(target_type),
+                    target_span,
+                ));
+            return CheckedNominalCastInvocation::Rejected;
+        }
+        let Some(result_type) = self.resolver.arena_mut().optional(target_type).ok() else {
+            return CheckedNominalCastInvocation::Rejected;
+        };
+        CheckedNominalCastInvocation::Accepted(TypedExpression {
+            kind: TypedExpressionKind::CheckedNominalCast {
+                value: Box::new(value),
+                source_interface,
+                source_type,
+                target_class: target.class(),
+                target_type,
+            },
+            type_id: result_type,
+            span,
+        })
     }
 
     pub(crate) fn check_ffi_handle_invocation(
@@ -713,6 +1169,354 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             },
             span,
         })
+    }
+
+    fn check_ffi_with_callback_invocation(
+        &mut self,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if arguments.len() != 2 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Ffi.withCallback",
+                2,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let (callback, callback_type) = self.check_ffi_callback_closure(&arguments[0], span)?;
+        let body_expression = self.check_expression(&arguments[1])?;
+        let body_type = body_expression.type_id();
+        let TypedExpressionKind::Closure(body) = body_expression.kind else {
+            self.invalid_ffi_callback(arguments[1].span(), "immediate callback-pair scope", span);
+            return None;
+        };
+        let Some(binding_contract) = self.ffi_callback_pair_body_contract(
+            &body,
+            callback_type,
+            crate::FfiCallbackLifetime::CallScoped,
+        ) else {
+            self.invalid_ffi_callback(
+                arguments[1].span(),
+                "non-escaping callback-pair scope",
+                span,
+            );
+            return None;
+        };
+        self.ffi_builtin_type("Ffi.RegisteredCallback", vec![callback_type])?;
+        let result = body.results()[0];
+        let site = pop_foundation::FfiCallbackSiteId::from_raw(self.next_callback_site);
+        self.next_callback_site = self.next_callback_site.saturating_add(1);
+        let region = pop_foundation::BorrowRegionId::from_raw(self.next_borrow_region);
+        self.next_borrow_region = self.next_borrow_region.saturating_add(1);
+        Some(TypedExpression {
+            kind: TypedExpressionKind::FfiWithCallback {
+                callback,
+                callback_type,
+                binding_contract: Box::new(binding_contract),
+                body: Box::new(body),
+                body_type,
+                site,
+                region,
+            },
+            type_id: result,
+            span,
+        })
+    }
+
+    fn check_ffi_callback_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        match path.get(2)?.as_str() {
+            "open" => self.check_ffi_callback_open(arguments, span),
+            "withPair" => self.check_ffi_callback_with_pair(arguments, span),
+            "close" => self.check_ffi_callback_close(arguments, span),
+            _ => None,
+        }
+    }
+
+    fn check_ffi_callback_open(
+        &mut self,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if arguments.len() != 2 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Ffi.Callback.open",
+                2,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let (callback, callback_type) = self.check_ffi_callback_closure(&arguments[0], span)?;
+        let thread = match arguments[1].kind() {
+            ExpressionSyntaxKind::Name(path)
+                if path.as_slice() == ["Ffi", "CallbackThread", "AttachedThread"] =>
+            {
+                crate::FfiCallbackThreadPolicy::AttachedThread
+            }
+            _ => {
+                self.invalid_ffi_callback(
+                    arguments[1].span(),
+                    "direct Ffi.CallbackThread.AttachedThread case",
+                    span,
+                );
+                return None;
+            }
+        };
+        let registered = self.ffi_builtin_type("Ffi.RegisteredCallback", vec![callback_type])?;
+        let error = self.ffi_builtin_type("Ffi.CallbackOpenError", Vec::new())?;
+        let type_id = self.resolver.result_type(registered, error)?;
+        let site = pop_foundation::FfiCallbackSiteId::from_raw(self.next_callback_site);
+        self.next_callback_site = self.next_callback_site.saturating_add(1);
+        Some(TypedExpression {
+            kind: TypedExpressionKind::FfiCallbackOpen {
+                callback,
+                callback_type,
+                thread,
+                site,
+            },
+            type_id,
+            span,
+        })
+    }
+
+    fn check_ffi_callback_with_pair(
+        &mut self,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if arguments.len() != 2 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Ffi.Callback.withPair",
+                2,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let callback = self.check_expression(&arguments[0])?;
+        let Some(callback_type) = self.ffi_registered_callback_payload(callback.type_id()) else {
+            self.invalid_ffi_callback(
+                arguments[0].span(),
+                "Ffi.RegisteredCallback<TSignature>",
+                span,
+            );
+            return None;
+        };
+        let body_expression = self.check_expression(&arguments[1])?;
+        let body_type = body_expression.type_id();
+        let TypedExpressionKind::Closure(body) = body_expression.kind else {
+            self.invalid_ffi_callback(arguments[1].span(), "immediate callback-pair scope", span);
+            return None;
+        };
+        let Some(binding_contract) = self.ffi_callback_pair_body_contract(
+            &body,
+            callback_type,
+            crate::FfiCallbackLifetime::Registered,
+        ) else {
+            self.invalid_ffi_callback(
+                arguments[1].span(),
+                "non-escaping callback-pair scope",
+                span,
+            );
+            return None;
+        };
+        let error = self.ffi_builtin_type("Ffi.CallbackClosedError", Vec::new())?;
+        let type_id = self.resolver.result_type(body.results()[0], error)?;
+        let region = pop_foundation::BorrowRegionId::from_raw(self.next_borrow_region);
+        self.next_borrow_region = self.next_borrow_region.saturating_add(1);
+        Some(TypedExpression {
+            kind: TypedExpressionKind::FfiCallbackWithPair {
+                callback: Box::new(callback),
+                callback_type,
+                binding_contract: Box::new(binding_contract),
+                body: Box::new(body),
+                body_type,
+                region,
+            },
+            type_id,
+            span,
+        })
+    }
+
+    fn check_ffi_callback_close(
+        &mut self,
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Ffi.Callback.close",
+                1,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let callback = self.check_expression(&arguments[0])?;
+        let Some(callback_type) = self.ffi_registered_callback_payload(callback.type_id()) else {
+            self.invalid_ffi_callback(
+                arguments[0].span(),
+                "Ffi.RegisteredCallback<TSignature>",
+                span,
+            );
+            return None;
+        };
+        let nil = self.resolver.arena().source_type("nil")?;
+        let error = self.ffi_builtin_type("Ffi.CallbackInUseError", Vec::new())?;
+        let type_id = self.resolver.result_type(nil, error)?;
+        Some(TypedExpression {
+            kind: TypedExpressionKind::FfiCallbackClose {
+                callback: Box::new(callback),
+                callback_type,
+            },
+            type_id,
+            span,
+        })
+    }
+
+    fn check_ffi_callback_closure(
+        &mut self,
+        expression: &ExpressionSyntax,
+        call_span: SourceSpan,
+    ) -> Option<(TypedClosure, TypeId)> {
+        let typed = self.check_expression(expression)?;
+        let callback_type = typed.type_id();
+        let context_type = self.ffi_builtin_type("Ffi.CallbackContext", Vec::new())?;
+        let TypedExpressionKind::Closure(callback) = typed.kind else {
+            self.invalid_ffi_callback(
+                expression.span(),
+                "immediate non-async callback closure",
+                call_span,
+            );
+            return None;
+        };
+        let valid_signature = match self.resolver.arena().get(callback_type) {
+            Some(SemanticType::Function {
+                is_async,
+                parameters,
+                results,
+                effects,
+                ..
+            }) => {
+                !is_async
+                    && !effects.contains(crate::Effect::Suspends)
+                    && results.len() <= 1
+                    && parameters
+                        .iter()
+                        .filter(|parameter| **parameter == context_type)
+                        .count()
+                        == 1
+                    && parameters
+                        .iter()
+                        .chain(results)
+                        .filter(|type_id| **type_id == context_type)
+                        .count()
+                        == 1
+                    && parameters
+                        .iter()
+                        .chain(results)
+                        .all(|type_id| self.resolver.ffi_foreign_abi_type_is_valid(*type_id))
+            }
+            _ => false,
+        };
+        let context_parameter = callback
+            .parameters()
+            .iter()
+            .position(|parameter| parameter.type_id() == context_type);
+        if !valid_signature
+            || callback.is_async()
+            || context_parameter.is_none()
+            || !scoped_body_parameter_is_valid(
+                &callback,
+                context_parameter.unwrap_or_default(),
+                self.signatures,
+                ScopedForeignUse::None,
+            )
+        {
+            self.invalid_ffi_callback(
+                expression.span(),
+                "exact typed non-suspending callback closure",
+                call_span,
+            );
+            return None;
+        }
+        Some((callback, callback_type))
+    }
+
+    fn ffi_callback_pair_body_contract(
+        &mut self,
+        body: &TypedClosure,
+        callback_type: TypeId,
+        lifetime: crate::FfiCallbackLifetime,
+    ) -> Option<crate::FfiCallbackBindingContract> {
+        let function = self.ffi_builtin_type("Ffi.Function", vec![callback_type]);
+        let context = self.ffi_builtin_type("Ffi.CallbackContext", Vec::new());
+        let [first, second] = body.parameters() else {
+            return None;
+        };
+        let selected = RefCell::new(BTreeSet::new());
+        let valid = !body.is_async()
+            && body.results().len() == 1
+            && function.is_some_and(|function| first.type_id() == function)
+            && context.is_some_and(|context| second.type_id() == context)
+            && scoped_body_parameter_is_valid(
+                body,
+                0,
+                self.signatures,
+                ScopedForeignUse::CallbackPair {
+                    declarations: self.foreign_declarations,
+                    counterpart: second.parameter(),
+                    role: CallbackPairRole::Callback,
+                    lifetime,
+                    selected: &selected,
+                },
+            )
+            && scoped_body_parameter_is_valid(
+                body,
+                1,
+                self.signatures,
+                ScopedForeignUse::CallbackPair {
+                    declarations: self.foreign_declarations,
+                    counterpart: first.parameter(),
+                    role: CallbackPairRole::Context,
+                    lifetime,
+                    selected: &selected,
+                },
+            );
+        if !valid {
+            return None;
+        }
+        let mut selected = selected.into_inner().into_iter();
+        let contract = selected.next()?;
+        selected.next().is_none().then_some(contract)
+    }
+
+    fn ffi_registered_callback_payload(&self, type_id: TypeId) -> Option<TypeId> {
+        match self.resolver.arena().get(type_id) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if *definition == crate::FFI_REGISTERED_CALLBACK_TYPE_ID && arguments.len() == 1 => {
+                Some(arguments[0])
+            }
+            _ => None,
+        }
+    }
+
+    fn invalid_ffi_callback(&mut self, at: SourceSpan, expected: &str, call_span: SourceSpan) {
+        self.diagnostics.push(type_diagnostics::type_mismatch(
+            at,
+            expected,
+            "incompatible callback operation",
+            call_span,
+        ));
     }
 
     fn ffi_builtin_type(&mut self, name: &str, arguments: Vec<TypeId>) -> Option<TypeId> {
@@ -1379,16 +2183,19 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     parameters: left_parameters,
                     results: left_results,
                     effects: left_effects,
+                    lifetime_summary: left_lifetime,
                 },
                 SemanticType::Function {
                     is_async: right_async,
                     parameters: right_parameters,
                     results: right_results,
                     effects: right_effects,
+                    lifetime_summary: right_lifetime,
                 },
             ) => {
                 left_async == right_async
                     && left_effects == right_effects
+                    && left_lifetime == right_lifetime
                     && self.infer_type_lists(&left_parameters, &right_parameters, substitutions)
                     && self.infer_type_lists(&left_results, &right_results, substitutions)
             }
@@ -2863,9 +3670,46 @@ fn scoped_borrow_body_is_valid(
     body: &TypedClosure,
     signatures: &BTreeMap<pop_foundation::SymbolId, crate::ResolvedFunctionSignature>,
 ) -> bool {
+    scoped_body_parameter_is_valid(body, 0, signatures, ScopedForeignUse::AnyForeign)
+}
+
+#[derive(Clone, Copy)]
+enum CallbackPairRole {
+    Callback,
+    Context,
+}
+
+#[derive(Clone, Copy)]
+enum ScopedForeignUse<'contracts> {
+    None,
+    AnyForeign,
+    CallbackPair {
+        declarations: Option<
+            &'contracts BTreeMap<pop_foundation::SymbolId, crate::ForeignFunctionDeclaration>,
+        >,
+        counterpart: pop_foundation::ValueParameterId,
+        role: CallbackPairRole,
+        lifetime: crate::FfiCallbackLifetime,
+        selected: &'contracts RefCell<BTreeSet<crate::FfiCallbackBindingContract>>,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum ScopedForeignArguments {
+    None,
+    All,
+    Exact(usize),
+}
+
+fn scoped_body_parameter_is_valid(
+    body: &TypedClosure,
+    parameter_index: usize,
+    signatures: &BTreeMap<pop_foundation::SymbolId, crate::ResolvedFunctionSignature>,
+    foreign_use: ScopedForeignUse<'_>,
+) -> bool {
     let Some(pointer) = body
         .parameters()
-        .first()
+        .get(parameter_index)
         .map(TypedClosureParameter::parameter)
     else {
         return false;
@@ -2874,12 +3718,16 @@ fn scoped_borrow_body_is_valid(
         .statements()
         .iter()
         .all(|statement| match statement.kind() {
-            TypedStatementKind::Return { values } => values
-                .iter()
-                .all(|value| scoped_borrow_expression_is_valid(value, pointer, false, signatures)),
-            TypedStatementKind::Expression(expression) => {
-                scoped_borrow_expression_is_valid(expression, pointer, false, signatures)
-            }
+            TypedStatementKind::Return { values } => values.iter().all(|value| {
+                scoped_borrow_expression_is_valid(value, pointer, false, signatures, foreign_use)
+            }),
+            TypedStatementKind::Expression(expression) => scoped_borrow_expression_is_valid(
+                expression,
+                pointer,
+                false,
+                signatures,
+                foreign_use,
+            ),
             _ => false,
         })
 }
@@ -2889,15 +3737,16 @@ fn scoped_borrow_expression_is_valid(
     pointer: pop_foundation::ValueParameterId,
     pointer_allowed: bool,
     signatures: &BTreeMap<pop_foundation::SymbolId, crate::ResolvedFunctionSignature>,
+    foreign_use: ScopedForeignUse<'_>,
 ) -> bool {
     match expression.kind() {
         TypedExpressionKind::Parameter(parameter) if *parameter == pointer => pointer_allowed,
         TypedExpressionKind::FfiPointerIsPresent { pointer: operand } => {
-            scoped_borrow_expression_is_valid(operand, pointer, true, signatures)
+            scoped_borrow_expression_is_valid(operand, pointer, true, signatures, foreign_use)
         }
         TypedExpressionKind::FfiPointerRequire { pointer: operand, .. } => {
             pointer_allowed
-                && scoped_borrow_expression_is_valid(operand, pointer, true, signatures)
+                && scoped_borrow_expression_is_valid(operand, pointer, true, signatures, foreign_use)
         }
         TypedExpressionKind::ResultPropagate { result, .. } => {
             scoped_borrow_expression_is_valid(
@@ -2905,11 +3754,12 @@ fn scoped_borrow_expression_is_valid(
                 pointer,
                 pointer_allowed,
                 signatures,
+                foreign_use,
             )
         }
         TypedExpressionKind::FfiPointerToOptional { pointer: operand }
         | TypedExpressionKind::FfiPointerReadOnly { pointer: operand } => {
-            scoped_borrow_expression_is_valid(operand, pointer, false, signatures)
+            scoped_borrow_expression_is_valid(operand, pointer, false, signatures, foreign_use)
         }
         TypedExpressionKind::DirectCall {
             function,
@@ -2924,11 +3774,23 @@ fn scoped_borrow_expression_is_valid(
             {
                 return false;
             }
-            let foreign = signatures.get(function).is_some_and(|signature| {
-                signature.effects().contains(crate::Effect::ForeignFunction)
-            });
-            arguments.iter().all(|argument| {
-                scoped_borrow_expression_is_valid(argument, pointer, foreign, signatures)
+            let foreign_arguments = scoped_foreign_arguments(
+                *function,
+                arguments,
+                pointer,
+                signatures,
+                foreign_use,
+            );
+            arguments.iter().enumerate().all(|(index, argument)| {
+                let allowed = matches!(foreign_arguments, ScopedForeignArguments::All)
+                    || matches!(foreign_arguments, ScopedForeignArguments::Exact(allowed) if allowed == index);
+                scoped_borrow_expression_is_valid(
+                    argument,
+                    pointer,
+                    allowed,
+                    signatures,
+                    foreign_use,
+                )
             })
         }
         TypedExpressionKind::ReferencedCall {
@@ -2944,55 +3806,71 @@ fn scoped_borrow_expression_is_valid(
             {
                 return false;
             }
-            let foreign = signatures.get(&function.symbol()).is_some_and(|signature| {
-                signature.effects().contains(crate::Effect::ForeignFunction)
-            });
-            arguments.iter().all(|argument| {
-                scoped_borrow_expression_is_valid(argument, pointer, foreign, signatures)
+            let foreign_arguments = scoped_foreign_arguments(
+                function.symbol(),
+                arguments,
+                pointer,
+                signatures,
+                foreign_use,
+            );
+            arguments.iter().enumerate().all(|(index, argument)| {
+                let allowed = matches!(foreign_arguments, ScopedForeignArguments::All)
+                    || matches!(foreign_arguments, ScopedForeignArguments::Exact(allowed) if allowed == index);
+                scoped_borrow_expression_is_valid(
+                    argument,
+                    pointer,
+                    allowed,
+                    signatures,
+                    foreign_use,
+                )
             })
         }
         TypedExpressionKind::StandardCall { arguments, .. } => arguments
             .iter()
-            .all(|argument| scoped_borrow_expression_is_valid(argument, pointer, false, signatures)),
+            .all(|argument| scoped_borrow_expression_is_valid(argument, pointer, false, signatures, foreign_use)),
         TypedExpressionKind::IndirectCall {
             callee,
             is_async,
             arguments,
         } => {
             !is_async
-                && scoped_borrow_expression_is_valid(callee, pointer, false, signatures)
+                && scoped_borrow_expression_is_valid(callee, pointer, false, signatures, foreign_use)
                 && arguments
                     .iter()
-                    .all(|argument| scoped_borrow_expression_is_valid(argument, pointer, false, signatures))
+                    .all(|argument| scoped_borrow_expression_is_valid(argument, pointer, false, signatures, foreign_use))
         }
         TypedExpressionKind::Closure(closure) => !closure.captures().iter().any(|capture| {
             matches!(capture.source(), CaptureSource::Parameter(parameter) if parameter == pointer)
         }),
         TypedExpressionKind::Array(elements) | TypedExpressionKind::Tuple(elements) => elements
             .iter()
-            .all(|element| scoped_borrow_expression_is_valid(element, pointer, false, signatures)),
+            .all(|element| scoped_borrow_expression_is_valid(element, pointer, false, signatures, foreign_use)),
         TypedExpressionKind::Table(entries) => entries.iter().all(|entry| {
-            scoped_borrow_expression_is_valid(entry.key(), pointer, false, signatures)
-                && scoped_borrow_expression_is_valid(entry.value(), pointer, false, signatures)
+            scoped_borrow_expression_is_valid(entry.key(), pointer, false, signatures, foreign_use)
+                && scoped_borrow_expression_is_valid(entry.value(), pointer, false, signatures, foreign_use)
         }),
         TypedExpressionKind::Record { fields, .. }
         | TypedExpressionKind::ClassConstruct { fields, .. } => fields.iter().all(|field| {
-            scoped_borrow_expression_is_valid(field.value(), pointer, false, signatures)
+            scoped_borrow_expression_is_valid(field.value(), pointer, false, signatures, foreign_use)
         }),
         TypedExpressionKind::RecordUpdate { base, fields, .. } => {
-            scoped_borrow_expression_is_valid(base, pointer, false, signatures)
+            scoped_borrow_expression_is_valid(base, pointer, false, signatures, foreign_use)
                 && fields.iter().all(|field| {
-                    scoped_borrow_expression_is_valid(field.value(), pointer, false, signatures)
+                    scoped_borrow_expression_is_valid(field.value(), pointer, false, signatures, foreign_use)
                 })
         }
         TypedExpressionKind::UnionCase { arguments, .. }
         | TypedExpressionKind::ResultCase { arguments, .. }
         | TypedExpressionKind::IterationCase { arguments, .. }
         | TypedExpressionKind::ErrorCase { arguments, .. } => arguments.iter().all(|argument| {
-            scoped_borrow_expression_is_valid(argument, pointer, false, signatures)
+            scoped_borrow_expression_is_valid(argument, pointer, false, signatures, foreign_use)
         }),
         TypedExpressionKind::FfiBufferWithPointer { .. }
         | TypedExpressionKind::FfiBytesWithPin { .. }
+        | TypedExpressionKind::FfiWithCallback { .. }
+        | TypedExpressionKind::FfiCallbackOpen { .. }
+        | TypedExpressionKind::FfiCallbackWithPair { .. }
+        | TypedExpressionKind::FfiCallbackClose { .. }
         | TypedExpressionKind::FfiUnsafeLoad { .. }
         | TypedExpressionKind::FfiUnsafeStore { .. }
         | TypedExpressionKind::FfiUnsafeAdvance { .. }
@@ -3007,6 +3885,66 @@ fn scoped_borrow_expression_is_valid(
         | TypedExpressionKind::Await { .. } => false,
         _ => true,
     }
+}
+
+fn scoped_foreign_arguments(
+    function: pop_foundation::SymbolId,
+    arguments: &[TypedExpression],
+    parameter: pop_foundation::ValueParameterId,
+    signatures: &BTreeMap<pop_foundation::SymbolId, crate::ResolvedFunctionSignature>,
+    foreign_use: ScopedForeignUse<'_>,
+) -> ScopedForeignArguments {
+    if !signatures.get(&function).is_some_and(|signature| {
+        signature.effects().contains(crate::Effect::ForeignFunction)
+            && !signature.effects().contains(crate::Effect::Suspends)
+    }) {
+        return ScopedForeignArguments::None;
+    }
+    match foreign_use {
+        ScopedForeignUse::None => ScopedForeignArguments::None,
+        ScopedForeignUse::AnyForeign => ScopedForeignArguments::All,
+        ScopedForeignUse::CallbackPair {
+            declarations,
+            counterpart,
+            role,
+            lifetime,
+            selected,
+        } => {
+            let Some(declaration) = declarations.and_then(|values| values.get(&function)) else {
+                return ScopedForeignArguments::None;
+            };
+            declaration
+                .callback_pairs()
+                .iter()
+                .filter(|pair| pair.lifetime() == lifetime)
+                .find_map(|pair| {
+                    let callback = usize::from(pair.callback_parameter_index());
+                    let context = usize::from(pair.context_parameter_index());
+                    let (owned, other) = match role {
+                        CallbackPairRole::Callback => (callback, context),
+                        CallbackPairRole::Context => (context, callback),
+                    };
+                    if exact_scoped_parameter(arguments.get(owned), parameter)
+                        && exact_scoped_parameter(arguments.get(other), counterpart)
+                    {
+                        selected.borrow_mut().insert(pair.binding_contract());
+                        Some(ScopedForeignArguments::Exact(owned))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(ScopedForeignArguments::None)
+        }
+    }
+}
+
+fn exact_scoped_parameter(
+    expression: Option<&TypedExpression>,
+    parameter: pop_foundation::ValueParameterId,
+) -> bool {
+    expression.is_some_and(|expression| {
+        matches!(expression.kind(), TypedExpressionKind::Parameter(found) if *found == parameter)
+    })
 }
 
 fn is_ffi_pointer_operation(path: &[String]) -> bool {

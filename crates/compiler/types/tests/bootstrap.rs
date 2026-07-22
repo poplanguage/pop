@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use pop_foundation::{AttributeId, BuiltinTypeId};
 use pop_types::{
-    AttributeIdentity, BootstrapTypeRole, CompilerAttributeRole, CompilerAttributeTarget,
-    PrimitiveType, embedded_bootstrap_schema, is_ffi_abi_builtin_type,
+    AttributeIdentity, BootstrapTypeRole, CodecErrorReason, CompilerAttributeRole,
+    CompilerAttributeTarget, Effect, EffectSummary, PrimitiveType, embedded_bootstrap_schema,
+    is_ffi_abi_builtin_type,
 };
 
 #[test]
@@ -92,7 +93,7 @@ fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();
 
-    assert_eq!(attributes.len(), 7);
+    assert_eq!(attributes.len(), 8);
     let compile_time = schema
         .compiler_attribute_by_role(CompilerAttributeRole::CompileTime)
         .expect("trusted CompileTime attribute");
@@ -133,6 +134,115 @@ fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
 }
 
 #[test]
+fn retained_metadata_has_the_stable_trusted_prelude_identity() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let retained = schema
+        .compiler_attribute_by_source_name("RetainMetadata")
+        .expect("trusted RetainMetadata attribute");
+
+    assert_eq!(retained.id().raw(), 3);
+    assert_eq!(retained.owner_bubble(), "Pop.Standard");
+    assert_eq!(retained.argument_count(), 2);
+    assert!(retained.is_in_prelude());
+    assert!(
+        schema
+            .compiler_attribute_by_source_name("retainMetadata")
+            .is_none()
+    );
+}
+
+#[test]
+fn retained_metadata_uses_owned_standard_type_identities() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    for (id, name, arity) in [
+        (117, "Metadata.Use", 0),
+        (118, "Codec.Schema", 1),
+        (119, "Codec.Writer", 0),
+        (120, "Codec.Reader", 0),
+        (121, "Codec.Error", 0),
+    ] {
+        let entry = schema
+            .type_by_source_name(name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        assert_eq!(entry.id().raw(), id);
+        assert_eq!(entry.owner_bubble(), "Pop.Standard");
+        assert_eq!(entry.arity(), arity);
+        assert!(!entry.is_in_prelude());
+    }
+
+    let codec_error = schema
+        .codec_error_protocol()
+        .expect("closed Codec.Error protocol");
+    assert_eq!(codec_error.error().raw(), 121);
+    assert_eq!(codec_error.malformed_input_case().raw(), 0);
+    assert_eq!(codec_error.limit_exceeded_case().raw(), 1);
+    assert_eq!(codec_error.capability_failure_case().raw(), 2);
+    assert_eq!(
+        [
+            CodecErrorReason::MalformedInput.source_name(),
+            CodecErrorReason::LimitExceeded.source_name(),
+            CodecErrorReason::CapabilityFailure.source_name(),
+        ],
+        ["MalformedInput", "LimitExceeded", "CapabilityFailure"]
+    );
+    for (reason, status) in [
+        (CodecErrorReason::MalformedInput, 1),
+        (CodecErrorReason::LimitExceeded, 2),
+        (CodecErrorReason::CapabilityFailure, 3),
+    ] {
+        assert_eq!(reason.protocol_status(), status);
+        assert_eq!(CodecErrorReason::from_protocol_status(status), Some(reason));
+    }
+    assert_eq!(CodecErrorReason::from_protocol_status(0), None);
+}
+
+#[test]
+fn iteration_protocol_has_closed_exact_reserved_member_effects() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let protocol = schema.iteration_protocol().expect("iteration protocol");
+    let empty = EffectSummary::empty();
+    let next = empty
+        .with(Effect::WritesManagedReference)
+        .with(Effect::MayTrap)
+        .with(Effect::GcSafePoint);
+
+    assert_eq!(
+        protocol.method_effects(protocol.iterable(), protocol.iterator_method()),
+        Some(empty)
+    );
+    assert_eq!(
+        protocol.method_effects(protocol.iterator(), protocol.iterator_method()),
+        Some(empty)
+    );
+    assert_eq!(
+        protocol.method_effects(protocol.iterator(), protocol.next_method()),
+        Some(next)
+    );
+    assert_eq!(
+        protocol.method_effects(protocol.iterable(), protocol.next_method()),
+        None
+    );
+}
+
+#[test]
+fn borrowed_view_types_have_exact_compiler_known_identities() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    for (id, name) in [(122, "Bytes.View"), (123, "Text.View")] {
+        let entry = schema
+            .type_by_source_name(name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        assert_eq!(entry.id().raw(), id);
+        assert_eq!(entry.owner_bubble(), "Pop.Standard");
+        assert_eq!(entry.arity(), 0);
+        assert_eq!(entry.role(), BootstrapTypeRole::View);
+        assert!(!entry.is_in_prelude());
+    }
+    assert_eq!(pop_types::BYTES_VIEW_TYPE_ID.raw(), 122);
+    assert_eq!(pop_types::TEXT_VIEW_TYPE_ID.raw(), 123);
+    assert!(schema.type_by_source_name("View").is_none());
+}
+
+#[test]
 fn ffi_abi_types_have_stable_qualified_non_prelude_identities() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let expected = [
@@ -159,6 +269,12 @@ fn ffi_abi_types_have_stable_qualified_non_prelude_identities() {
         (220, "Ffi.C.UnsignedLongLong", 0),
         (221, "Ffi.C.Size", 0),
         (222, "Ffi.C.PointerDifference", 0),
+        (223, "Ffi.CallbackContext", 0),
+        (224, "Ffi.RegisteredCallback", 1),
+        (225, "Ffi.CallbackThread", 0),
+        (226, "Ffi.CallbackOpenError", 0),
+        (227, "Ffi.CallbackInUseError", 0),
+        (228, "Ffi.CallbackClosedError", 0),
     ];
 
     for (id, source_name, arity) in expected {
@@ -183,6 +299,9 @@ fn ffi_abi_types_have_stable_qualified_non_prelude_identities() {
         "Buffer",
         "NullPointerError",
         "AllocationError",
+        "CallbackContext",
+        "RegisteredCallback",
+        "CallbackThread",
         "Char",
         "Size",
     ] {
@@ -190,7 +309,9 @@ fn ffi_abi_types_have_stable_qualified_non_prelude_identities() {
     }
     assert!(is_ffi_abi_builtin_type(BuiltinTypeId::from_raw(205)));
     assert!(is_ffi_abi_builtin_type(BuiltinTypeId::from_raw(206)));
+    assert!(is_ffi_abi_builtin_type(BuiltinTypeId::from_raw(223)));
     assert!(!is_ffi_abi_builtin_type(BuiltinTypeId::from_raw(207)));
+    assert!(!is_ffi_abi_builtin_type(BuiltinTypeId::from_raw(224)));
     assert_eq!(pop_types::FFI_POINTER_TYPE_ID, BuiltinTypeId::from_raw(200));
     assert_eq!(pop_types::FFI_BUFFER_TYPE_ID, BuiltinTypeId::from_raw(207));
     assert!(pop_types::is_ffi_pointer_type_constructor(

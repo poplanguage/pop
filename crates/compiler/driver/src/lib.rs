@@ -30,15 +30,22 @@ mod api;
 mod artifact;
 mod attributes;
 mod compile_time;
+mod ffi_generate;
 mod front_end;
 mod native_link;
 mod reference;
+mod retained_metadata;
 mod work;
 
 pub use api::*;
 pub use artifact::*;
+pub use ffi_generate::{
+    FfiGenerationError, FfiGenerationErrorKind, VerifiedFfiGeneratedBindings,
+    VerifiedFfiGeneratedFunction, generate_ffi_bindings, verify_ffi_generated_bindings,
+};
 pub use front_end::*;
 pub use native_link::{
     NativeLinkInput, NativeLinkPlanSource, NativeLinkResolution, NativeLinkResolutionError,
     ResolvedNativeProvider, resolve_native_link_inputs, validate_foreign_link_aliases,
 };
+pub use retained_metadata::*;
