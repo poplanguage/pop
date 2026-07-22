@@ -176,12 +176,15 @@ impl BodyParser<'_> {
                 let method = method.text(self.source).to_owned();
                 self.expect(TokenKind::LeftParenthesis, "`(`")?;
                 let mut arguments = Vec::new();
+                self.consume_call_line_breaks();
                 if self.current_kind() != Some(TokenKind::RightParenthesis) {
                     loop {
                         arguments.push(self.parse_expression(0)?);
+                        self.consume_call_line_breaks();
                         if self.consume(TokenKind::Comma).is_none() {
                             break;
                         }
+                        self.consume_call_line_breaks();
                     }
                 }
                 let right = self.expect(TokenKind::RightParenthesis, "`)`")?;
@@ -198,12 +201,15 @@ impl BodyParser<'_> {
             }
             if self.consume(TokenKind::LeftParenthesis).is_some() {
                 let mut arguments = Vec::new();
+                self.consume_call_line_breaks();
                 if self.current_kind() != Some(TokenKind::RightParenthesis) {
                     loop {
                         arguments.push(self.parse_expression(0)?);
+                        self.consume_call_line_breaks();
                         if self.consume(TokenKind::Comma).is_none() {
                             break;
                         }
+                        self.consume_call_line_breaks();
                     }
                 }
                 let right = self.expect(TokenKind::RightParenthesis, "`)`")?;
@@ -234,12 +240,15 @@ impl BodyParser<'_> {
                 self.expect(TokenKind::GreaterThan, "second `>` in `>>`")?;
                 self.expect(TokenKind::LeftParenthesis, "`(` after generic arguments")?;
                 let mut arguments = Vec::new();
+                self.consume_call_line_breaks();
                 if self.current_kind() != Some(TokenKind::RightParenthesis) {
                     loop {
                         arguments.push(self.parse_expression(0)?);
+                        self.consume_call_line_breaks();
                         if self.consume(TokenKind::Comma).is_none() {
                             break;
                         }
+                        self.consume_call_line_breaks();
                     }
                 }
                 let right = self.expect(TokenKind::RightParenthesis, "`)`")?;
@@ -253,6 +262,51 @@ impl BodyParser<'_> {
                     right.range().end(),
                 );
                 continue;
+            }
+            if self.current_kind() == Some(TokenKind::LessThan)
+                && matches!(expression.kind(), ExpressionSyntaxKind::Name(_))
+            {
+                let checkpoint = self.position;
+                let start = expression.span().range().start();
+                self.position += 1;
+                let parsed = (|| {
+                    let mut type_arguments = Vec::new();
+                    loop {
+                        type_arguments.push(self.parse_type_prefix()?);
+                        if self.consume(TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::GreaterThan, "`>` after target type arguments")?;
+                    self.expect(TokenKind::LeftParenthesis, "`(` after target type")?;
+                    let mut arguments = Vec::new();
+                    self.consume_call_line_breaks();
+                    if self.current_kind() != Some(TokenKind::RightParenthesis) {
+                        loop {
+                            arguments.push(self.parse_expression(0)?);
+                            self.consume_call_line_breaks();
+                            if self.consume(TokenKind::Comma).is_none() {
+                                break;
+                            }
+                            self.consume_call_line_breaks();
+                        }
+                    }
+                    let right = self.expect(TokenKind::RightParenthesis, "`)`")?;
+                    Ok::<_, FunctionBodyError>((type_arguments, arguments, right.range().end()))
+                })();
+                if let Ok((type_arguments, arguments, end)) = parsed {
+                    expression = self.expression(
+                        ExpressionSyntaxKind::TargetTypeCall {
+                            callee: Box::new(expression),
+                            type_arguments,
+                            arguments,
+                        },
+                        start,
+                        end,
+                    );
+                    continue;
+                }
+                self.position = checkpoint;
             }
             if self.consume(TokenKind::LeftBracket).is_some() {
                 let start = expression.span().range().start();
@@ -285,6 +339,10 @@ impl BodyParser<'_> {
             break;
         }
         Ok(expression)
+    }
+
+    fn consume_call_line_breaks(&mut self) {
+        while self.consume(TokenKind::Newline).is_some() {}
     }
 
     fn parse_primary(&mut self) -> Result<ExpressionSyntax, FunctionBodyError> {

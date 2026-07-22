@@ -8,27 +8,30 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use pop_foundation::{
-    BindingId, BlockId, BorrowRegionId, CaptureId, ClassId, CleanupScopeId, CoroutineStateId,
-    FieldId, FileId, FunctionId, LocalId, MethodId, ResultCaseId, SourceSpan, SymbolId,
-    SymbolIdentity, TextRange, TextSize, TypeId, ValueId, ValueParameterId,
+    BindingId, BlockId, BorrowRegionId, BuiltinTypeId, CaptureId, ClassId, CleanupScopeId,
+    CoroutineStateId, FieldId, FileId, FunctionId, IterationProtocolMethodId, LifetimeId, LocalId,
+    MethodId, ResultCaseId, SourceSpan, SymbolId, SymbolIdentity, TextRange, TextSize, TypeId,
+    ValueId, ValueParameterId,
 };
 use pop_hir::{
     HirAssignmentTarget, HirBubble, HirCallDispatch, HirCaptureMode, HirCaptureSource, HirClosure,
-    HirDataSpecialization, HirDeclaration, HirDeclarationKind, HirErrorMatchArm, HirExpression,
-    HirExpressionKind, HirFieldValue, HirFunction, HirIterationProtocol, HirIterationSource,
-    HirLocalBinding, HirMatchArm, HirResultMatchArm, HirStatement, HirStatementKind, HirTableEntry,
-    hir_generic_call_instances, remap_hir_function_dispatches, specialize_hir_function,
+    HirCodecErrorMatchArm, HirDataSpecialization, HirDeclaration, HirDeclarationKind,
+    HirErrorMatchArm, HirExpression, HirExpressionKind, HirFieldValue, HirFunction,
+    HirGeneratedCodecEntry, HirGeneratedCodecEntryBody, HirGeneratedCodecMemberId,
+    HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm, HirResultMatchArm,
+    HirStatement, HirStatementKind, HirTableEntry, hir_generic_call_instances,
+    remap_hir_function_dispatches, specialize_hir_function,
 };
 use pop_runtime_interface::{
-    ArrayElementMap, FfiAbiLayoutId, ObjectMap, ObjectSlot, RootSlot, SafePointId, StackMap, Trap,
-    TrapKind,
+    ArrayElementMap, FfiAbiLayoutId, FfiCallbackLifetime, FfiCallbackThread, ObjectMap, ObjectSlot,
+    RootSlot, SafePointId, StackMap, Trap, TrapKind,
 };
 use pop_target::{CAbiScalarKind, TargetSpec};
 use pop_types::{
     FfiCIntegerKind, FloatKind, IntegerKind, IntegerValue, NumericConversionKind, PrimitiveType,
-    SemanticType, TypeArena, TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator,
-    ffi_c_integer_kind, is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
-    is_ffi_pointer_type_constructor,
+    ResultProvenance, SemanticType, TypeArena, TypedBinaryOperator, TypedCompoundOperator,
+    TypedUnaryOperator, ffi_c_integer_kind, is_ffi_function_type_constructor,
+    is_ffi_integer_abi_builtin_type, is_ffi_pointer_type_constructor,
 };
 
 use crate::ir::*;
@@ -36,7 +39,10 @@ use crate::verification::{
     instruction_operands, instruction_unwind_target, terminator_operands, terminator_targets,
     verify_mir_bubble,
 };
-use crate::{MirFfiLayout, MirFfiLayoutCatalog, MirFfiLayoutField, MirFfiValueClass};
+use crate::{
+    MirFfiCallbackAbi, MirFfiCallbackFingerprint, MirFfiCallbackSignature, MirFfiLayout,
+    MirFfiLayoutCatalog, MirFfiLayoutField, MirFfiValueClass,
+};
 
 type OptionalFfiLayoutFingerprint<'a> = Option<&'a dyn Fn(&[u8]) -> String>;
 
@@ -137,6 +143,7 @@ fn lower_hir_bubble_for_target_internal(
             parameters: reference.parameters().to_vec(),
             results: reference.results().to_vec(),
             effects: lower_effect_summary(reference.effects()),
+            lifetime_summary: reference.lifetime_summary().clone(),
         })
         .collect();
     let declarations: Vec<_> = all_declarations
@@ -165,6 +172,8 @@ fn lower_hir_bubble_for_target_internal(
                 .map(pop_hir::HirParameter::type_id)
                 .collect(),
             results: function.results().to_vec(),
+            parameter_layouts: Vec::new(),
+            result_layouts: Vec::new(),
             effects: lower_effect_summary(function.effects()),
             declaration: function.declaration().clone(),
             reference_identity: None,
@@ -220,13 +229,16 @@ fn lower_hir_bubble_for_target_internal(
             source.link_aliases().to_vec(),
             source.is_nonblocking(),
             source.span(),
-        );
+        )
+        .with_callback_pairs(source.callback_pairs().to_vec());
         referenced_foreign_symbols.insert(reference.identity(), symbol);
         foreign_functions.push(MirForeignFunction {
             function,
             symbol,
             parameters: reference.parameters().to_vec(),
             results: reference.results().to_vec(),
+            parameter_layouts: Vec::new(),
+            result_layouts: Vec::new(),
             effects: lower_effect_summary(reference.effects()),
             declaration,
             reference_identity: Some(reference.identity()),
@@ -236,61 +248,29 @@ fn lower_hir_bubble_for_target_internal(
     let gc_schema = LoweringGcSchema::new(&declarations, arena);
     let (ffi_layouts, provisional_ffi_layouts) =
         source_ffi_layout_catalog(hir, arena, target, fingerprint)?;
+    bind_foreign_layouts(&mut foreign_functions, &ffi_layouts, arena)?;
     let specialized_hir_functions = specialize_reachable_functions(hir, arena)?;
-    let empty_function_effects = BTreeMap::new();
-    let empty_method_effects = BTreeMap::new();
-    let mut provisional_functions: Vec<_> = specialized_hir_functions
+    let mut function_effects: BTreeMap<_, _> = specialized_hir_functions
         .iter()
-        .map(|function| {
-            lower_function(
-                function,
-                arena,
-                &gc_schema,
-                &reference_effects,
-                &empty_function_effects,
-                &empty_method_effects,
-                &ffi_layouts,
-            )
-            .0
-        })
-        .collect();
-    let mut provisional_methods: Vec<_> = all_methods
-        .iter()
-        .copied()
-        .filter(|method| method.function().type_parameters().is_empty())
-        .map(|method| MirMethod {
-            method: method.method(),
-            class: method.class(),
-            function: lower_function(
-                method.function(),
-                arena,
-                &gc_schema,
-                &reference_effects,
-                &empty_function_effects,
-                &empty_method_effects,
-                &ffi_layouts,
-            )
-            .0,
-        })
-        .collect();
-    recompute_callable_effects(
-        &mut provisional_functions,
-        &mut provisional_methods,
-        &BTreeMap::new(),
-    );
-    let mut function_effects: BTreeMap<_, _> = provisional_functions
-        .iter()
-        .map(|function| (function.symbol(), function.effects()))
+        .map(|function| (function.symbol(), lower_effect_summary(function.effects())))
         .collect();
     function_effects.extend(
         foreign_functions
             .iter()
             .map(|function| (function.symbol(), function.effects())),
     );
-    let method_effects: BTreeMap<_, _> = provisional_methods
+    let method_effects: BTreeMap<_, _> = all_methods
         .iter()
-        .map(|method| (method.method(), method.function().effects()))
+        .copied()
+        .filter(|method| method.function().type_parameters().is_empty())
+        .map(|method| {
+            (
+                method.method(),
+                lower_effect_summary(method.function().effects()),
+            )
+        })
         .collect();
+    let builtin_interface_effects = collect_builtin_interface_effects();
     let mut nested_functions = Vec::new();
     let mut functions: Vec<_> = specialized_hir_functions
         .iter()
@@ -302,6 +282,7 @@ fn lower_hir_bubble_for_target_internal(
                 &reference_effects,
                 &function_effects,
                 &method_effects,
+                &builtin_interface_effects,
                 &ffi_layouts,
             );
             nested_functions.append(&mut nested);
@@ -309,7 +290,7 @@ fn lower_hir_bubble_for_target_internal(
         })
         .collect();
     functions.sort_by_key(MirFunction::symbol);
-    let methods = all_methods
+    let methods: Vec<MirMethod> = all_methods
         .iter()
         .copied()
         .filter(|method| method.function().type_parameters().is_empty())
@@ -321,6 +302,7 @@ fn lower_hir_bubble_for_target_internal(
                 &reference_effects,
                 &function_effects,
                 &method_effects,
+                &builtin_interface_effects,
                 &ffi_layouts,
             );
             nested_functions.append(&mut nested);
@@ -332,6 +314,10 @@ fn lower_hir_bubble_for_target_internal(
         })
         .collect();
     nested_functions.sort_by_key(|function| (function.owner(), function.function()));
+    let (generated_codec_adapters, mut generated_codec_functions) =
+        lower_reachable_codec_adapters(hir, &functions, &methods, &nested_functions);
+    functions.append(&mut generated_codec_functions);
+    functions.sort_by_key(MirFunction::symbol);
     let mut mir = MirBubble {
         bubble: hir.bubble(),
         namespace: hir.namespace(),
@@ -342,8 +328,11 @@ fn lower_hir_bubble_for_target_internal(
         methods,
         nested_functions,
         function_references,
+        nominal_references: lower_nominal_reference_catalog(hir.nominal_references()),
         ffi_layouts,
+        generated_codec_adapters,
     };
+    bind_call_lifetime_contracts(&mut mir, arena);
     if provisional_ffi_layouts {
         if mir_uses_ffi_unsafe_memory(&mir) {
             return Err(vec![MirVerificationError::MissingFfiLayoutFingerprint]);
@@ -362,6 +351,306 @@ fn lower_hir_bubble_for_target_internal(
     seal_effects(&mut mir);
     verify_mir_bubble(&mir, arena)?;
     Ok(mir)
+}
+
+fn lower_reachable_codec_adapters(
+    hir: &HirBubble,
+    functions: &[MirFunction],
+    methods: &[MirMethod],
+    nested_functions: &[MirNestedFunction],
+) -> (Vec<MirGeneratedCodecAdapter>, Vec<MirFunction>) {
+    let mut reachable = BTreeSet::new();
+    let mut collect = |blocks: &[MirBlock]| {
+        for block in blocks {
+            for instruction in &block.instructions {
+                match instruction.kind() {
+                    MirInstructionKind::GeneratedCodecSchema(adapter)
+                    | MirInstructionKind::CodecEncode { adapter, .. }
+                    | MirInstructionKind::CodecDecode { adapter, .. } => {
+                        reachable.insert(*adapter);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+    for function in functions {
+        collect(&function.blocks);
+    }
+    for method in methods {
+        collect(&method.function.blocks);
+    }
+    for nested in nested_functions {
+        collect(&nested.blocks);
+    }
+    let adapters = hir
+        .generated_codec_adapters()
+        .iter()
+        .filter(|adapter| reachable.contains(&adapter.symbol()))
+        .map(|adapter| MirGeneratedCodecAdapter {
+            symbol: adapter.symbol(),
+            target: adapter.target(),
+            module: adapter.module(),
+            visibility: adapter.visibility(),
+            name: adapter.name().to_owned(),
+            target_name: adapter.target_name().to_owned(),
+            target_type: adapter.target_type(),
+            schema_type: adapter.schema_type(),
+            schema_version: adapter.schema_version(),
+            projection_sha256: adapter.projection_sha256().to_owned(),
+            members: adapter
+                .members()
+                .iter()
+                .map(|member| MirGeneratedCodecMember {
+                    ordinal: member.ordinal(),
+                    name: member.name().to_owned(),
+                    member: match member.member() {
+                        HirGeneratedCodecMemberId::Field(field) => {
+                            MirGeneratedCodecMemberId::Field(field)
+                        }
+                        HirGeneratedCodecMemberId::EnumCase(case) => {
+                            MirGeneratedCodecMemberId::EnumCase(case)
+                        }
+                        HirGeneratedCodecMemberId::UnionCase(case) => {
+                            MirGeneratedCodecMemberId::UnionCase(case)
+                        }
+                    },
+                    types: member.types().to_vec(),
+                    discriminant: member.discriminant(),
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    let mut functions = hir
+        .generated_codec_adapters()
+        .iter()
+        .filter(|adapter| reachable.contains(&adapter.symbol()))
+        .flat_map(|adapter| {
+            [
+                lower_generated_codec_entry(adapter.encode_entry()),
+                lower_generated_codec_entry(adapter.decode_entry()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    functions.sort_by_key(MirFunction::symbol);
+    (adapters, functions)
+}
+
+fn lower_generated_codec_entry(entry: &HirGeneratedCodecEntry) -> MirFunction {
+    let span = entry.provenance().attachment();
+    let arguments = entry
+        .parameters()
+        .iter()
+        .enumerate()
+        .map(|(index, type_id)| MirBlockArgument {
+            value: ValueId::from_raw(u32::try_from(index).unwrap_or(u32::MAX)),
+            type_id: *type_id,
+            span,
+        })
+        .collect::<Vec<_>>();
+    let result_value =
+        ValueId::from_raw(u32::try_from(entry.parameters().len()).unwrap_or(u32::MAX));
+    let kind = match entry.body() {
+        HirGeneratedCodecEntryBody::CodecEncode { adapter } => MirInstructionKind::CodecEncode {
+            adapter,
+            value: arguments[0].value(),
+            writer: arguments[1].value(),
+            result: BuiltinTypeId::from_raw(100),
+            success: ResultCaseId::from_raw(0),
+            failure: ResultCaseId::from_raw(1),
+        },
+        HirGeneratedCodecEntryBody::CodecDecode { adapter } => MirInstructionKind::CodecDecode {
+            adapter,
+            reader: arguments[0].value(),
+            result: BuiltinTypeId::from_raw(100),
+            success: ResultCaseId::from_raw(0),
+            failure: ResultCaseId::from_raw(1),
+        },
+    };
+    let instruction = MirInstruction {
+        result: result_value,
+        result_type: entry.results().first().copied(),
+        effects: local_instruction_effects(&kind),
+        effects_explicit: false,
+        unwind: MirUnwindAction::Propagate,
+        kind,
+        span,
+    };
+    MirFunction {
+        function: FunctionId::from_raw(entry.symbol().raw()),
+        symbol: entry.symbol(),
+        is_async: false,
+        parameters: entry.parameters().to_vec(),
+        parameter_view_borrows: vec![None; entry.parameters().len()],
+        results: entry.results().to_vec(),
+        lifetime_summary: pop_types::CallableLifetimeSummary::conservative(
+            entry.parameters().len(),
+            entry.results().len(),
+        ),
+        effects: lower_effect_summary(entry.effects()),
+        effects_explicit: false,
+        blocks: vec![MirBlock {
+            block: BlockId::from_raw(0),
+            cleanup: None,
+            arguments,
+            instructions: vec![instruction],
+            terminator: MirTerminator::Return {
+                values: vec![result_value],
+            },
+        }],
+    }
+}
+
+fn bind_call_lifetime_contracts(mir: &mut MirBubble, arena: &TypeArena) {
+    let local = mir
+        .functions
+        .iter()
+        .map(|function| (function.symbol, function.lifetime_summary.clone()))
+        .chain(mir.methods.iter().map(|method| {
+            (
+                method.function.symbol,
+                method.function.lifetime_summary.clone(),
+            )
+        }))
+        .collect::<BTreeMap<_, _>>();
+    let referenced = mir
+        .function_references
+        .iter()
+        .map(|function| (function.identity, function.lifetime_summary.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for function in &mut mir.functions {
+        bind_function_call_lifetimes(function, &local, &referenced, arena);
+    }
+    for method in &mut mir.methods {
+        bind_function_call_lifetimes(&mut method.function, &local, &referenced, arena);
+    }
+}
+
+fn bind_function_call_lifetimes(
+    function: &mut MirFunction,
+    local: &BTreeMap<SymbolId, pop_types::CallableLifetimeSummary>,
+    referenced: &BTreeMap<SymbolIdentity, pop_types::CallableLifetimeSummary>,
+    arena: &TypeArena,
+) {
+    let mut used = function
+        .parameter_view_borrows
+        .iter()
+        .filter_map(|borrow| borrow.as_ref().map(|borrow| borrow.borrow_lifetime()))
+        .chain(
+            function
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .filter_map(|instruction| created_view_lifetime(instruction.kind())),
+        )
+        .collect::<BTreeSet<_>>();
+    let mut next = 0_u32;
+    for block in &mut function.blocks {
+        for instruction in &mut block.instructions {
+            let result_kind = instruction
+                .result_type
+                .and_then(|type_id| arena.view_kind(type_id))
+                .map(|kind| match kind {
+                    pop_types::ViewKind::Bytes => MirViewKind::Bytes,
+                    pop_types::ViewKind::Text => MirViewKind::Text,
+                });
+            let contract = match &mut instruction.kind {
+                MirInstructionKind::CallDirect {
+                    function,
+                    lifetime_summary,
+                    view_result,
+                    ..
+                } => local
+                    .get(function)
+                    .map(|summary| (lifetime_summary, view_result, summary.clone())),
+                MirInstructionKind::CallReferenced {
+                    function,
+                    lifetime_summary,
+                    view_result,
+                    ..
+                } => referenced
+                    .get(function)
+                    .map(|summary| (lifetime_summary, view_result, summary.clone())),
+                _ => None,
+            };
+            let Some((lifetime_summary, view_result, exact)) = contract else {
+                continue;
+            };
+            *lifetime_summary = exact.clone();
+            *view_result = result_kind.and_then(|kind| {
+                let ResultProvenance::ReturnsAlias(source) = exact.result_provenance().first()?
+                else {
+                    return None;
+                };
+                while used.contains(&LifetimeId::from_raw(next)) {
+                    next = next.saturating_add(1);
+                }
+                let lifetime = LifetimeId::from_raw(next);
+                next = next.saturating_add(1);
+                used.insert(lifetime);
+                Some(MirCallViewResult::new(kind, *source, lifetime))
+            });
+        }
+    }
+    for block in &mut function.blocks {
+        block.instructions.retain(|instruction| {
+            !matches!(instruction.kind(), MirInstructionKind::ViewEnd { .. })
+        });
+    }
+    insert_view_end_frontiers(function);
+}
+
+fn lower_nominal_reference_catalog(
+    catalog: &pop_hir::HirNominalReferenceCatalog,
+) -> MirNominalReferenceCatalog {
+    let interfaces = catalog
+        .interfaces()
+        .iter()
+        .map(|reference| {
+            MirInterfaceReference::new(
+                MirNominalIdentity::new(
+                    reference.identity().definition(),
+                    reference.identity().arguments().to_vec(),
+                    reference.identity().canonical().arguments().to_vec(),
+                ),
+                reference.interface(),
+                reference.type_id(),
+            )
+        })
+        .collect();
+    let classes = catalog
+        .classes()
+        .iter()
+        .map(|reference| {
+            MirClassReference::new(
+                MirNominalIdentity::new(
+                    reference.identity().definition(),
+                    reference.identity().arguments().to_vec(),
+                    reference.identity().canonical().arguments().to_vec(),
+                ),
+                reference.class(),
+                reference.type_id(),
+                reference.is_open(),
+                reference.base().zip(reference.base_type()),
+                reference
+                    .interfaces()
+                    .iter()
+                    .map(|interface| {
+                        MirInterfaceReference::new(
+                            MirNominalIdentity::new(
+                                interface.identity().definition(),
+                                interface.identity().arguments().to_vec(),
+                                interface.identity().canonical().arguments().to_vec(),
+                            ),
+                            interface.interface(),
+                            interface.type_id(),
+                        )
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    MirNominalReferenceCatalog::new(interfaces, classes)
 }
 
 fn source_ffi_layout_catalog(
@@ -393,15 +682,86 @@ fn source_ffi_layout_catalog(
             _ => {}
         }
     }
-    if !buffer_elements.is_empty() && fingerprint.is_none() {
+    let mut foreign_record_elements = BTreeMap::new();
+    for (abi, type_id) in hir.foreign_functions().iter().flat_map(|function| {
+        function
+            .parameters()
+            .iter()
+            .map(pop_hir::HirParameter::type_id)
+            .chain(function.results().iter().copied())
+            .map(move |type_id| (function.declaration().abi(), type_id))
+    }) {
+        if matches!(arena.get(type_id), Some(SemanticType::Record(_))) {
+            foreign_record_elements.insert((type_id, foreign_abi_key(abi)), abi);
+        }
+    }
+    for (abi, type_id) in hir.function_references().iter().flat_map(|reference| {
+        reference
+            .foreign_declaration()
+            .into_iter()
+            .flat_map(move |declaration| {
+                reference
+                    .parameters()
+                    .iter()
+                    .chain(reference.results())
+                    .copied()
+                    .map(move |type_id| (declaration.abi(), type_id))
+            })
+    }) {
+        if matches!(arena.get(type_id), Some(SemanticType::Record(_))) {
+            foreign_record_elements.insert((type_id, foreign_abi_key(abi)), abi);
+        }
+    }
+    for function in hir.foreign_functions() {
+        collect_callback_record_elements(
+            &function
+                .parameters()
+                .iter()
+                .map(pop_hir::HirParameter::type_id)
+                .collect::<Vec<_>>(),
+            function.declaration(),
+            arena,
+            &mut foreign_record_elements,
+        );
+    }
+    for reference in hir.function_references() {
+        if let Some(declaration) = reference.foreign_declaration() {
+            collect_callback_record_elements(
+                reference.parameters(),
+                declaration,
+                arena,
+                &mut foreign_record_elements,
+            );
+        }
+    }
+    if (!buffer_elements.is_empty()
+        || !foreign_record_elements.is_empty()
+        || hir
+            .reference_ffi_layout_catalog()
+            .is_some_and(|catalog| !catalog.entries().is_empty()))
+        && fingerprint.is_none()
+    {
         return Err(vec![MirVerificationError::MissingFfiLayoutFingerprint]);
     }
     let provisional = fingerprint.is_none() && !pointer_elements.is_empty();
-    let elements = buffer_elements
-        .into_iter()
-        .chain(pointer_elements)
-        .collect::<BTreeSet<_>>();
-    if elements.is_empty() {
+    let mut elements = BTreeMap::new();
+    for element in buffer_elements.into_iter().chain(pointer_elements) {
+        elements.insert(
+            (element, foreign_abi_key(pop_types::ForeignAbi::C)),
+            pop_types::ForeignAbi::C,
+        );
+    }
+    elements.extend(foreign_record_elements);
+    let imported_catalog = hir.reference_ffi_layout_catalog();
+    if imported_catalog.is_some_and(|catalog| catalog.target() != target.triple()) {
+        return Err(vec![MirVerificationError::InvalidFfiLayoutCatalog]);
+    }
+    if let Some(imported) = imported_catalog {
+        for entry in imported.entries() {
+            elements.remove(&(entry.element(), foreign_abi_key(entry.abi())));
+        }
+    }
+    if elements.is_empty() && imported_catalog.is_none_or(|catalog| catalog.entries().is_empty()) {
         return Ok((MirFfiLayoutCatalog::empty(target), false));
     }
     let trusted_records = hir
@@ -417,9 +777,10 @@ fn source_ffi_layout_catalog(
     let mut entries = Vec::new();
     let mut by_type = BTreeMap::new();
     let mut next_id = 1;
-    for element in elements {
+    for ((element, _), abi) in elements {
         ensure_source_ffi_layout(
             element,
+            abi,
             arena,
             target,
             &trusted_records,
@@ -428,6 +789,56 @@ fn source_ffi_layout_catalog(
             &mut next_id,
         )
         .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+    }
+    let mut imported_identities = BTreeMap::new();
+    if let Some(imported) = imported_catalog {
+        for entry in imported.entries() {
+            let original = FfiAbiLayoutId::new(entry.id())
+                .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+            let provisional = FfiAbiLayoutId::new(next_id)
+                .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+            next_id = next_id.saturating_add(1);
+            if imported_identities.insert(original, provisional).is_some() {
+                return Err(vec![MirVerificationError::InvalidFfiLayoutCatalog]);
+            }
+        }
+        for entry in imported.entries() {
+            let original = FfiAbiLayoutId::new(entry.id())
+                .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+            let provisional = imported_identities[&original];
+            let value_class = match entry.value_class() {
+                pop_hir::HirFfiValueClass::Integer => MirFfiValueClass::Integer,
+                pop_hir::HirFfiValueClass::Float => MirFfiValueClass::Float,
+                pop_hir::HirFfiValueClass::Pointer => MirFfiValueClass::Pointer,
+                pop_hir::HirFfiValueClass::FunctionPointer => MirFfiValueClass::FunctionPointer,
+                pop_hir::HirFfiValueClass::Handle => MirFfiValueClass::Handle,
+                pop_hir::HirFfiValueClass::Record(fields) => MirFfiValueClass::Record(
+                    fields
+                        .iter()
+                        .map(|field| {
+                            let child = FfiAbiLayoutId::new(field.layout())
+                                .and_then(|child| imported_identities.get(&child).copied())?;
+                            Some(MirFfiLayoutField::new_named(
+                                field.field(),
+                                field.name(),
+                                field.source_index(),
+                                child,
+                                field.offset(),
+                            ))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?,
+                ),
+            };
+            entries.push(MirFfiLayout::new_for_abi(
+                provisional,
+                entry.element(),
+                entry.size(),
+                entry.alignment(),
+                value_class,
+                entry.abi(),
+            ));
+        }
     }
     let catalog = if let Some(fingerprint) = fingerprint {
         MirFfiLayoutCatalog::new(target, entries, arena, fingerprint)
@@ -440,7 +851,92 @@ fn source_ffi_layout_catalog(
         })
     }
     .map_err(|_| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+    if let Some(imported) = imported_catalog {
+        for expected in imported.entries() {
+            let id = FfiAbiLayoutId::new(expected.id())
+                .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+            let actual = catalog
+                .get(id)
+                .ok_or_else(|| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+            if actual.element() != expected.element()
+                || actual.size() != expected.size()
+                || actual.alignment() != expected.alignment()
+                || actual.abi() != expected.abi()
+                || actual.descriptor() != expected.descriptor()
+                || actual.fingerprint() != expected.fingerprint()
+                || !imported_value_class_matches(actual.value_class(), expected.value_class())
+            {
+                return Err(vec![MirVerificationError::InvalidFfiLayoutCatalog]);
+            }
+        }
+    }
     Ok((catalog, provisional))
+}
+
+fn collect_callback_record_elements(
+    foreign_parameters: &[TypeId],
+    declaration: &pop_types::ForeignFunctionDeclaration,
+    arena: &TypeArena,
+    output: &mut BTreeMap<(TypeId, u8), pop_types::ForeignAbi>,
+) {
+    for contract in declaration.callback_pairs() {
+        let Some(callback_parameter) =
+            foreign_parameters.get(usize::from(contract.callback_parameter_index()))
+        else {
+            continue;
+        };
+        let Some(SemanticType::Builtin {
+            definition,
+            arguments,
+        }) = arena.get(*callback_parameter)
+        else {
+            continue;
+        };
+        if !is_ffi_function_type_constructor(*definition) || arguments.len() != 1 {
+            continue;
+        }
+        let Some(SemanticType::Function {
+            parameters,
+            results,
+            ..
+        }) = arena.get(arguments[0])
+        else {
+            continue;
+        };
+        let abi = match contract.callback_abi() {
+            pop_types::FfiCallbackAbi::C => pop_types::ForeignAbi::C,
+            pop_types::FfiCallbackAbi::System => pop_types::ForeignAbi::System,
+        };
+        for type_id in parameters.iter().chain(results).copied() {
+            if matches!(arena.get(type_id), Some(SemanticType::Record(_))) {
+                output.insert((type_id, foreign_abi_key(abi)), abi);
+            }
+        }
+    }
+}
+
+fn imported_value_class_matches(
+    actual: &MirFfiValueClass,
+    expected: &pop_hir::HirFfiValueClass,
+) -> bool {
+    match (actual, expected) {
+        (MirFfiValueClass::Integer, pop_hir::HirFfiValueClass::Integer)
+        | (MirFfiValueClass::Float, pop_hir::HirFfiValueClass::Float)
+        | (MirFfiValueClass::Pointer, pop_hir::HirFfiValueClass::Pointer)
+        | (MirFfiValueClass::FunctionPointer, pop_hir::HirFfiValueClass::FunctionPointer)
+        | (MirFfiValueClass::Handle, pop_hir::HirFfiValueClass::Handle) => true,
+        (MirFfiValueClass::Record(actual), pop_hir::HirFfiValueClass::Record(expected)) => {
+            actual.len() == expected.len()
+                && actual.iter().zip(expected).all(|(actual, expected)| {
+                    actual.field() == expected.field()
+                        && actual.name() == Some(expected.name())
+                        && actual.source_index() == expected.source_index()
+                        && actual.layout().raw() == expected.layout()
+                        && actual.offset() == expected.offset()
+                })
+        }
+        _ => false,
+    }
 }
 
 fn mir_uses_ffi_unsafe_memory(mir: &MirBubble) -> bool {
@@ -468,19 +964,21 @@ fn mir_uses_ffi_unsafe_memory(mir: &MirBubble) -> bool {
 
 fn ensure_source_ffi_layout(
     element: TypeId,
+    abi: pop_types::ForeignAbi,
     arena: &TypeArena,
     target: &TargetSpec,
     trusted_records: &BTreeMap<TypeId, &pop_hir::HirRecordDeclaration>,
     entries: &mut Vec<MirFfiLayout>,
-    by_type: &mut BTreeMap<TypeId, FfiAbiLayoutId>,
+    by_type: &mut BTreeMap<(TypeId, u8), FfiAbiLayoutId>,
     next_id: &mut u64,
 ) -> Option<FfiAbiLayoutId> {
-    if let Some(layout) = by_type.get(&element) {
+    let key = (element, foreign_abi_key(abi));
+    if let Some(layout) = by_type.get(&key) {
         return Some(*layout);
     }
     let provisional = FfiAbiLayoutId::new(*next_id)?;
     *next_id = next_id.checked_add(1)?;
-    by_type.insert(element, provisional);
+    by_type.insert(key, provisional);
     let (size, alignment, value_class) = match arena.get(element)? {
         SemanticType::Primitive(PrimitiveType::Integer(kind)) => {
             let size = u64::from(kind.bit_width()) / 8;
@@ -520,14 +1018,16 @@ fn ensure_source_ffi_layout(
             let mut offset = 0_u64;
             let mut alignment = 1_u64;
             let mut fields = Vec::with_capacity(semantic_fields.len());
-            for (index, ((_, field_type), field)) in
-                semantic_fields.iter().zip(record.fields()).enumerate()
-            {
-                if *field_type != field.field_type() {
+            for (source_index, field) in record.fields().iter().enumerate() {
+                let field_type = semantic_fields
+                    .iter()
+                    .find_map(|(name, field_type)| (name == field.name()).then_some(*field_type))?;
+                if field_type != field.field_type() {
                     return None;
                 }
                 let child = ensure_source_ffi_layout(
-                    *field_type,
+                    field_type,
+                    abi,
                     arena,
                     target,
                     trusted_records,
@@ -538,9 +1038,10 @@ fn ensure_source_ffi_layout(
                 let child_layout = entries.iter().find(|entry| entry.id() == child)?;
                 alignment = alignment.max(child_layout.alignment());
                 offset = align_ffi_offset(offset, child_layout.alignment())?;
-                fields.push(MirFfiLayoutField::new(
+                fields.push(MirFfiLayoutField::new_named(
                     field.field(),
-                    u32::try_from(index).ok()?,
+                    field.name(),
+                    u32::try_from(source_index).ok()?,
                     child,
                     offset,
                 ));
@@ -551,14 +1052,67 @@ fn ensure_source_ffi_layout(
         }
         _ => return None,
     };
-    entries.push(MirFfiLayout::new(
+    entries.push(MirFfiLayout::new_for_abi(
         provisional,
         element,
         size,
         alignment,
         value_class,
+        abi,
     ));
     Some(provisional)
+}
+
+const fn foreign_abi_key(abi: pop_types::ForeignAbi) -> u8 {
+    match abi {
+        pop_types::ForeignAbi::C => 0,
+        pop_types::ForeignAbi::System => 1,
+        pop_types::ForeignAbi::CUnwind => 2,
+    }
+}
+
+fn bind_foreign_layouts(
+    functions: &mut [MirForeignFunction],
+    catalog: &MirFfiLayoutCatalog,
+    arena: &TypeArena,
+) -> Result<(), Vec<MirVerificationError>> {
+    for function in functions {
+        let abi = function.declaration().abi();
+        function.parameter_layouts = function
+            .parameters
+            .iter()
+            .map(|type_id| foreign_layout_binding(*type_id, abi, catalog, arena))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|()| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+        function.result_layouts = function
+            .results
+            .iter()
+            .map(|type_id| foreign_layout_binding(*type_id, abi, catalog, arena))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|()| vec![MirVerificationError::InvalidFfiLayoutCatalog])?;
+    }
+    Ok(())
+}
+
+fn foreign_layout_binding(
+    type_id: TypeId,
+    abi: pop_types::ForeignAbi,
+    catalog: &MirFfiLayoutCatalog,
+    arena: &TypeArena,
+) -> Result<Option<FfiAbiLayoutId>, ()> {
+    if !matches!(arena.get(type_id), Some(SemanticType::Record(_))) {
+        return Ok(None);
+    }
+    catalog
+        .entries()
+        .iter()
+        .find(|entry| {
+            entry.element() == type_id
+                && entry.abi() == abi
+                && matches!(entry.value_class(), MirFfiValueClass::Record(_))
+        })
+        .map(|entry| Some(entry.id()))
+        .ok_or(())
 }
 
 fn align_ffi_offset(offset: u64, alignment: u64) -> Option<u64> {
@@ -617,12 +1171,14 @@ fn rewrite_foreign_calls(
                 arguments,
                 declared_effects,
                 unwind,
+                ..
             } if foreign.contains(&function) => (function, arguments, declared_effects, unwind),
             MirInstructionKind::CallReferenced {
                 function,
                 arguments,
                 declared_effects,
                 unwind,
+                ..
             } if referenced_foreign_symbols.contains_key(&function) => (
                 referenced_foreign_symbols[&function],
                 arguments,
@@ -1018,6 +1574,56 @@ fn seal_nested_effects(function: &mut MirNestedFunction) {
     }
 }
 
+fn remove_inactive_view_ends(function: &mut MirFunction) {
+    let entry = function.blocks().first().map(MirBlock::block);
+    let initial = function
+        .parameter_view_borrows()
+        .iter()
+        .filter_map(|borrow| borrow.as_ref().map(|borrow| borrow.borrow_lifetime()))
+        .collect::<BTreeSet<_>>();
+    let mut incoming = entry
+        .map(|entry| (entry, initial))
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = entry.into_iter().collect::<Vec<_>>();
+    while let Some(block_id) = pending.pop() {
+        let Some(block) = function
+            .blocks()
+            .iter()
+            .find(|block| block.block() == block_id)
+        else {
+            continue;
+        };
+        let mut active = incoming.get(&block_id).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+                active.insert(lifetime);
+            } else if let MirInstructionKind::ViewEnd { borrow_lifetime } = instruction.kind() {
+                active.remove(borrow_lifetime);
+            }
+            if let Some(target) = instruction_unwind_target(instruction) {
+                merge_view_frontier_state(target, &active, &mut incoming, &mut pending);
+            }
+        }
+        for target in terminator_targets(block.terminator()) {
+            merge_view_frontier_state(target, &active, &mut incoming, &mut pending);
+        }
+    }
+    for block in &mut function.blocks {
+        let mut active = incoming.get(&block.block()).cloned().unwrap_or_default();
+        block.instructions.retain(|instruction| {
+            if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+                active.insert(lifetime);
+                true
+            } else if let MirInstructionKind::ViewEnd { borrow_lifetime } = instruction.kind() {
+                active.remove(borrow_lifetime)
+            } else {
+                true
+            }
+        });
+    }
+}
+
 fn seal_function_effects(function: &mut MirFunction) {
     function.effects_explicit = true;
     for block in &mut function.blocks {
@@ -1083,8 +1689,11 @@ fn lower_declaration(declaration: &HirDeclaration) -> Option<MirDeclaration> {
                 .collect(),
         }),
         HirDeclarationKind::Class(class) => MirDeclarationKind::Class(MirClassDeclaration {
+            definition: class.definition(),
             class: class.class(),
             type_id: class.type_id(),
+            is_open: class.is_open(),
+            base: None,
             fields: class
                 .fields()
                 .iter()
@@ -1148,6 +1757,7 @@ fn lower_declaration(declaration: &HirDeclaration) -> Option<MirDeclaration> {
                             .map(pop_hir::HirNamedType::type_id)
                             .collect(),
                         results: method.results().to_vec(),
+                        effects: lower_effect_summary(method.effects()),
                     })
                     .collect(),
             })
@@ -1167,6 +1777,10 @@ fn lower_function(
     reference_effects: &BTreeMap<SymbolIdentity, MirEffectSummary>,
     function_effects: &BTreeMap<SymbolId, MirEffectSummary>,
     method_effects: &BTreeMap<MethodId, MirEffectSummary>,
+    builtin_interface_effects: &BTreeMap<
+        (BuiltinTypeId, IterationProtocolMethodId),
+        MirEffectSummary,
+    >,
     ffi_layouts: &MirFfiLayoutCatalog,
 ) -> (MirFunction, Vec<MirNestedFunction>) {
     let (mut lowered, nested) = FunctionBuilder::new(
@@ -1176,11 +1790,253 @@ fn lower_function(
         reference_effects,
         function_effects,
         method_effects,
+        builtin_interface_effects,
         ffi_layouts,
     )
     .lower();
     lowered.function = function.function();
+    lowered.lifetime_summary = function.lifetime_summary().clone();
+    insert_view_end_frontiers(&mut lowered);
     (lowered, nested)
+}
+
+fn insert_view_end_frontiers(function: &mut MirFunction) {
+    let (_, _, live_out) = live_value_facts(function);
+    let mut lifetime_views = BTreeMap::<pop_foundation::LifetimeId, BTreeSet<ValueId>>::new();
+    let mut parents =
+        BTreeMap::<pop_foundation::LifetimeId, Option<pop_foundation::LifetimeId>>::new();
+    let mut view_lifetimes = BTreeMap::<ValueId, pop_foundation::LifetimeId>::new();
+    let mut call_sources = Vec::new();
+    for block in function.blocks() {
+        for instruction in block.instructions() {
+            let (lifetime, parent) = match instruction.kind() {
+                MirInstructionKind::ViewCreate {
+                    borrow_lifetime, ..
+                } => (*borrow_lifetime, None),
+                MirInstructionKind::ViewSlice {
+                    borrow_lifetime,
+                    parent_lifetime,
+                    ..
+                } => (*borrow_lifetime, Some(*parent_lifetime)),
+                MirInstructionKind::CallDirect {
+                    arguments,
+                    view_result: Some(result),
+                    ..
+                }
+                | MirInstructionKind::CallReferenced {
+                    arguments,
+                    view_result: Some(result),
+                    ..
+                } => {
+                    if let Some(source) = arguments.get(usize::from(result.source_argument())) {
+                        call_sources.push((result.borrow_lifetime(), *source));
+                    }
+                    (result.borrow_lifetime(), None)
+                }
+                _ => continue,
+            };
+            parents.insert(lifetime, parent);
+            lifetime_views
+                .entry(lifetime)
+                .or_default()
+                .insert(instruction.result());
+            view_lifetimes.insert(instruction.result(), lifetime);
+        }
+    }
+    if let Some(entry) = function.blocks().first() {
+        for (argument, borrow) in entry
+            .arguments()
+            .iter()
+            .zip(function.parameter_view_borrows())
+        {
+            if let Some(borrow) = borrow {
+                lifetime_views
+                    .entry(borrow.borrow_lifetime())
+                    .or_default()
+                    .insert(argument.value());
+                parents.entry(borrow.borrow_lifetime()).or_insert(None);
+                view_lifetimes.insert(argument.value(), borrow.borrow_lifetime());
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in function.blocks() {
+            if let MirTerminator::Branch { target, arguments } = block.terminator()
+                && let Some(target) = function
+                    .blocks()
+                    .iter()
+                    .find(|block| block.block() == *target)
+            {
+                for (source, target) in arguments.iter().zip(target.arguments()) {
+                    if let Some(lifetime) = view_lifetimes.get(source).copied()
+                        && view_lifetimes.insert(target.value(), lifetime) != Some(lifetime)
+                    {
+                        lifetime_views
+                            .entry(lifetime)
+                            .or_default()
+                            .insert(target.value());
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    for (lifetime, source) in call_sources {
+        if let Some(parent) = view_lifetimes.get(&source).copied() {
+            parents.insert(lifetime, Some(parent));
+        }
+    }
+
+    let entry = function.blocks().first().map(MirBlock::block);
+    let initial = function
+        .parameter_view_borrows()
+        .iter()
+        .filter_map(|borrow| borrow.as_ref().map(|borrow| borrow.borrow_lifetime()))
+        .collect::<BTreeSet<_>>();
+    let mut incoming = entry
+        .map(|entry| (entry, initial))
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = entry.into_iter().collect::<Vec<_>>();
+    while let Some(block_id) = pending.pop() {
+        let Some(block) = function
+            .blocks()
+            .iter()
+            .find(|block| block.block() == block_id)
+        else {
+            continue;
+        };
+        let mut active = incoming.get(&block_id).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+                active.insert(lifetime);
+            }
+            if let Some(target) = instruction_unwind_target(instruction) {
+                merge_view_frontier_state(target, &active, &mut incoming, &mut pending);
+            }
+        }
+        for target in terminator_targets(block.terminator()) {
+            merge_view_frontier_state(target, &active, &mut incoming, &mut pending);
+        }
+    }
+
+    let mut next_value = function
+        .blocks()
+        .iter()
+        .flat_map(|block| {
+            block
+                .arguments()
+                .iter()
+                .map(|argument| argument.value())
+                .chain(block.instructions().iter().map(MirInstruction::result))
+        })
+        .map(ValueId::raw)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    for block in &mut function.blocks {
+        let mut active = incoming.get(&block.block()).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+                active.insert(lifetime);
+            }
+        }
+        let exits = terminator_targets(block.terminator()).is_empty()
+            || matches!(block.terminator(), MirTerminator::Suspend { .. });
+        let live = live_out.get(&block.block()).cloned().unwrap_or_default();
+        let mut ending = active
+            .iter()
+            .copied()
+            .filter(|lifetime| {
+                exits
+                    || !lifetime_views
+                        .get(lifetime)
+                        .is_some_and(|views| views.iter().any(|view| live.contains(view)))
+            })
+            .collect::<Vec<_>>();
+        ending.sort_by_key(|lifetime| std::cmp::Reverse(view_lifetime_depth(*lifetime, &parents)));
+        for borrow_lifetime in ending {
+            block.instructions.push(MirInstruction {
+                result: ValueId::from_raw(next_value),
+                result_type: None,
+                kind: MirInstructionKind::ViewEnd { borrow_lifetime },
+                effects: MirEffectSummary::empty(),
+                effects_explicit: false,
+                span: SourceSpan::new(FileId::from_raw(0), TextRange::empty(TextSize::from_u32(0))),
+                unwind: MirUnwindAction::Propagate,
+            });
+            next_value = next_value.saturating_add(1);
+        }
+    }
+    remove_inactive_view_ends(function);
+}
+
+fn created_view_lifetime(kind: &MirInstructionKind) -> Option<pop_foundation::LifetimeId> {
+    match kind {
+        MirInstructionKind::ViewCreate {
+            borrow_lifetime, ..
+        }
+        | MirInstructionKind::ViewSlice {
+            borrow_lifetime, ..
+        } => Some(*borrow_lifetime),
+        MirInstructionKind::CallDirect {
+            view_result: Some(result),
+            ..
+        }
+        | MirInstructionKind::CallReferenced {
+            view_result: Some(result),
+            ..
+        } => Some(result.borrow_lifetime()),
+        _ => None,
+    }
+}
+
+fn merge_view_frontier_state(
+    target: BlockId,
+    active: &BTreeSet<pop_foundation::LifetimeId>,
+    incoming: &mut BTreeMap<BlockId, BTreeSet<pop_foundation::LifetimeId>>,
+    pending: &mut Vec<BlockId>,
+) {
+    let target_state = incoming.entry(target).or_default();
+    let previous = target_state.len();
+    target_state.extend(active.iter().copied());
+    if target_state.len() != previous {
+        pending.push(target);
+    }
+}
+
+fn view_lifetime_depth(
+    mut lifetime: pop_foundation::LifetimeId,
+    parents: &BTreeMap<pop_foundation::LifetimeId, Option<pop_foundation::LifetimeId>>,
+) -> usize {
+    let mut depth = 0;
+    while let Some(Some(parent)) = parents.get(&lifetime) {
+        depth += 1;
+        lifetime = *parent;
+    }
+    depth
+}
+
+fn collect_builtin_interface_effects()
+-> BTreeMap<(BuiltinTypeId, IterationProtocolMethodId), MirEffectSummary> {
+    let mut effects = BTreeMap::new();
+    if let Some(protocol) = pop_types::embedded_bootstrap_schema()
+        .ok()
+        .and_then(|schema| schema.iteration_protocol())
+    {
+        for (interface, method) in [
+            (protocol.iterable(), protocol.iterator_method()),
+            (protocol.iterator(), protocol.iterator_method()),
+            (protocol.iterator(), protocol.next_method()),
+        ] {
+            if let Some(summary) = protocol.method_effects(interface, method) {
+                effects.insert((interface, method), lower_effect_summary(summary));
+            }
+        }
+    }
+    effects
 }
 
 struct LoweringGcSchema {
@@ -1236,6 +2092,11 @@ enum CleanupAction<'hir> {
     },
     FfiBytesBorrow {
         bytes: ValueId,
+        region: BorrowRegionId,
+        span: SourceSpan,
+    },
+    FfiCallback {
+        callback: ValueId,
         region: BorrowRegionId,
         span: SourceSpan,
     },
@@ -1303,6 +2164,8 @@ struct FunctionBuilder<'hir> {
     reference_effects: &'hir BTreeMap<SymbolIdentity, MirEffectSummary>,
     function_effects: &'hir BTreeMap<SymbolId, MirEffectSummary>,
     method_effects: &'hir BTreeMap<MethodId, MirEffectSummary>,
+    builtin_interface_effects:
+        &'hir BTreeMap<(BuiltinTypeId, IterationProtocolMethodId), MirEffectSummary>,
     ffi_layouts: &'hir MirFfiLayoutCatalog,
     blocks: Vec<BuildingBlock>,
     current: BlockId,
@@ -1448,6 +2311,14 @@ fn visit_statement_closures(
                 }
             }
         }
+        HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
+            visit_expression_closures(scrutinee, parameters, locals);
+            for arm in arms {
+                for nested in arm.body() {
+                    visit_statement_closures(nested, parameters, locals);
+                }
+            }
+        }
         HirStatementKind::Defer { body } | HirStatementKind::AsyncDefer { body } => {
             for nested in body {
                 visit_statement_closures(nested, parameters, locals);
@@ -1549,6 +2420,9 @@ fn contains_continue_for_current_loop(statements: &[HirStatement]) -> bool {
         HirStatementKind::ResultMatch { arms, .. } => arms
             .iter()
             .any(|arm| contains_continue_for_current_loop(arm.body())),
+        HirStatementKind::CodecErrorMatch { arms, .. } => arms
+            .iter()
+            .any(|arm| contains_continue_for_current_loop(arm.body())),
         HirStatementKind::Defer { body } | HirStatementKind::AsyncDefer { body } => {
             contains_continue_for_current_loop(body)
         }
@@ -1622,9 +2496,64 @@ fn visit_expression_closures(
                 }
             }
         }
+        HirExpressionKind::FfiWithCallback { callback, body, .. } => {
+            for closure in [callback, body] {
+                for capture in closure.captures() {
+                    if capture.mode() != HirCaptureMode::Cell {
+                        continue;
+                    }
+                    match capture.source() {
+                        HirCaptureSource::Local(local) => {
+                            locals.insert(local);
+                        }
+                        HirCaptureSource::Parameter(parameter) => {
+                            parameters.insert(parameter);
+                        }
+                        HirCaptureSource::Capture(_) => {}
+                    }
+                }
+            }
+        }
+        HirExpressionKind::FfiCallbackOpen { callback, .. } => {
+            for capture in callback.captures() {
+                if capture.mode() != HirCaptureMode::Cell {
+                    continue;
+                }
+                match capture.source() {
+                    HirCaptureSource::Local(local) => {
+                        locals.insert(local);
+                    }
+                    HirCaptureSource::Parameter(parameter) => {
+                        parameters.insert(parameter);
+                    }
+                    HirCaptureSource::Capture(_) => {}
+                }
+            }
+        }
+        HirExpressionKind::FfiCallbackWithPair { callback, body, .. } => {
+            visit_expression_closures(callback, parameters, locals);
+            for capture in body.captures() {
+                if capture.mode() != HirCaptureMode::Cell {
+                    continue;
+                }
+                match capture.source() {
+                    HirCaptureSource::Local(local) => {
+                        locals.insert(local);
+                    }
+                    HirCaptureSource::Parameter(parameter) => {
+                        parameters.insert(parameter);
+                    }
+                    HirCaptureSource::Capture(_) => {}
+                }
+            }
+        }
+        HirExpressionKind::FfiCallbackClose { callback, .. } => {
+            visit_expression_closures(callback, parameters, locals);
+        }
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::TupleGet { tuple: base, .. }
         | HirExpressionKind::InterfaceUpcast { value: base, .. }
+        | HirExpressionKind::CheckedNominalCast { value: base, .. }
         | HirExpressionKind::NumericConvert { value: base, .. }
         | HirExpressionKind::StringFormat { value: base, .. } => {
             visit_expression_closures(base, parameters, locals);
@@ -1812,6 +2741,25 @@ fn visit_expression_closures(
                 visit_expression_closures(argument, parameters, locals);
             }
         }
+        HirExpressionKind::ViewCreate { lender, .. }
+        | HirExpressionKind::ViewLength { view: lender, .. }
+        | HirExpressionKind::ViewMaterialize { view: lender, .. } => {
+            visit_expression_closures(lender, parameters, locals);
+        }
+        HirExpressionKind::ViewSlice {
+            view,
+            start,
+            length,
+            ..
+        } => {
+            visit_expression_closures(view, parameters, locals);
+            visit_expression_closures(start, parameters, locals);
+            visit_expression_closures(length, parameters, locals);
+        }
+        HirExpressionKind::ViewGetByte { view, index } => {
+            visit_expression_closures(view, parameters, locals);
+            visit_expression_closures(index, parameters, locals);
+        }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
         | HirExpressionKind::String(_)
@@ -1821,6 +2769,8 @@ fn visit_expression_closures(
         | HirExpressionKind::Parameter(_)
         | HirExpressionKind::Capture(_)
         | HirExpressionKind::Function(_)
+        | HirExpressionKind::CodecErrorCase(_)
+        | HirExpressionKind::GeneratedCodecSchema(_)
         | HirExpressionKind::TaskCancellationSource
         | HirExpressionKind::FfiPointerNone { .. } => {}
         HirExpressionKind::EnumCase { .. } => {}
@@ -1835,6 +2785,10 @@ impl<'hir> FunctionBuilder<'hir> {
         reference_effects: &'hir BTreeMap<SymbolIdentity, MirEffectSummary>,
         function_effects: &'hir BTreeMap<SymbolId, MirEffectSummary>,
         method_effects: &'hir BTreeMap<MethodId, MirEffectSummary>,
+        builtin_interface_effects: &'hir BTreeMap<
+            (BuiltinTypeId, IterationProtocolMethodId),
+            MirEffectSummary,
+        >,
         ffi_layouts: &'hir MirFfiLayoutCatalog,
     ) -> Self {
         let parameter_specs: Vec<_> = hir
@@ -1854,6 +2808,7 @@ impl<'hir> FunctionBuilder<'hir> {
             reference_effects,
             function_effects,
             method_effects,
+            builtin_interface_effects,
             ffi_layouts,
         )
     }
@@ -1866,6 +2821,10 @@ impl<'hir> FunctionBuilder<'hir> {
         reference_effects: &'hir BTreeMap<SymbolIdentity, MirEffectSummary>,
         function_effects: &'hir BTreeMap<SymbolId, MirEffectSummary>,
         method_effects: &'hir BTreeMap<MethodId, MirEffectSummary>,
+        builtin_interface_effects: &'hir BTreeMap<
+            (BuiltinTypeId, IterationProtocolMethodId),
+            MirEffectSummary,
+        >,
         ffi_layouts: &'hir MirFfiLayoutCatalog,
     ) -> Self {
         let parameter_specs = closure
@@ -1905,6 +2864,7 @@ impl<'hir> FunctionBuilder<'hir> {
             reference_effects,
             function_effects,
             method_effects,
+            builtin_interface_effects,
             ffi_layouts,
         )
     }
@@ -1922,6 +2882,10 @@ impl<'hir> FunctionBuilder<'hir> {
         reference_effects: &'hir BTreeMap<SymbolIdentity, MirEffectSummary>,
         function_effects: &'hir BTreeMap<SymbolId, MirEffectSummary>,
         method_effects: &'hir BTreeMap<MethodId, MirEffectSummary>,
+        builtin_interface_effects: &'hir BTreeMap<
+            (BuiltinTypeId, IterationProtocolMethodId),
+            MirEffectSummary,
+        >,
         ffi_layouts: &'hir MirFfiLayoutCatalog,
     ) -> Self {
         let mut arguments = Vec::new();
@@ -1951,6 +2915,7 @@ impl<'hir> FunctionBuilder<'hir> {
             reference_effects,
             function_effects,
             method_effects,
+            builtin_interface_effects,
             ffi_layouts,
             blocks: vec![BuildingBlock {
                 cleanup: None,
@@ -2000,12 +2965,49 @@ impl<'hir> FunctionBuilder<'hir> {
                 terminator: block.terminator,
             })
             .collect();
+        let parameter_view_borrows = self
+            .parameters_schema
+            .iter()
+            .enumerate()
+            .map(|(index, type_id)| {
+                let kind = match self.arena.get(*type_id) {
+                    Some(SemanticType::Builtin {
+                        definition,
+                        arguments,
+                    }) if arguments.is_empty() && *definition == pop_types::BYTES_VIEW_TYPE_ID => {
+                        MirViewKind::Bytes
+                    }
+                    Some(SemanticType::Builtin {
+                        definition,
+                        arguments,
+                    }) if arguments.is_empty() && *definition == pop_types::TEXT_VIEW_TYPE_ID => {
+                        MirViewKind::Text
+                    }
+                    _ => return None,
+                };
+                Some(MirViewParameterBorrow::new(
+                    kind,
+                    MirViewLender::Parameter {
+                        index: u32::try_from(index).unwrap_or(u32::MAX),
+                    },
+                    pop_foundation::LifetimeId::from_raw(
+                        u32::MAX.saturating_sub(u32::try_from(index).unwrap_or(u32::MAX)),
+                    ),
+                ))
+            })
+            .collect();
+        let lifetime_summary = pop_types::CallableLifetimeSummary::conservative(
+            self.parameters_schema.len(),
+            self.results.len(),
+        );
         let function = MirFunction {
             function: FunctionId::from_raw(0),
             symbol: self.owner,
             is_async: self.is_async,
+            parameter_view_borrows,
             parameters: self.parameters_schema,
             results: self.results,
+            lifetime_summary,
             effects: MirEffectSummary::empty(),
             effects_explicit: false,
             blocks,
@@ -2240,6 +3242,9 @@ impl<'hir> FunctionBuilder<'hir> {
                     result_type,
                     arms,
                 } => self.lower_result_match(scrutinee, *result, *result_type, arms),
+                HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
+                    self.lower_codec_error_match(scrutinee, arms);
+                }
                 HirStatementKind::Defer { body } => {
                     let scope = CleanupScopeId::from_raw(self.next_cleanup_scope);
                     self.next_cleanup_scope = self.next_cleanup_scope.saturating_add(1);
@@ -2830,6 +3835,36 @@ impl<'hir> FunctionBuilder<'hir> {
         self.current = join;
     }
 
+    fn lower_codec_error_match(
+        &mut self,
+        scrutinee: &HirExpression,
+        arms: &'hir [HirCodecErrorMatchArm],
+    ) {
+        let scrutinee = self.lower_expression(scrutinee);
+        let dispatch_block = self.current;
+        let join = self.new_block();
+        let outer_locals = self.locals.clone();
+        let mut switch_arms = Vec::new();
+        for arm in arms {
+            let block = self.new_block();
+            switch_arms.push(MirCodecErrorSwitchArm {
+                case: arm.case(),
+                target: block,
+            });
+            self.current = block;
+            self.locals.clone_from(&outer_locals);
+            self.lower_statements(arm.body());
+            self.branch_if_open(join);
+        }
+        self.locals = outer_locals;
+        self.current = dispatch_block;
+        self.terminate(MirTerminator::CodecErrorSwitch {
+            scrutinee,
+            arms: switch_arms,
+        });
+        self.current = join;
+    }
+
     fn lower_result_match(
         &mut self,
         scrutinee: &HirExpression,
@@ -3374,7 +4409,11 @@ impl<'hir> FunctionBuilder<'hir> {
                         interface: acquisition_interface,
                         method: protocol.iterator_method(),
                         arguments: vec![source_value],
-                        declared_effects: conservative_indirect_effects(),
+                        declared_effects: self
+                            .builtin_interface_effects
+                            .get(&(acquisition_interface, protocol.iterator_method()))
+                            .copied()
+                            .unwrap_or_default(),
                         unwind: MirUnwindAction::Propagate,
                     },
                     iterator_type,
@@ -3415,7 +4454,11 @@ impl<'hir> FunctionBuilder<'hir> {
                     interface: protocol.iterator(),
                     method: protocol.next_method(),
                     arguments: vec![iterator],
-                    declared_effects: conservative_indirect_effects(),
+                    declared_effects: self
+                        .builtin_interface_effects
+                        .get(&(protocol.iterator(), protocol.next_method()))
+                        .copied()
+                        .unwrap_or_default(),
                     unwind: MirUnwindAction::Propagate,
                 },
                 iteration_type,
@@ -3518,8 +4561,149 @@ impl<'hir> FunctionBuilder<'hir> {
                 case: *case,
                 discriminant: *discriminant,
             },
+            HirExpressionKind::CodecErrorCase(case) => {
+                MirInstructionKind::CodecErrorConstant { case: *case }
+            }
+            HirExpressionKind::GeneratedCodecSchema(adapter) => {
+                MirInstructionKind::GeneratedCodecSchema(*adapter)
+            }
             HirExpressionKind::Closure(closure) => {
                 return self.lower_closure(closure, expression.type_id());
+            }
+            HirExpressionKind::FfiWithCallback {
+                callback,
+                callback_type,
+                binding_contract,
+                body,
+                site,
+                region,
+                ..
+            } => {
+                let callback_value = self.lower_closure(callback, *callback_type);
+                let registered_type = self.registered_callback_type(*callback_type);
+                let registered = self.emit(
+                    MirInstructionKind::FfiCallbackOpenScoped {
+                        callback: callback_value,
+                        callback_type: *callback_type,
+                        owner: self.owner,
+                        function: callback.function(),
+                        site: *site,
+                        region: *region,
+                    },
+                    registered_type,
+                    expression.span(),
+                );
+                let cleanup_scope = CleanupScopeId::from_raw(self.next_cleanup_scope);
+                self.next_cleanup_scope = self.next_cleanup_scope.saturating_add(1);
+                self.active_cleanups.push(ActiveCleanup {
+                    scope: cleanup_scope,
+                    action: CleanupAction::FfiCallback {
+                        callback: registered,
+                        region: *region,
+                        span: expression.span(),
+                    },
+                });
+                let (captures, declared_effects) = self.lower_scoped_closure(body);
+                let result = self.emit(
+                    MirInstructionKind::CallCallbackPair {
+                        callback: registered,
+                        signature: self.ffi_callback_signature(*callback_type, binding_contract),
+                        owner: self.owner,
+                        function: body.function(),
+                        captures,
+                        region: *region,
+                        lifetime: FfiCallbackLifetime::CallScoped,
+                        result: None,
+                        success: None,
+                        failure: None,
+                        declared_effects,
+                        unwind: MirUnwindAction::Propagate,
+                    },
+                    expression.type_id(),
+                    expression.span(),
+                );
+                self.active_cleanups
+                    .pop()
+                    .expect("scoped FFI callback cleanup was registered");
+                self.emit_effect(
+                    MirInstructionKind::FfiCallbackCloseScoped {
+                        callback: registered,
+                        region: *region,
+                    },
+                    expression.span(),
+                );
+                return result;
+            }
+            HirExpressionKind::FfiCallbackOpen {
+                callback,
+                callback_type,
+                thread,
+                site,
+            } => {
+                let callback_value = self.lower_closure(callback, *callback_type);
+                let result = self.result_definition(expression.type_id());
+                return self.emit(
+                    MirInstructionKind::FfiCallbackOpenOwned {
+                        callback: callback_value,
+                        callback_type: *callback_type,
+                        owner: self.owner,
+                        function: callback.function(),
+                        site: *site,
+                        thread: match thread {
+                            pop_types::FfiCallbackThreadPolicy::CallingThread => {
+                                FfiCallbackThread::CallingThread
+                            }
+                            pop_types::FfiCallbackThreadPolicy::AttachedThread => {
+                                FfiCallbackThread::AttachedThread
+                            }
+                        },
+                        result,
+                        success: ResultCaseId::from_raw(0),
+                        failure: ResultCaseId::from_raw(1),
+                    },
+                    expression.type_id(),
+                    expression.span(),
+                );
+            }
+            HirExpressionKind::FfiCallbackWithPair {
+                callback,
+                callback_type,
+                binding_contract,
+                body,
+                region,
+                ..
+            } => {
+                let callback = self.lower_expression(callback);
+                let (captures, declared_effects) = self.lower_scoped_closure(body);
+                let result = self.result_definition(expression.type_id());
+                return self.emit(
+                    MirInstructionKind::CallCallbackPair {
+                        callback,
+                        signature: self.ffi_callback_signature(*callback_type, binding_contract),
+                        owner: self.owner,
+                        function: body.function(),
+                        captures,
+                        region: *region,
+                        lifetime: FfiCallbackLifetime::Registered,
+                        result: Some(result),
+                        success: Some(ResultCaseId::from_raw(0)),
+                        failure: Some(ResultCaseId::from_raw(1)),
+                        declared_effects,
+                        unwind: MirUnwindAction::Propagate,
+                    },
+                    expression.type_id(),
+                    expression.span(),
+                );
+            }
+            HirExpressionKind::FfiCallbackClose { callback, .. } => {
+                let callback = self.lower_expression(callback);
+                let result = self.result_definition(expression.type_id());
+                MirInstructionKind::FfiCallbackCloseOwned {
+                    callback,
+                    result,
+                    success: ResultCaseId::from_raw(0),
+                    failure: ResultCaseId::from_raw(1),
+                }
             }
             HirExpressionKind::Local(local) => {
                 if let Some(cell) = self.local_cells.get(local).copied() {
@@ -4043,6 +5227,77 @@ impl<'hir> FunctionBuilder<'hir> {
                     interface: *interface,
                 }
             }
+            HirExpressionKind::CheckedNominalCast {
+                value,
+                source_interface,
+                source_type,
+                target_class,
+                target_type,
+            } => MirInstructionKind::CheckedDowncast {
+                value: self.lower_expression(value),
+                source_interface: *source_interface,
+                source_type: *source_type,
+                target_class: *target_class,
+                target_type: *target_type,
+            },
+            HirExpressionKind::ViewCreate {
+                kind,
+                lender,
+                borrow,
+            } => MirInstructionKind::ViewCreate {
+                kind: mir_view_kind(*kind),
+                lender: self.lower_expression(lender),
+                lender_provenance: mir_view_lender(borrow.lender()),
+                range_unit: mir_view_kind(*kind).range_unit(),
+                boundary: mir_view_kind(*kind).boundary_proof(),
+                borrow_lifetime: borrow.lifetime(),
+            },
+            HirExpressionKind::ViewSlice {
+                kind,
+                view,
+                start,
+                length,
+                parent,
+                borrow,
+            } => MirInstructionKind::ViewSlice {
+                kind: mir_view_kind(*kind),
+                view: self.lower_expression(view),
+                start: self.lower_expression(start),
+                length: self.lower_expression(length),
+                lender_provenance: mir_view_lender(borrow.lender()),
+                range_unit: mir_view_kind(*kind).range_unit(),
+                boundary: mir_view_kind(*kind).boundary_proof(),
+                parent_lifetime: match parent.lender() {
+                    pop_types::ViewLenderProvenance::Parameter { index }
+                        if self
+                            .parameters_schema
+                            .get(usize::try_from(index).unwrap_or(usize::MAX))
+                            .is_some_and(|type_id| self.arena.view_kind(*type_id).is_some()) =>
+                    {
+                        LifetimeId::from_raw(u32::MAX.saturating_sub(index))
+                    }
+                    _ => parent.lifetime(),
+                },
+                borrow_lifetime: borrow.lifetime(),
+                bounds_trap: MirViewTrap::BoundsViolation,
+            },
+            HirExpressionKind::ViewLength { kind, view } => MirInstructionKind::ViewLength {
+                kind: mir_view_kind(*kind),
+                view: self.lower_expression(view),
+            },
+            HirExpressionKind::ViewGetByte { view, index } => MirInstructionKind::ViewGetByte {
+                view: self.lower_expression(view),
+                index: self.lower_expression(index),
+            },
+            HirExpressionKind::ViewMaterialize {
+                kind,
+                view,
+                allocation_site,
+            } => MirInstructionKind::ViewMaterialize {
+                kind: mir_view_kind(*kind),
+                view: self.lower_expression(view),
+                allocation_site: *allocation_site,
+            },
             HirExpressionKind::NumericConvert { value, conversion } => {
                 let operand = self.lower_expression(value);
                 match conversion {
@@ -4226,6 +5481,7 @@ impl<'hir> FunctionBuilder<'hir> {
             self.reference_effects,
             self.function_effects,
             self.method_effects,
+            self.builtin_interface_effects,
             self.ffi_layouts,
         )
         .lower();
@@ -4321,6 +5577,68 @@ impl<'hir> FunctionBuilder<'hir> {
             .find(|layout| layout.element() == element)
             .expect("verified source FFI buffer type has one target layout");
         (layout.id(), layout.size(), layout.alignment())
+    }
+
+    fn registered_callback_type(&self, callback_type: TypeId) -> TypeId {
+        self.arena
+            .find(&SemanticType::Builtin {
+                definition: pop_types::FFI_REGISTERED_CALLBACK_TYPE_ID,
+                arguments: vec![callback_type],
+            })
+            .expect("verified FFI callback HIR has an interned registration type")
+    }
+
+    fn ffi_callback_signature(
+        &self,
+        callback_type: TypeId,
+        contract: &pop_types::FfiCallbackBindingContract,
+    ) -> MirFfiCallbackSignature {
+        let abi = MirFfiCallbackAbi::from(contract.callback_abi());
+        let foreign_abi = match abi {
+            MirFfiCallbackAbi::C => pop_types::ForeignAbi::C,
+            MirFfiCallbackAbi::System => pop_types::ForeignAbi::System,
+        };
+        let SemanticType::Function {
+            parameters,
+            results,
+            ..
+        } = self
+            .arena
+            .get(callback_type)
+            .expect("verified callback type exists")
+        else {
+            unreachable!("verified callback type is a function")
+        };
+        let layout = |type_id: TypeId| {
+            matches!(self.arena.get(type_id), Some(SemanticType::Record(_))).then(|| {
+                self.ffi_layouts
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.element() == type_id && entry.abi() == foreign_abi)
+                    .expect("verified callback record has an exact target ABI layout")
+                    .id()
+            })
+        };
+        let fingerprint =
+            MirFfiCallbackFingerprint::from_lower_hex(contract.signature_fingerprint())
+                .expect("verified callback binding has an exact lowercase SHA-256 fingerprint");
+        MirFfiCallbackSignature::new(
+            callback_type,
+            abi,
+            parameters.iter().copied().map(layout).collect(),
+            results.first().copied().and_then(layout),
+            fingerprint,
+        )
+    }
+
+    fn result_definition(&self, result_type: TypeId) -> pop_foundation::BuiltinTypeId {
+        match self.arena.get(result_type) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if arguments.len() == 2 => *definition,
+            _ => unreachable!("verified callback operation has a Result type"),
+        }
     }
 
     fn lower_capture_source(
@@ -4861,6 +6179,11 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
+                lifetime_summary: pop_types::CallableLifetimeSummary::conservative(
+                    arguments.len(),
+                    1,
+                ),
+                view_result: None,
                 declared_effects: self
                     .function_effects
                     .get(function)
@@ -4874,6 +6197,11 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
+                lifetime_summary: pop_types::CallableLifetimeSummary::conservative(
+                    arguments.len(),
+                    1,
+                ),
+                view_result: None,
                 declared_effects: self
                     .reference_effects
                     .get(function)
@@ -4894,6 +6222,7 @@ impl<'hir> FunctionBuilder<'hir> {
                 interface,
                 method,
                 slot,
+                effects,
             } => MirInstructionKind::CallInterface {
                 interface: *interface,
                 method: *method,
@@ -4902,22 +6231,28 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
-                declared_effects: conservative_indirect_effects(),
+                declared_effects: lower_effect_summary(*effects),
                 unwind: MirUnwindAction::Propagate,
             },
-            HirCallDispatch::BuiltinInterfaceMethod { interface, method } => {
-                MirInstructionKind::CallBuiltinInterface {
-                    interface: *interface,
-                    method: *method,
-                    arguments: arguments
-                        .iter()
-                        .map(|argument| self.lower_expression(argument))
-                        .collect(),
-                    declared_effects: conservative_indirect_effects(),
-                    unwind: MirUnwindAction::Propagate,
-                }
-            }
+            HirCallDispatch::BuiltinInterfaceMethod {
+                interface,
+                method,
+                effects,
+            } => MirInstructionKind::CallBuiltinInterface {
+                interface: *interface,
+                method: *method,
+                arguments: arguments
+                    .iter()
+                    .map(|argument| self.lower_expression(argument))
+                    .collect(),
+                declared_effects: lower_effect_summary(*effects),
+                unwind: MirUnwindAction::Propagate,
+            },
             HirCallDispatch::Indirect { callee } => {
+                let declared_effects = match self.arena.get(callee.type_id()) {
+                    Some(SemanticType::Function { effects, .. }) => lower_effect_summary(*effects),
+                    _ => MirEffectSummary::empty(),
+                };
                 let callee = self.lower_expression(callee);
                 MirInstructionKind::CallIndirect {
                     callee,
@@ -4925,7 +6260,7 @@ impl<'hir> FunctionBuilder<'hir> {
                         .iter()
                         .map(|argument| self.lower_expression(argument))
                         .collect(),
-                    declared_effects: conservative_indirect_effects(),
+                    declared_effects,
                     unwind: MirUnwindAction::Propagate,
                 }
             }
@@ -4975,7 +6310,8 @@ impl<'hir> FunctionBuilder<'hir> {
             | MirInstructionKind::CallInterface { unwind, .. }
             | MirInstructionKind::CallBuiltinInterface { unwind, .. }
             | MirInstructionKind::CallIndirect { unwind, .. } => Some(unwind),
-            MirInstructionKind::CallScopedBorrow { unwind, .. } => Some(unwind),
+            MirInstructionKind::CallScopedBorrow { unwind, .. }
+            | MirInstructionKind::CallCallbackPair { unwind, .. } => Some(unwind),
             _ => None,
         };
         if let Some(unwind) = unwind {
@@ -5013,6 +6349,14 @@ impl<'hir> FunctionBuilder<'hir> {
                 span,
             } => self.emit_effect(
                 MirInstructionKind::FfiBytesEndBorrow { bytes, region },
+                span,
+            ),
+            CleanupAction::FfiCallback {
+                callback,
+                region,
+                span,
+            } => self.emit_effect(
+                MirInstructionKind::FfiCallbackCloseScoped { callback, region },
                 span,
             ),
         }
@@ -5197,6 +6541,23 @@ impl<'hir> FunctionBuilder<'hir> {
 
     fn branch_with_state_if_open(&mut self, target: BlockId, state: &LiveState) {
         self.branch_with_arguments_if_open(target, self.state_values(state));
+    }
+}
+
+const fn mir_view_kind(kind: pop_types::ViewKind) -> MirViewKind {
+    match kind {
+        pop_types::ViewKind::Bytes => MirViewKind::Bytes,
+        pop_types::ViewKind::Text => MirViewKind::Text,
+    }
+}
+
+const fn mir_view_lender(lender: pop_types::ViewLenderProvenance) -> MirViewLender {
+    match lender {
+        pop_types::ViewLenderProvenance::Allocation { site } => MirViewLender::Allocation { site },
+        pop_types::ViewLenderProvenance::Parameter { index } => MirViewLender::Parameter { index },
+        pop_types::ViewLenderProvenance::Constant { fingerprint } => {
+            MirViewLender::Constant { fingerprint }
+        }
     }
 }
 
@@ -5443,6 +6804,8 @@ pub fn is_managed_reference_type_id(type_id: TypeId, arena: Option<&TypeArena>) 
     match arena.get(type_id) {
         Some(SemanticType::Builtin { definition, .. }) => {
             !pop_types::is_ffi_abi_builtin_type(*definition)
+                && *definition != pop_types::BYTES_VIEW_TYPE_ID
+                && *definition != pop_types::TEXT_VIEW_TYPE_ID
                 && *definition != pop_types::FFI_NULL_POINTER_ERROR_TYPE_ID
                 && *definition != pop_types::FFI_ALLOCATION_ERROR_TYPE_ID
         }
@@ -5530,6 +6893,13 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ArrayGetChecked { .. }
         | MirInstructionKind::ListGetChecked { .. } => {
             MirEffectSummary::empty().with(MirEffect::MayTrap)
+        }
+        MirInstructionKind::ViewSlice { .. } => MirEffectSummary::empty().with(MirEffect::MayTrap),
+        MirInstructionKind::ViewMaterialize { .. } => {
+            MirEffectSummary::from_effects([MirEffect::Allocates, MirEffect::GcSafePoint])
+        }
+        MirInstructionKind::CodecEncode { .. } | MirInstructionKind::CodecDecode { .. } => {
+            MirEffectSummary::from_effects([MirEffect::Allocates, MirEffect::GcSafePoint])
         }
         MirInstructionKind::ConvertInteger { source, target, .. }
             if NumericConversionKind::IntegerToInteger {
@@ -5669,6 +7039,21 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         MirInstructionKind::FfiBytesBorrowLength { .. } => {
             MirEffectSummary::empty().with(MirEffect::MayTrap)
         }
+        MirInstructionKind::FfiCallbackOpenScoped { .. }
+        | MirInstructionKind::FfiCallbackOpenOwned { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+            MirEffect::Roots,
+        ]),
+        MirInstructionKind::CallCallbackPair {
+            declared_effects, ..
+        } => *declared_effects,
+        MirInstructionKind::FfiCallbackCloseScoped { .. }
+        | MirInstructionKind::FfiCallbackCloseOwned { .. } => {
+            MirEffectSummary::from_effects([MirEffect::MayTrap, MirEffect::Roots])
+        }
         MirInstructionKind::FfiUnsafeLoad { .. }
         | MirInstructionKind::FfiUnsafeStore { .. }
         | MirInstructionKind::FfiUnsafeAdvance { .. }
@@ -5760,12 +7145,19 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::CompareFloatGreaterOrEqual { .. }
         | MirInstructionKind::RecordMake { .. }
         | MirInstructionKind::RecordUpdate { .. }
+        | MirInstructionKind::CodecErrorConstant { .. }
+        | MirInstructionKind::GeneratedCodecSchema(_)
         | MirInstructionKind::FieldGet { .. }
         | MirInstructionKind::FieldSet { .. }
         | MirInstructionKind::UnionMake { .. }
         | MirInstructionKind::IterationIsItem { .. }
         | MirInstructionKind::IterationGetItem { .. } => MirEffectSummary::empty(),
         MirInstructionKind::InterfaceUpcast { .. }
+        | MirInstructionKind::CheckedDowncast { .. }
+        | MirInstructionKind::ViewCreate { .. }
+        | MirInstructionKind::ViewLength { .. }
+        | MirInstructionKind::ViewGetByte { .. }
+        | MirInstructionKind::ViewEnd { .. }
         | MirInstructionKind::CaptureCellLoad { .. }
         | MirInstructionKind::CaptureLoad { .. }
         | MirInstructionKind::CaptureCellReference { .. } => MirEffectSummary::empty(),
@@ -5788,26 +7180,10 @@ pub(crate) fn terminator_effects(terminator: &MirTerminator) -> MirEffectSummary
         | MirTerminator::ConditionalBranch { .. }
         | MirTerminator::UnionSwitch { .. }
         | MirTerminator::ErrorSwitch { .. }
+        | MirTerminator::CodecErrorSwitch { .. }
         | MirTerminator::Return { .. }
         | MirTerminator::Unreachable => MirEffectSummary::empty(),
     }
-}
-
-fn conservative_indirect_effects() -> MirEffectSummary {
-    MirEffectSummary::from_effects([
-        MirEffect::Allocates,
-        MirEffect::WritesManagedReference,
-        MirEffect::Synchronizes,
-        MirEffect::MayTrap,
-        MirEffect::MayUnwind,
-        MirEffect::Suspends,
-        MirEffect::Blocks,
-        MirEffect::UnsafeMemory,
-        MirEffect::ForeignFunction,
-        MirEffect::AmbientIo,
-        MirEffect::GcSafePoint,
-        MirEffect::Roots,
-    ])
 }
 
 fn recompute_effects(bubble: &mut MirBubble) {
@@ -6194,6 +7570,7 @@ pub(crate) fn expected_safe_point_roots(
     arena: &TypeArena,
 ) -> BTreeMap<ValueId, Vec<ValueId>> {
     let (value_types, live_in, live_out) = live_value_facts(function);
+    let view_lenders = view_lender_roots(function, arena, &value_types);
 
     let mut maps = BTreeMap::new();
     for block in &function.blocks {
@@ -6203,12 +7580,17 @@ pub(crate) fn expected_safe_point_roots(
             if let MirInstructionKind::GcSafePoint { .. } = instruction.kind {
                 let roots = live
                     .iter()
-                    .copied()
-                    .filter(|value| {
-                        value_types.get(value).is_some_and(|type_id| {
-                            is_managed_reference_type_id(*type_id, Some(arena))
+                    .filter_map(|value| {
+                        value_types.get(value).and_then(|type_id| {
+                            if is_managed_reference_type_id(*type_id, Some(arena)) {
+                                Some(*value)
+                            } else {
+                                view_lenders.get(value).copied()
+                            }
                         })
                     })
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
                     .collect();
                 maps.insert(instruction.result, roots);
             }
@@ -6226,6 +7608,81 @@ pub(crate) fn expected_safe_point_roots(
         }
     }
     maps
+}
+
+fn view_lender_roots(
+    function: &MirFunction,
+    arena: &TypeArena,
+    value_types: &BTreeMap<ValueId, TypeId>,
+) -> BTreeMap<ValueId, ValueId> {
+    let mut lenders = BTreeMap::new();
+    if let Some(entry) = function.blocks().first() {
+        for argument in entry.arguments() {
+            if value_types
+                .get(&argument.value())
+                .is_some_and(|type_id| view_kind_for_gc(arena, *type_id))
+            {
+                lenders.insert(argument.value(), argument.value());
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in function.blocks() {
+            for instruction in block.instructions() {
+                let lender = match instruction.kind() {
+                    MirInstructionKind::ViewCreate { lender, .. } => Some(*lender),
+                    MirInstructionKind::ViewSlice { view, .. } => lenders.get(view).copied(),
+                    MirInstructionKind::CallDirect {
+                        arguments,
+                        view_result: Some(result),
+                        ..
+                    }
+                    | MirInstructionKind::CallReferenced {
+                        arguments,
+                        view_result: Some(result),
+                        ..
+                    } => arguments
+                        .get(usize::from(result.source_argument()))
+                        .map(|source| lenders.get(source).copied().unwrap_or(*source)),
+                    _ => None,
+                };
+                if let Some(lender) = lender
+                    && lenders.insert(instruction.result(), lender) != Some(lender)
+                {
+                    changed = true;
+                }
+            }
+            if let MirTerminator::Branch { target, arguments } = block.terminator()
+                && let Some(target) = function
+                    .blocks()
+                    .iter()
+                    .find(|block| block.block() == *target)
+            {
+                for (source, target) in arguments.iter().zip(target.arguments()) {
+                    if let Some(lender) = lenders.get(source).copied()
+                        && lenders.insert(target.value(), lender) != Some(lender)
+                    {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    lenders
+}
+
+fn view_kind_for_gc(arena: &TypeArena, type_id: TypeId) -> bool {
+    matches!(
+        arena.get(type_id),
+        Some(SemanticType::Builtin { definition, arguments })
+            if arguments.is_empty()
+                && matches!(
+                    *definition,
+                    pop_types::BYTES_VIEW_TYPE_ID | pop_types::TEXT_VIEW_TYPE_ID
+                )
+    )
 }
 
 fn normal_live_out(
@@ -6251,6 +7708,10 @@ fn normal_live_out(
             .flat_map(|arm| edge_live_values(arm.target, &[], live_in, blocks))
             .collect(),
         MirTerminator::ErrorSwitch { arms, .. } => arms
+            .iter()
+            .flat_map(|arm| edge_live_values(arm.target, &[], live_in, blocks))
+            .collect(),
+        MirTerminator::CodecErrorSwitch { arms, .. } => arms
             .iter()
             .flat_map(|arm| edge_live_values(arm.target, &[], live_in, blocks))
             .collect(),

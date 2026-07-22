@@ -4,13 +4,13 @@ use super::*;
 use pop_foundation::{
     BindingId, BubbleId, BuiltinTypeId, CaptureId, ClassId, FieldId, FileId, FunctionId,
     InterfaceId, InterfaceMethodId, IterationCaseId, IterationProtocolMethodId, LocalId, MethodId,
-    ModuleId, NamespaceId, NestedFunctionId, ParameterId, SourceSpan, SymbolId, TextRange,
-    TextSize, TypeId, UnionCaseId, ValueParameterId,
+    ModuleId, NamespaceId, NestedFunctionId, ParameterId, SourceSpan, SymbolId, SymbolIdentity,
+    TextRange, TextSize, TypeId, UnionCaseId, ValueParameterId,
 };
 use pop_resolve::Visibility;
 use pop_types::{
-    ClassMethodDispatch, IntegerKind, IntegerValue, SemanticType, TypeArena, TypedBinaryOperator,
-    TypedUnaryOperator,
+    ClassMethodDispatch, EffectSummary, IntegerKind, IntegerValue, SemanticType, TypeArena,
+    TypedBinaryOperator, TypedUnaryOperator,
 };
 
 #[test]
@@ -51,6 +51,7 @@ fn verifier_rejects_collection_elements_with_inconsistent_types() {
         }],
         attributes: Vec::new(),
         effects: pop_types::EffectSummary::empty(),
+        lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
     };
 
     assert_eq!(
@@ -106,6 +107,7 @@ fn verifier_rejects_array_access_on_a_non_array_base() {
         }],
         attributes: Vec::new(),
         effects: pop_types::EffectSummary::empty(),
+        lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
     };
 
     assert_eq!(
@@ -480,6 +482,7 @@ fn bubble_verifier_rejects_indirect_call_argument_and_result_spoofing() {
             parameters: vec![integer],
             results: vec![integer],
             effects: pop_types::EffectSummary::empty(),
+            lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
         })
         .expect("function type");
     let span = test_span();
@@ -622,6 +625,7 @@ fn bubble_verifier_checks_receiver_method_signatures_against_class_schema() {
         visibility: Visibility::Public,
         name: "Counter".to_owned(),
         kind: HirDeclarationKind::Class(HirClassDeclaration {
+            definition: SymbolIdentity::new(BubbleId::from_raw(0), definition),
             class,
             type_id: class_type,
             is_open: false,
@@ -919,6 +923,7 @@ fn closure_verifier_rejects_duplicate_mistyped_and_wrongly_owned_captures() {
             parameters: Vec::new(),
             results: Vec::new(),
             effects: pop_types::EffectSummary::empty(),
+            lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
         })
         .expect("closure type");
     let span = test_span();
@@ -1146,6 +1151,7 @@ fn interface_verifier_rejects_wrong_slots_mappings_arguments_and_results() {
                     span,
                 }],
                 results: vec![string],
+                effects: EffectSummary::empty(),
                 span,
             }],
         }),
@@ -1159,6 +1165,7 @@ fn interface_verifier_rejects_wrong_slots_mappings_arguments_and_results() {
         visibility: Visibility::Public,
         name: "FileReader".to_owned(),
         kind: HirDeclarationKind::Class(HirClassDeclaration {
+            definition: SymbolIdentity::new(BubbleId::from_raw(0), class_symbol),
             class: class_id,
             type_id: class_type,
             is_open: false,
@@ -1228,6 +1235,7 @@ fn interface_verifier_rejects_wrong_slots_mappings_arguments_and_results() {
                             interface: interface_id,
                             method: interface_method,
                             slot: 8,
+                            effects: EffectSummary::empty(),
                         },
                         type_arguments: Vec::new(),
                         arguments: vec![
@@ -1374,6 +1382,8 @@ fn hir_function_with_symbol(
     results: Vec<TypeId>,
     body: Vec<HirStatement>,
 ) -> HirFunction {
+    let lifetime_summary =
+        pop_types::CallableLifetimeSummary::conservative(parameters.len(), results.len());
     HirFunction {
         function: FunctionId::from_raw(symbol.raw()),
         symbol,
@@ -1390,6 +1400,7 @@ fn hir_function_with_symbol(
         body,
         attributes: Vec::new(),
         effects: pop_types::EffectSummary::empty(),
+        lifetime_summary,
     }
 }
 
@@ -1476,6 +1487,7 @@ fn verify_expression_statement(
         }],
         attributes: Vec::new(),
         effects: pop_types::EffectSummary::empty(),
+        lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
     };
     verify_hir_function(&function, arena, &BTreeSet::new())
 }
@@ -1502,6 +1514,7 @@ fn verifier_rejects_generic_parameter_bound_arity_mismatch() {
         body: Vec::new(),
         attributes: Vec::new(),
         effects: pop_types::EffectSummary::empty(),
+        lifetime_summary: pop_types::CallableLifetimeSummary::conservative(0, 0),
     };
 
     let errors =

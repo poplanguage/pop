@@ -81,9 +81,19 @@ and does not define the work remaining for `0.1.0`.
   - [x] Connect compiler-created task frames to the native scheduler and
     implement LLVM execution, structured task ownership, explicit token
     propagation, cancellation masking, and cross-backend differential proof.
-- [ ] Close the remaining accepted first-release gaps for FFI, view lifetimes,
-  checked casts, effects, and generated typed metadata adapters before exposing
-  those surfaces as stable.
+- [x] Close the remaining accepted first-release gaps for FFI, view lifetimes,
+  checked nominal casts, effects, and generated typed metadata adapters before
+  exposing those surfaces as stable. ADR 0096 now fixes the metadata contract:
+  exact `Metadata.Use.Codec` targets/arguments, closed projections,
+  same-visibility `Codec.Schema<T>` Items, canonical typed
+  `retained-adapters.popc` as the sole schema/generation source, bounded full
+  hashes/provenance, public adapter-only reference entries, and dead stripping.
+  ADR 0097 now also fixes the direct immutable `Text.View`/`Bytes.View` API,
+  lender provenance, structured retention summaries, escape rules, verified
+  HIR/MIR lifetimes, relocation-safe lowering, and fail-closed C behavior.
+  The accepted contracts now have verified HIR/MIR, source-free artifact
+  reconstruction where applicable, MIR-interpreter and LLVM conformance, and
+  explicit fail-closed behavior in the experimental C backend.
 
 ### 2. Finish the standard foundation
 
@@ -180,7 +190,8 @@ Post-baseline library work has begun without widening the release foundation:
   prototypes with checked documentation and differential coverage.
 - [x] Complete ADR 0076 positional/last-match inspection and first-item
   reduction prototypes with exact callback and cross-backend coverage.
-- Define view lifetimes before exposing `Bytes` views or `Text.View`.
+- [x] Define and implement view lifetimes before exposing `Bytes.View` or
+  `Text.View`.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

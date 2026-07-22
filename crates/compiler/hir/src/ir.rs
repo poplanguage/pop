@@ -9,18 +9,18 @@ use std::fmt::Write;
 
 use pop_foundation::{
     AttributeId, BindingId, BorrowRegionId, BubbleId, BuiltinTypeId, CaptureId, ClassId,
-    EnumCaseId, ErrorCaseId, ErrorId, FieldId, FunctionId, InterfaceId, InterfaceMethodId,
-    IterationCaseId, IterationProtocolMethodId, LocalId, MethodId, ModuleId, NamespaceId,
-    NestedFunctionId, NominalInterfaceId, ResultCaseId, SourceSpan, StandardFunctionId, SymbolId,
-    SymbolIdentity, TypeId, UnionCaseId, ValueParameterId,
+    EnumCaseId, ErrorCaseId, ErrorId, FfiCallbackSiteId, FieldId, FunctionId, InterfaceId,
+    InterfaceMethodId, IterationCaseId, IterationProtocolMethodId, LocalId, MethodId, ModuleId,
+    NamespaceId, NestedFunctionId, NominalInterfaceId, ResultCaseId, SourceSpan,
+    StandardFunctionId, SymbolId, SymbolIdentity, TypeId, UnionCaseId, ValueParameterId,
 };
 use pop_resolve::Visibility;
 use pop_types::{
     AttributeConstant, AttributeDefinition, ClassDefinition, ClassFieldDefault,
-    ClassMethodDefinition, ClassMethodDispatch, EnumDefinition, ErrorDefinition, FieldDefault,
-    FloatValue, IntegerValue, InterfaceDefinition, NumericConversionKind, RecordDefinition,
-    StringFormatKind, TypeArena, TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator,
-    UnionDefinition,
+    ClassMethodDefinition, ClassMethodDispatch, EffectSummary, EnumDefinition, ErrorDefinition,
+    FfiCallbackBindingContract, FfiCallbackThreadPolicy, FieldDefault, FloatValue, IntegerValue,
+    InterfaceDefinition, NumericConversionKind, RecordDefinition, StringFormatKind, TypeArena,
+    TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator, UnionDefinition,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +39,12 @@ pub struct HirBubble {
     pub(crate) methods: Vec<HirMethod>,
     pub(crate) public_symbols: Vec<SymbolId>,
     pub(crate) function_references: Vec<HirFunctionReference>,
+    #[serde(default, skip_serializing_if = "HirNominalReferenceCatalog::is_empty")]
+    pub(crate) nominal_references: HirNominalReferenceCatalog,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reference_ffi_layout_catalog: Option<HirFfiLayoutCatalog>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) generated_codec_adapters: Vec<HirGeneratedCodecAdapter>,
 }
 
 impl HirBubble {
@@ -162,6 +168,9 @@ impl HirBubble {
             methods,
             public_symbols,
             function_references: Vec::new(),
+            nominal_references: HirNominalReferenceCatalog::default(),
+            reference_ffi_layout_catalog: None,
+            generated_codec_adapters: Vec::new(),
         })
     }
 
@@ -226,6 +235,38 @@ impl HirBubble {
         self.function_references = references;
         self.recompute_call_effects();
         Ok(self)
+    }
+
+    /// Attaches the artifact-verified public nominal descriptor projection.
+    /// The catalog carries no names or member inventory and is therefore not
+    /// a reflection surface.
+    pub fn with_nominal_references(
+        mut self,
+        catalog: HirNominalReferenceCatalog,
+    ) -> Result<Self, HirBubbleError> {
+        if catalog.interfaces().iter().any(|reference| {
+            !self
+                .dependencies
+                .contains(&reference.identity().definition().bubble())
+        }) || catalog.classes().iter().any(|reference| {
+            !self
+                .dependencies
+                .contains(&reference.identity().definition().bubble())
+        }) {
+            return Err(HirBubbleError::InvalidNominalReference);
+        }
+        self.nominal_references = catalog;
+        Ok(self)
+    }
+
+    /// Attaches the already artifact-verified public dependency FFI layouts.
+    #[must_use]
+    pub fn with_reference_ffi_layout_catalog(
+        mut self,
+        catalog: Option<HirFfiLayoutCatalog>,
+    ) -> Self {
+        self.reference_ffi_layout_catalog = catalog;
+        self
     }
 
     fn recompute_call_effects(&mut self) {
@@ -316,6 +357,52 @@ impl HirBubble {
         &self.function_references
     }
 
+    #[must_use]
+    pub const fn nominal_references(&self) -> &HirNominalReferenceCatalog {
+        &self.nominal_references
+    }
+
+    #[must_use]
+    pub const fn reference_ffi_layout_catalog(&self) -> Option<&HirFfiLayoutCatalog> {
+        self.reference_ffi_layout_catalog.as_ref()
+    }
+
+    /// Attaches compiler-originated codec-schema Items generated only from a
+    /// verified canonical `retained-adapters.popc` descriptor.
+    ///
+    /// # Errors
+    ///
+    /// Rejects duplicate or wrong-Bubble adapter identities.
+    pub fn with_generated_codec_adapters(
+        mut self,
+        mut adapters: Vec<HirGeneratedCodecAdapter>,
+    ) -> Result<Self, HirBubbleError> {
+        adapters.sort_by_key(HirGeneratedCodecAdapter::symbol);
+        let mut previous = None;
+        for adapter in &adapters {
+            if adapter.target.bubble() != self.bubble
+                && !self.dependencies.contains(&adapter.target.bubble())
+            {
+                return Err(HirBubbleError::WrongOwner {
+                    symbol: adapter.symbol,
+                    expected: self.bubble,
+                    found: adapter.target.bubble(),
+                });
+            }
+            if previous == Some(adapter.symbol) {
+                return Err(HirBubbleError::DuplicateDeclaration(adapter.symbol));
+            }
+            previous = Some(adapter.symbol);
+        }
+        self.generated_codec_adapters = adapters;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn generated_codec_adapters(&self) -> &[HirGeneratedCodecAdapter] {
+        &self.generated_codec_adapters
+    }
+
     /// Independently verifies this complete HIR Bubble against its semantic
     /// type arena and the declaration/callable schema carried by the Bubble.
     ///
@@ -361,6 +448,316 @@ impl HirBubble {
     }
 }
 
+/// One direct resolved member selected by generated codec HIR.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HirGeneratedCodecMemberId {
+    Field(FieldId),
+    EnumCase(EnumCaseId),
+    UnionCase(UnionCaseId),
+}
+
+/// One declaration-ordered member in a generated typed codec adapter.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirGeneratedCodecMember {
+    pub(crate) ordinal: u16,
+    pub(crate) name: String,
+    pub(crate) member: HirGeneratedCodecMemberId,
+    pub(crate) types: Vec<TypeId>,
+    pub(crate) discriminant: Option<u32>,
+}
+
+impl HirGeneratedCodecMember {
+    #[must_use]
+    pub const fn new(
+        ordinal: u16,
+        name: String,
+        member: HirGeneratedCodecMemberId,
+        types: Vec<TypeId>,
+        discriminant: Option<u32>,
+    ) -> Self {
+        Self {
+            ordinal,
+            name,
+            member,
+            types,
+            discriminant,
+        }
+    }
+
+    #[must_use]
+    pub const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn field(&self) -> Option<FieldId> {
+        match self.member {
+            HirGeneratedCodecMemberId::Field(field) => Some(field),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn member(&self) -> HirGeneratedCodecMemberId {
+        self.member
+    }
+
+    #[must_use]
+    pub fn types(&self) -> &[TypeId] {
+        &self.types
+    }
+
+    #[must_use]
+    pub const fn discriminant(&self) -> Option<u32> {
+        self.discriminant
+    }
+}
+
+/// Compiler-originated same-visibility `Codec.Schema<Target>` Item.
+///
+/// The structure is resolved HIR, not runtime reflection: members carry only
+/// direct numeric IDs and closed static types, never lookup names.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirGeneratedCodecAdapter {
+    pub(crate) symbol: SymbolId,
+    pub(crate) target: SymbolIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) visibility: Visibility,
+    pub(crate) name: String,
+    pub(crate) target_name: String,
+    pub(crate) target_type: TypeId,
+    pub(crate) schema_type: TypeId,
+    pub(crate) schema_version: u32,
+    pub(crate) projection_sha256: String,
+    pub(crate) provenance: HirGeneratedCodecProvenance,
+    pub(crate) encode_entry: HirGeneratedCodecEntry,
+    pub(crate) decode_entry: HirGeneratedCodecEntry,
+    pub(crate) members: Vec<HirGeneratedCodecMember>,
+}
+
+/// Closed role of one compiler-originated typed schema entry. This is part of
+/// the sealed schema payload, not an additional namespace Item.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum HirGeneratedCodecEntryRole {
+    Encode,
+    Decode,
+}
+
+/// Stable entry identity scoped by the generated schema Item.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct HirGeneratedCodecEntryIdentity {
+    adapter: SymbolIdentity,
+    role: HirGeneratedCodecEntryRole,
+}
+
+impl HirGeneratedCodecEntryIdentity {
+    #[must_use]
+    pub const fn new(adapter: SymbolIdentity, role: HirGeneratedCodecEntryRole) -> Self {
+        Self { adapter, role }
+    }
+    #[must_use]
+    pub const fn adapter(self) -> SymbolIdentity {
+        self.adapter
+    }
+    #[must_use]
+    pub const fn role(self) -> HirGeneratedCodecEntryRole {
+        self.role
+    }
+}
+
+/// Source mapping retained by canonical `.popc` for generated adapter bodies.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirGeneratedCodecProvenance {
+    target: SourceSpan,
+    attachment: SourceSpan,
+}
+
+impl HirGeneratedCodecProvenance {
+    #[must_use]
+    pub const fn new(target: SourceSpan, attachment: SourceSpan) -> Self {
+        Self { target, attachment }
+    }
+    #[must_use]
+    pub const fn target(self) -> SourceSpan {
+        self.target
+    }
+    #[must_use]
+    pub const fn attachment(self) -> SourceSpan {
+        self.attachment
+    }
+}
+
+/// Closed compiler-originated HIR body for a typed schema entry.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HirGeneratedCodecEntryBody {
+    CodecEncode { adapter: SymbolId },
+    CodecDecode { adapter: SymbolId },
+}
+
+/// One verified typed function entry embedded in `Codec.Schema<T>`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirGeneratedCodecEntry {
+    identity: HirGeneratedCodecEntryIdentity,
+    symbol: SymbolId,
+    parameters: Vec<TypeId>,
+    results: Vec<TypeId>,
+    effects: EffectSummary,
+    provenance: HirGeneratedCodecProvenance,
+    body: HirGeneratedCodecEntryBody,
+}
+
+impl HirGeneratedCodecEntry {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub const fn new(
+        identity: HirGeneratedCodecEntryIdentity,
+        symbol: SymbolId,
+        parameters: Vec<TypeId>,
+        results: Vec<TypeId>,
+        effects: EffectSummary,
+        provenance: HirGeneratedCodecProvenance,
+        body: HirGeneratedCodecEntryBody,
+    ) -> Self {
+        Self {
+            identity,
+            symbol,
+            parameters,
+            results,
+            effects,
+            provenance,
+            body,
+        }
+    }
+    #[must_use]
+    pub const fn identity(&self) -> HirGeneratedCodecEntryIdentity {
+        self.identity
+    }
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+    #[must_use]
+    pub fn parameters(&self) -> &[TypeId] {
+        &self.parameters
+    }
+    #[must_use]
+    pub fn results(&self) -> &[TypeId] {
+        &self.results
+    }
+    #[must_use]
+    pub const fn effects(&self) -> EffectSummary {
+        self.effects
+    }
+    #[must_use]
+    pub const fn provenance(&self) -> HirGeneratedCodecProvenance {
+        self.provenance
+    }
+    #[must_use]
+    pub const fn body(&self) -> HirGeneratedCodecEntryBody {
+        self.body
+    }
+}
+
+impl HirGeneratedCodecAdapter {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub const fn new(
+        symbol: SymbolId,
+        target: SymbolIdentity,
+        module: ModuleId,
+        visibility: Visibility,
+        name: String,
+        target_name: String,
+        target_type: TypeId,
+        schema_type: TypeId,
+        schema_version: u32,
+        projection_sha256: String,
+        provenance: HirGeneratedCodecProvenance,
+        encode_entry: HirGeneratedCodecEntry,
+        decode_entry: HirGeneratedCodecEntry,
+        members: Vec<HirGeneratedCodecMember>,
+    ) -> Self {
+        Self {
+            symbol,
+            target,
+            module,
+            visibility,
+            name,
+            target_name,
+            target_type,
+            schema_type,
+            schema_version,
+            projection_sha256,
+            provenance,
+            encode_entry,
+            decode_entry,
+            members,
+        }
+    }
+
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+    #[must_use]
+    pub const fn target(&self) -> SymbolIdentity {
+        self.target
+    }
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+    #[must_use]
+    pub const fn visibility(&self) -> Visibility {
+        self.visibility
+    }
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    #[must_use]
+    pub fn target_name(&self) -> &str {
+        &self.target_name
+    }
+    #[must_use]
+    pub const fn target_type(&self) -> TypeId {
+        self.target_type
+    }
+    #[must_use]
+    pub const fn schema_type(&self) -> TypeId {
+        self.schema_type
+    }
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+    #[must_use]
+    pub fn projection_sha256(&self) -> &str {
+        &self.projection_sha256
+    }
+    #[must_use]
+    pub const fn provenance(&self) -> HirGeneratedCodecProvenance {
+        self.provenance
+    }
+    #[must_use]
+    pub const fn encode_entry(&self) -> &HirGeneratedCodecEntry {
+        &self.encode_entry
+    }
+    #[must_use]
+    pub const fn decode_entry(&self) -> &HirGeneratedCodecEntry {
+        &self.decode_entry
+    }
+    #[must_use]
+    pub fn members(&self) -> &[HirGeneratedCodecMember] {
+        &self.members
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum HirBubbleError {
     WrongOwner {
@@ -374,6 +771,357 @@ pub enum HirBubbleError {
     DuplicateReference(SymbolIdentity),
     UnknownReferenceBubble(BubbleId),
     InvalidSpecializationCapsule(SymbolIdentity),
+    InvalidReferenceFfiLayout,
+    InvalidNominalReference,
+    InvalidGeneratedCodecAdapter,
+}
+
+/// Stable cross-Bubble identity for one fully applied nominal type.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct HirNominalIdentity {
+    pub(crate) definition: SymbolIdentity,
+    pub(crate) arguments: Vec<TypeId>,
+    pub(crate) canonical: pop_types::CanonicalNominalIdentity,
+}
+
+impl HirNominalIdentity {
+    #[must_use]
+    pub fn new(
+        definition: SymbolIdentity,
+        arguments: Vec<TypeId>,
+        canonical_arguments: Vec<pop_types::CanonicalTypeIdentity>,
+    ) -> Self {
+        Self {
+            definition,
+            arguments,
+            canonical: pop_types::CanonicalNominalIdentity::new(definition, canonical_arguments),
+        }
+    }
+
+    #[must_use]
+    pub const fn definition(&self) -> SymbolIdentity {
+        self.definition
+    }
+
+    #[must_use]
+    pub fn arguments(&self) -> &[TypeId] {
+        &self.arguments
+    }
+
+    #[must_use]
+    pub const fn canonical(&self) -> &pop_types::CanonicalNominalIdentity {
+        &self.canonical
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirInterfaceReference {
+    pub(crate) identity: HirNominalIdentity,
+    pub(crate) interface: InterfaceId,
+    pub(crate) type_id: TypeId,
+}
+
+impl HirInterfaceReference {
+    #[must_use]
+    pub fn new(identity: HirNominalIdentity, interface: InterfaceId, type_id: TypeId) -> Self {
+        Self {
+            identity,
+            interface,
+            type_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> &HirNominalIdentity {
+        &self.identity
+    }
+
+    #[must_use]
+    pub const fn interface(&self) -> InterfaceId {
+        self.interface
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirClassReference {
+    pub(crate) identity: HirNominalIdentity,
+    pub(crate) class: ClassId,
+    pub(crate) type_id: TypeId,
+    pub(crate) is_open: bool,
+    pub(crate) base: Option<(ClassId, TypeId)>,
+    pub(crate) interfaces: Vec<HirInterfaceReference>,
+}
+
+impl HirClassReference {
+    #[must_use]
+    pub fn new(
+        identity: HirNominalIdentity,
+        class: ClassId,
+        type_id: TypeId,
+        is_open: bool,
+        base: Option<(ClassId, TypeId)>,
+        mut interfaces: Vec<HirInterfaceReference>,
+    ) -> Self {
+        interfaces.sort_by_key(HirInterfaceReference::interface);
+        Self {
+            identity,
+            class,
+            type_id,
+            is_open,
+            base,
+            interfaces,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> &HirNominalIdentity {
+        &self.identity
+    }
+
+    #[must_use]
+    pub const fn class(&self) -> ClassId {
+        self.class
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    #[must_use]
+    pub const fn base(&self) -> Option<ClassId> {
+        match self.base {
+            Some((class, _)) => Some(class),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn base_type(&self) -> Option<TypeId> {
+        match self.base {
+            Some((_, type_id)) => Some(type_id),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub fn interfaces(&self) -> &[HirInterfaceReference] {
+        &self.interfaces
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirNominalReferenceCatalog {
+    pub(crate) interfaces: Vec<HirInterfaceReference>,
+    pub(crate) classes: Vec<HirClassReference>,
+}
+
+impl HirNominalReferenceCatalog {
+    #[must_use]
+    pub fn new(
+        mut interfaces: Vec<HirInterfaceReference>,
+        mut classes: Vec<HirClassReference>,
+    ) -> Self {
+        interfaces.sort_by(|left, right| left.identity().cmp(right.identity()));
+        classes.sort_by(|left, right| left.identity().cmp(right.identity()));
+        Self {
+            interfaces,
+            classes,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.interfaces.is_empty() && self.classes.is_empty()
+    }
+
+    #[must_use]
+    pub fn interfaces(&self) -> &[HirInterfaceReference] {
+        &self.interfaces
+    }
+
+    #[must_use]
+    pub fn classes(&self) -> &[HirClassReference] {
+        &self.classes
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirFfiLayoutField {
+    field: FieldId,
+    name: String,
+    source_index: u32,
+    layout: u64,
+    offset: u64,
+}
+
+impl HirFfiLayoutField {
+    #[must_use]
+    pub fn new(
+        field: FieldId,
+        name: impl Into<String>,
+        source_index: u32,
+        layout: u64,
+        offset: u64,
+    ) -> Self {
+        Self {
+            field,
+            name: name.into(),
+            source_index,
+            layout,
+            offset,
+        }
+    }
+
+    #[must_use]
+    pub const fn field(&self) -> FieldId {
+        self.field
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn source_index(&self) -> u32 {
+        self.source_index
+    }
+
+    #[must_use]
+    pub const fn layout(&self) -> u64 {
+        self.layout
+    }
+
+    #[must_use]
+    pub const fn offset(&self) -> u64 {
+        self.offset
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HirFfiValueClass {
+    Integer,
+    Float,
+    Pointer,
+    FunctionPointer,
+    Handle,
+    Record(Vec<HirFfiLayoutField>),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirFfiLayout {
+    id: u64,
+    element: TypeId,
+    size: u64,
+    alignment: u64,
+    value_class: HirFfiValueClass,
+    abi: pop_types::ForeignAbi,
+    descriptor: String,
+    fingerprint: String,
+}
+
+impl HirFfiLayout {
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: u64,
+        element: TypeId,
+        size: u64,
+        alignment: u64,
+        value_class: HirFfiValueClass,
+        abi: pop_types::ForeignAbi,
+        descriptor: impl Into<String>,
+        fingerprint: impl Into<String>,
+    ) -> Self {
+        Self {
+            id,
+            element,
+            size,
+            alignment,
+            value_class,
+            abi,
+            descriptor: descriptor.into(),
+            fingerprint: fingerprint.into(),
+        }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> u64 {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn element(&self) -> TypeId {
+        self.element
+    }
+
+    #[must_use]
+    pub const fn size(&self) -> u64 {
+        self.size
+    }
+
+    #[must_use]
+    pub const fn alignment(&self) -> u64 {
+        self.alignment
+    }
+
+    #[must_use]
+    pub const fn value_class(&self) -> &HirFfiValueClass {
+        &self.value_class
+    }
+
+    #[must_use]
+    pub const fn abi(&self) -> pop_types::ForeignAbi {
+        self.abi
+    }
+
+    #[must_use]
+    pub fn descriptor(&self) -> &str {
+        &self.descriptor
+    }
+
+    #[must_use]
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirFfiLayoutCatalog {
+    target: String,
+    entries: Vec<HirFfiLayout>,
+}
+
+impl HirFfiLayoutCatalog {
+    #[must_use]
+    pub fn new(target: impl Into<String>, mut entries: Vec<HirFfiLayout>) -> Self {
+        entries.sort_by_key(HirFfiLayout::id);
+        Self {
+            target: target.into(),
+            entries,
+        }
+    }
+
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    #[must_use]
+    pub fn entries(&self) -> &[HirFfiLayout] {
+        &self.entries
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -385,6 +1133,7 @@ pub struct HirFunctionReference {
     pub(crate) parameters: Vec<TypeId>,
     pub(crate) results: Vec<TypeId>,
     pub(crate) effects: pop_types::EffectSummary,
+    pub(crate) lifetime_summary: pop_types::CallableLifetimeSummary,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) foreign_declaration: Option<pop_types::ForeignFunctionDeclaration>,
     pub(crate) specialization_capsule: Option<HirSpecializationCapsule>,
@@ -400,6 +1149,7 @@ impl HirFunctionReference {
         parameters: Vec<TypeId>,
         results: Vec<TypeId>,
         effects: pop_types::EffectSummary,
+        lifetime_summary: pop_types::CallableLifetimeSummary,
     ) -> Self {
         Self {
             identity,
@@ -409,6 +1159,7 @@ impl HirFunctionReference {
             parameters,
             results,
             effects,
+            lifetime_summary,
             foreign_declaration: None,
             specialization_capsule: None,
         }
@@ -426,6 +1177,11 @@ impl HirFunctionReference {
     #[must_use]
     pub const fn is_async(&self) -> bool {
         self.is_async
+    }
+
+    #[must_use]
+    pub const fn lifetime_summary(&self) -> &pop_types::CallableLifetimeSummary {
+        &self.lifetime_summary
     }
 
     #[must_use]
@@ -701,6 +1457,7 @@ impl HirDeclaration {
             visibility,
             name: name.into(),
             kind: HirDeclarationKind::Class(HirClassDeclaration {
+                definition: SymbolIdentity::new(definition.bubble(), definition.source_symbol()),
                 class: definition.class(),
                 type_id: definition.type_id(),
                 is_open: definition.is_open(),
@@ -798,6 +1555,7 @@ impl HirDeclaration {
                             })
                             .collect(),
                         results: method.results().to_vec(),
+                        effects: pop_types::EffectSummary::empty(),
                         span: method.span(),
                     })
                     .collect(),
@@ -1023,6 +1781,7 @@ pub struct HirUnionCase {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HirClassDeclaration {
+    pub(crate) definition: SymbolIdentity,
     pub(crate) class: ClassId,
     pub(crate) type_id: TypeId,
     pub(crate) is_open: bool,
@@ -1046,6 +1805,7 @@ pub struct HirInterfaceMethod {
     pub(crate) name: String,
     pub(crate) parameters: Vec<HirNamedType>,
     pub(crate) results: Vec<TypeId>,
+    pub(crate) effects: pop_types::EffectSummary,
     pub(crate) span: SourceSpan,
 }
 
@@ -1232,6 +1992,10 @@ impl HirUnionCase {
 
 impl HirClassDeclaration {
     #[must_use]
+    pub const fn definition(&self) -> SymbolIdentity {
+        self.definition
+    }
+    #[must_use]
     pub const fn class(&self) -> ClassId {
         self.class
     }
@@ -1308,6 +2072,11 @@ impl HirInterfaceMethod {
     #[must_use]
     pub fn results(&self) -> &[TypeId] {
         &self.results
+    }
+
+    #[must_use]
+    pub const fn effects(&self) -> pop_types::EffectSummary {
+        self.effects
     }
 
     #[must_use]
@@ -1537,6 +2306,7 @@ pub struct HirFunction {
     pub(crate) body: Vec<HirStatement>,
     pub(crate) attributes: Vec<HirAttribute>,
     pub(crate) effects: pop_types::EffectSummary,
+    pub(crate) lifetime_summary: pop_types::CallableLifetimeSummary,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1679,6 +2449,11 @@ impl HirFunction {
     #[must_use]
     pub const fn effects(&self) -> pop_types::EffectSummary {
         self.effects
+    }
+
+    #[must_use]
+    pub const fn lifetime_summary(&self) -> &pop_types::CallableLifetimeSummary {
+        &self.lifetime_summary
     }
 
     #[must_use]
@@ -2276,6 +3051,12 @@ fn remap_aggregate_statements(statements: &mut [HirStatement], instances: &HirDa
                     remap_aggregate_statements(&mut arm.body, instances);
                 }
             }
+            HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
+                remap_aggregate_expression(scrutinee, instances);
+                for arm in arms {
+                    remap_aggregate_statements(&mut arm.body, instances);
+                }
+            }
             HirStatementKind::Defer { body } | HirStatementKind::AsyncDefer { body } => {
                 remap_aggregate_statements(body, instances);
             }
@@ -2459,9 +3240,90 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
             }
             remap_aggregate_statements(&mut body.body, instances);
         }
+        HirExpressionKind::FfiWithCallback {
+            callback,
+            callback_type,
+            body,
+            body_type,
+            ..
+        } => {
+            *callback_type = instances.type_id(*callback_type);
+            *body_type = instances.type_id(*body_type);
+            for closure in [callback, body] {
+                for parameter in &mut closure.parameters {
+                    parameter.type_id = instances.type_id(parameter.type_id);
+                }
+                for result in &mut closure.results {
+                    *result = instances.type_id(*result);
+                }
+                for capture in &mut closure.captures {
+                    capture.type_id = instances.type_id(capture.type_id);
+                }
+                remap_aggregate_statements(&mut closure.body, instances);
+            }
+        }
+        HirExpressionKind::FfiCallbackOpen {
+            callback,
+            callback_type,
+            ..
+        } => {
+            *callback_type = instances.type_id(*callback_type);
+            for parameter in &mut callback.parameters {
+                parameter.type_id = instances.type_id(parameter.type_id);
+            }
+            for result in &mut callback.results {
+                *result = instances.type_id(*result);
+            }
+            for capture in &mut callback.captures {
+                capture.type_id = instances.type_id(capture.type_id);
+            }
+            remap_aggregate_statements(&mut callback.body, instances);
+        }
+        HirExpressionKind::FfiCallbackWithPair {
+            callback,
+            callback_type,
+            body,
+            body_type,
+            ..
+        } => {
+            remap_aggregate_expression(callback, instances);
+            *callback_type = instances.type_id(*callback_type);
+            *body_type = instances.type_id(*body_type);
+            for parameter in &mut body.parameters {
+                parameter.type_id = instances.type_id(parameter.type_id);
+            }
+            for result in &mut body.results {
+                *result = instances.type_id(*result);
+            }
+            for capture in &mut body.captures {
+                capture.type_id = instances.type_id(capture.type_id);
+            }
+            remap_aggregate_statements(&mut body.body, instances);
+        }
+        HirExpressionKind::FfiCallbackClose {
+            callback,
+            callback_type,
+        } => {
+            remap_aggregate_expression(callback, instances);
+            *callback_type = instances.type_id(*callback_type);
+        }
         HirExpressionKind::Field { base, field } => {
             remap_aggregate_expression(base, instances);
             *field = instances.field(base.type_id(), *field);
+        }
+        HirExpressionKind::CheckedNominalCast {
+            value,
+            source_type,
+            target_class,
+            target_type,
+            ..
+        } => {
+            remap_aggregate_expression(value, instances);
+            *source_type = instances.type_id(*source_type);
+            if let Some((_, class)) = instances.class(*target_type) {
+                *target_class = class;
+            }
+            *target_type = instances.type_id(*target_type);
         }
         HirExpressionKind::TupleGet { tuple: base, .. }
         | HirExpressionKind::InterfaceUpcast { value: base, .. }
@@ -2743,6 +3605,25 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
                 *method = concrete_method;
             }
         }
+        HirExpressionKind::ViewCreate { lender, .. }
+        | HirExpressionKind::ViewLength { view: lender, .. }
+        | HirExpressionKind::ViewMaterialize { view: lender, .. } => {
+            remap_aggregate_expression(lender, instances);
+        }
+        HirExpressionKind::ViewSlice {
+            view,
+            start,
+            length,
+            ..
+        } => {
+            remap_aggregate_expression(view, instances);
+            remap_aggregate_expression(start, instances);
+            remap_aggregate_expression(length, instances);
+        }
+        HirExpressionKind::ViewGetByte { view, index } => {
+            remap_aggregate_expression(view, instances);
+            remap_aggregate_expression(index, instances);
+        }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
         | HirExpressionKind::String(_)
@@ -2752,8 +3633,10 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
         | HirExpressionKind::Parameter(_)
         | HirExpressionKind::Capture(_)
         | HirExpressionKind::Function(_)
+        | HirExpressionKind::GeneratedCodecSchema(_)
         | HirExpressionKind::TaskCancellationSource
-        | HirExpressionKind::EnumCase { .. } => {}
+        | HirExpressionKind::EnumCase { .. }
+        | HirExpressionKind::CodecErrorCase(_) => {}
     }
 }
 
@@ -2978,6 +3861,12 @@ fn collect_statement_calls(statements: &[HirStatement], calls: &mut Vec<HirColle
                     collect_statement_calls(&arm.body, calls);
                 }
             }
+            HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
+                collect_expression_calls(scrutinee, calls);
+                for arm in arms {
+                    collect_statement_calls(&arm.body, calls);
+                }
+            }
             HirStatementKind::Defer { body } | HirStatementKind::AsyncDefer { body } => {
                 collect_statement_calls(body, calls);
             }
@@ -3079,9 +3968,24 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             collect_expression_calls(bytes, calls);
             collect_statement_calls(body.body(), calls);
         }
+        HirExpressionKind::FfiWithCallback { callback, body, .. } => {
+            collect_statement_calls(callback.body(), calls);
+            collect_statement_calls(body.body(), calls);
+        }
+        HirExpressionKind::FfiCallbackOpen { callback, .. } => {
+            collect_statement_calls(callback.body(), calls);
+        }
+        HirExpressionKind::FfiCallbackWithPair { callback, body, .. } => {
+            collect_expression_calls(callback, calls);
+            collect_statement_calls(body.body(), calls);
+        }
+        HirExpressionKind::FfiCallbackClose { callback, .. } => {
+            collect_expression_calls(callback, calls);
+        }
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::TupleGet { tuple: base, .. }
         | HirExpressionKind::InterfaceUpcast { value: base, .. }
+        | HirExpressionKind::CheckedNominalCast { value: base, .. }
         | HirExpressionKind::NumericConvert { value: base, .. }
         | HirExpressionKind::StringFormat { value: base, .. }
         | HirExpressionKind::Unary { operand: base, .. }
@@ -3285,6 +4189,25 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
                 collect_expression_calls(argument, calls);
             }
         }
+        HirExpressionKind::ViewCreate { lender, .. }
+        | HirExpressionKind::ViewLength { view: lender, .. }
+        | HirExpressionKind::ViewMaterialize { view: lender, .. } => {
+            collect_expression_calls(lender, calls);
+        }
+        HirExpressionKind::ViewSlice {
+            view,
+            start,
+            length,
+            ..
+        } => {
+            collect_expression_calls(view, calls);
+            collect_expression_calls(start, calls);
+            collect_expression_calls(length, calls);
+        }
+        HirExpressionKind::ViewGetByte { view, index } => {
+            collect_expression_calls(view, calls);
+            collect_expression_calls(index, calls);
+        }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
         | HirExpressionKind::String(_)
@@ -3294,9 +4217,11 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
         | HirExpressionKind::Parameter(_)
         | HirExpressionKind::Capture(_)
         | HirExpressionKind::Function(_)
+        | HirExpressionKind::GeneratedCodecSchema(_)
         | HirExpressionKind::TaskCancellationSource
         | HirExpressionKind::FfiPointerNone { .. }
-        | HirExpressionKind::EnumCase { .. } => {}
+        | HirExpressionKind::EnumCase { .. }
+        | HirExpressionKind::CodecErrorCase(_) => {}
     }
 }
 
@@ -3494,6 +4419,12 @@ fn specialize_statement(
                 specialize_statements(&mut arm.body, substitutions, instances, arena)?;
             }
         }
+        HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
+            specialize_expression(scrutinee, substitutions, instances, arena)?;
+            for arm in arms {
+                specialize_statements(&mut arm.body, substitutions, instances, arena)?;
+            }
+        }
         HirStatementKind::Defer { body } | HirStatementKind::AsyncDefer { body } => {
             specialize_statements(body, substitutions, instances, arena)?;
         }
@@ -3685,6 +4616,94 @@ fn specialize_expression(
                 specialize_type(&mut capture.type_id, substitutions, arena)?;
             }
             specialize_statements(&mut body.body, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::FfiWithCallback {
+            callback,
+            callback_type,
+            body,
+            body_type,
+            ..
+        } => {
+            specialize_type(callback_type, substitutions, arena)?;
+            specialize_type(body_type, substitutions, arena)?;
+            for closure in [callback, body] {
+                for parameter in &mut closure.parameters {
+                    specialize_type(&mut parameter.type_id, substitutions, arena)?;
+                }
+                for result in &mut closure.results {
+                    specialize_type(result, substitutions, arena)?;
+                }
+                for capture in &mut closure.captures {
+                    specialize_type(&mut capture.type_id, substitutions, arena)?;
+                }
+                specialize_statements(&mut closure.body, substitutions, instances, arena)?;
+            }
+        }
+        HirExpressionKind::FfiCallbackOpen {
+            callback,
+            callback_type,
+            ..
+        } => {
+            specialize_type(callback_type, substitutions, arena)?;
+            for parameter in &mut callback.parameters {
+                specialize_type(&mut parameter.type_id, substitutions, arena)?;
+            }
+            for result in &mut callback.results {
+                specialize_type(result, substitutions, arena)?;
+            }
+            for capture in &mut callback.captures {
+                specialize_type(&mut capture.type_id, substitutions, arena)?;
+            }
+            specialize_statements(&mut callback.body, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::FfiCallbackWithPair {
+            callback,
+            callback_type,
+            body,
+            body_type,
+            ..
+        } => {
+            specialize_expression(callback, substitutions, instances, arena)?;
+            specialize_type(callback_type, substitutions, arena)?;
+            specialize_type(body_type, substitutions, arena)?;
+            for parameter in &mut body.parameters {
+                specialize_type(&mut parameter.type_id, substitutions, arena)?;
+            }
+            for result in &mut body.results {
+                specialize_type(result, substitutions, arena)?;
+            }
+            for capture in &mut body.captures {
+                specialize_type(&mut capture.type_id, substitutions, arena)?;
+            }
+            specialize_statements(&mut body.body, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::FfiCallbackClose {
+            callback,
+            callback_type,
+        } => {
+            specialize_expression(callback, substitutions, instances, arena)?;
+            specialize_type(callback_type, substitutions, arena)?;
+        }
+        HirExpressionKind::CheckedNominalCast {
+            value,
+            source_interface,
+            source_type,
+            target_class,
+            target_type,
+        } => {
+            specialize_expression(value, substitutions, instances, arena)?;
+            specialize_type(source_type, substitutions, arena)?;
+            specialize_type(target_type, substitutions, arena)?;
+            let Some(pop_types::SemanticType::Interface { interface, .. }) =
+                arena.get(*source_type)
+            else {
+                return None;
+            };
+            let Some(pop_types::SemanticType::Class { class, .. }) = arena.get(*target_type) else {
+                return None;
+            };
+            *source_interface = *interface;
+            *target_class = *class;
         }
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::TupleGet { tuple: base, .. }
@@ -3919,6 +4938,25 @@ fn specialize_expression(
                 specialize_expression(argument, substitutions, instances, arena)?;
             }
         }
+        HirExpressionKind::ViewCreate { lender, .. }
+        | HirExpressionKind::ViewLength { view: lender, .. }
+        | HirExpressionKind::ViewMaterialize { view: lender, .. } => {
+            specialize_expression(lender, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ViewSlice {
+            view,
+            start,
+            length,
+            ..
+        } => {
+            specialize_expression(view, substitutions, instances, arena)?;
+            specialize_expression(start, substitutions, instances, arena)?;
+            specialize_expression(length, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ViewGetByte { view, index } => {
+            specialize_expression(view, substitutions, instances, arena)?;
+            specialize_expression(index, substitutions, instances, arena)?;
+        }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
         | HirExpressionKind::String(_)
@@ -3928,8 +4966,10 @@ fn specialize_expression(
         | HirExpressionKind::Parameter(_)
         | HirExpressionKind::Capture(_)
         | HirExpressionKind::Function(_)
+        | HirExpressionKind::GeneratedCodecSchema(_)
         | HirExpressionKind::TaskCancellationSource
-        | HirExpressionKind::EnumCase { .. } => {}
+        | HirExpressionKind::EnumCase { .. }
+        | HirExpressionKind::CodecErrorCase(_) => {}
     }
     Some(())
 }
@@ -4143,6 +5183,10 @@ pub enum HirStatementKind {
         result: BuiltinTypeId,
         result_type: TypeId,
         arms: Vec<HirResultMatchArm>,
+    },
+    CodecErrorMatch {
+        scrutinee: HirExpression,
+        arms: Vec<HirCodecErrorMatchArm>,
     },
     Defer {
         body: Vec<HirStatement>,
@@ -4408,6 +5452,24 @@ pub struct HirResultMatchArm {
     pub(crate) span: SourceSpan,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirCodecErrorMatchArm {
+    pub(crate) case: EnumCaseId,
+    pub(crate) body: Vec<HirStatement>,
+    pub(crate) span: SourceSpan,
+}
+
+impl HirCodecErrorMatchArm {
+    #[must_use]
+    pub const fn case(&self) -> EnumCaseId {
+        self.case
+    }
+    #[must_use]
+    pub fn body(&self) -> &[HirStatement] {
+        &self.body
+    }
+}
+
 impl HirResultMatchArm {
     #[must_use]
     pub const fn case(&self) -> ResultCaseId {
@@ -4542,6 +5604,7 @@ pub enum HirExpressionKind {
     Parameter(ValueParameterId),
     Capture(CaptureId),
     Function(SymbolId),
+    GeneratedCodecSchema(SymbolId),
     Field {
         base: Box<HirExpression>,
         field: FieldId,
@@ -4627,6 +5690,7 @@ pub enum HirExpressionKind {
         case: IterationCaseId,
         arguments: Vec<HirExpression>,
     },
+    CodecErrorCase(EnumCaseId),
     ErrorCase {
         error: ErrorId,
         case: ErrorCaseId,
@@ -4739,6 +5803,33 @@ pub enum HirExpressionKind {
         body_type: TypeId,
         region: BorrowRegionId,
     },
+    FfiWithCallback {
+        callback: HirClosure,
+        callback_type: TypeId,
+        binding_contract: FfiCallbackBindingContract,
+        body: HirClosure,
+        body_type: TypeId,
+        site: FfiCallbackSiteId,
+        region: BorrowRegionId,
+    },
+    FfiCallbackOpen {
+        callback: HirClosure,
+        callback_type: TypeId,
+        thread: FfiCallbackThreadPolicy,
+        site: FfiCallbackSiteId,
+    },
+    FfiCallbackWithPair {
+        callback: Box<HirExpression>,
+        callback_type: TypeId,
+        binding_contract: FfiCallbackBindingContract,
+        body: HirClosure,
+        body_type: TypeId,
+        region: BorrowRegionId,
+    },
+    FfiCallbackClose {
+        callback: Box<HirExpression>,
+        callback_type: TypeId,
+    },
     FfiPointerNone {
         element: TypeId,
         layout_record: Option<SymbolId>,
@@ -4804,6 +5895,39 @@ pub enum HirExpressionKind {
     InterfaceUpcast {
         value: Box<HirExpression>,
         interface: NominalInterfaceId,
+    },
+    CheckedNominalCast {
+        value: Box<HirExpression>,
+        source_interface: InterfaceId,
+        source_type: TypeId,
+        target_class: ClassId,
+        target_type: TypeId,
+    },
+    ViewCreate {
+        kind: pop_types::ViewKind,
+        lender: Box<HirExpression>,
+        borrow: pop_types::ViewBorrow,
+    },
+    ViewSlice {
+        kind: pop_types::ViewKind,
+        view: Box<HirExpression>,
+        start: Box<HirExpression>,
+        length: Box<HirExpression>,
+        parent: pop_types::ViewBorrow,
+        borrow: pop_types::ViewBorrow,
+    },
+    ViewLength {
+        kind: pop_types::ViewKind,
+        view: Box<HirExpression>,
+    },
+    ViewGetByte {
+        view: Box<HirExpression>,
+        index: Box<HirExpression>,
+    },
+    ViewMaterialize {
+        kind: pop_types::ViewKind,
+        view: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
     },
     NumericConvert {
         value: Box<HirExpression>,
@@ -5016,10 +6140,12 @@ pub enum HirCallDispatch {
         interface: InterfaceId,
         method: InterfaceMethodId,
         slot: u32,
+        effects: EffectSummary,
     },
     BuiltinInterfaceMethod {
         interface: BuiltinTypeId,
         method: IterationProtocolMethodId,
+        effects: EffectSummary,
     },
     Indirect {
         callee: Box<HirExpression>,

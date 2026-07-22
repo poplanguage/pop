@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-
-use pop_foundation::{FieldId, TypeId};
+use pop_foundation::TypeId;
 use pop_mir::{MirFfiLayout, MirFfiLayoutCatalog, MirFfiValueClass};
 use pop_runtime_interface::RuntimeOperation;
 use pop_target::{CAbiScalarKind, CAbiSignedness, TargetSpec};
@@ -12,12 +10,38 @@ use crate::instruction_lowering::{
 };
 use crate::lowering::native_runtime_symbol;
 
+/// Renders the target ABI value type from one verified canonical layout.
+/// Record order comes from the catalog field plan; LLVM supplies only the
+/// physical target calling convention for that already-authorized shape.
+pub(crate) fn physical_type(
+    layout: &MirFfiLayout,
+    catalog: &MirFfiLayoutCatalog,
+) -> Result<String, LlvmLoweringError> {
+    match layout.value_class() {
+        MirFfiValueClass::Integer => Ok(format!("i{}", layout.size() * 8)),
+        MirFfiValueClass::Float if layout.size() == 4 => Ok("float".to_owned()),
+        MirFfiValueClass::Float if layout.size() == 8 => Ok("double".to_owned()),
+        MirFfiValueClass::Pointer | MirFfiValueClass::FunctionPointer => Ok("ptr".to_owned()),
+        MirFfiValueClass::Handle => Ok("i64".to_owned()),
+        MirFfiValueClass::Record(fields) => fields
+            .iter()
+            .map(|field| {
+                catalog
+                    .get(field.layout())
+                    .ok_or(LlvmLoweringError::InvalidFfiLayout(field.layout()))
+                    .and_then(|child| physical_type(child, catalog))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|fields| format!("{{ {} }}", fields.join(", "))),
+        MirFfiValueClass::Float => Err(LlvmLoweringError::InvalidType(layout.element())),
+    }
+}
+
 pub(crate) fn marshal(
     value: &str,
     layout: &MirFfiLayout,
     catalog: &MirFfiLayoutCatalog,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
     destination: &str,
     prefix: &str,
 ) -> Result<Vec<String>, LlvmLoweringError> {
@@ -42,15 +66,13 @@ pub(crate) fn marshal(
                 let child = catalog
                     .get(field.layout())
                     .ok_or(LlvmLoweringError::InvalidType(layout.element()))?;
-                let slot = field_layout
-                    .get(&field.field())
-                    .ok_or(LlvmLoweringError::InvalidFieldLayout(field.field()))?;
+                let slot = field.source_index() + 1;
                 let field_value = format!("{prefix}_field_{index}");
                 lines.extend(lower_runtime_slot_load_named(
                     &field_value,
                     child.element(),
                     value,
-                    *slot as usize,
+                    slot as usize,
                     types,
                 )?);
                 let pointer = format!("{prefix}_pointer_{index}");
@@ -63,7 +85,6 @@ pub(crate) fn marshal(
                     child,
                     catalog,
                     types,
-                    field_layout,
                     &pointer,
                     &format!("{prefix}_{index}"),
                 )?);
@@ -78,7 +99,6 @@ pub(crate) fn unmarshal(
     layout: &MirFfiLayout,
     catalog: &MirFfiLayoutCatalog,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
     source: &str,
 ) -> Result<Vec<String>, LlvmLoweringError> {
     match layout.value_class() {
@@ -100,23 +120,14 @@ pub(crate) fn unmarshal(
                 let child = catalog
                     .get(field.layout())
                     .ok_or(LlvmLoweringError::InvalidType(layout.element()))?;
-                let slot = field_layout
-                    .get(&field.field())
-                    .ok_or(LlvmLoweringError::InvalidFieldLayout(field.field()))?;
+                let slot = field.source_index() + 1;
                 let pointer = format!("{result}_pointer_{index}");
                 lines.push(format!(
                     "{pointer} = getelementptr i8, ptr {source}, i64 {}",
                     field.offset()
                 ));
                 let field_value = format!("{result}_field_{index}");
-                lines.extend(unmarshal(
-                    &field_value,
-                    child,
-                    catalog,
-                    types,
-                    field_layout,
-                    &pointer,
-                )?);
+                lines.extend(unmarshal(&field_value, child, catalog, types, &pointer)?);
                 let (conversions, stored) = runtime_slot_value(
                     &field_value,
                     child.element(),

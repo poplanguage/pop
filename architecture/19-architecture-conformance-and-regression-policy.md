@@ -229,6 +229,7 @@ Minimum traceability matrix:
 | Typed results, errors, and cleanup | syntax, resolver, type checker, docs, HIR/MIR, runtime, backends | stable Result/error identities, exact propagation, exhaustive boundaries, checked error docs, LIFO cleanup, verifier negatives, and differential tests |
 | Nominal iteration and growable lists | syntax, type checker, HIR/MIR, standard library, runtime, backends | exact protocol/step identities, tuple binding, deterministic collection order, list growth/barriers, lazy adapter calls, no implicit disposal/dynamic lookup, and differential tests |
 | Inferred portable generics | syntax, type checker, metadata, HIR/MIR, standard library, backends | exact bounds, unique inference, generic class witnesses, capsule identity/visibility, full-specialization baseline, no erased/dynamic fallback, and differential tests |
+| Checked interface-to-class casts | syntax, type checker, metadata, HIR/MIR, runtime, backends | explicit visible named target, exact/descendant specialized identity, typed optional absence, preserved object identity, no reflection/name lookup/unchecked projection, verifier negatives, C fail-closed behavior, and interpreter/LLVM differential tests |
 | Statically bound native FFI | syntax, type checker, HIR/MIR, PLRI/runtime, manifests/artifacts, linker, generator, LLVM | exact ABI/layout/effect identities, canonical hashed link plans, immediate scoped-body and read-only pin/buffer-borrow region proofs, handle/callback/root proofs, native fixtures, and no raw flags/shell/runtime lookup/object-address tests |
 | Native classes | type checker, HIR/MIR, runtime | resolved field/method IDs; no table lookup |
 | Bubbles/Packages/Workspaces | project resolver, manifest, driver, loader | identity/init/lock/target-selection tests |
@@ -239,6 +240,7 @@ Minimum traceability matrix:
 | Backend-neutral MIR | MIR, interpreter, LLVM, VM | verifier plus cross-backend conformance |
 | Restricted UDAs/compile time | compile-time engine | capability/string-injection negative tests |
 | Restricted reflection | compiler/runtime/base libraries | no runtime enumerate/get-by-name tests |
+| Generated retained metadata | attributes, type checker, `.popc`, HIR/MIR, artifacts, Codec, backends | exact eligible projection/type graph, same-visibility `Codec.Schema<T>`, canonical typed `.popc`/full hashes/limits/provenance, public adapter-only reference metadata, dead stripping, no JSON structural schema/reflection, and interpreter/LLVM differential tests under ADR 0096 |
 | Non-OOP default | examples, public library, analyzers | API baseline and `ApiDesign` tests |
 | Native public library tiers | package resolver, public library, documentation | tier graph, namespace, capability, and forbidden-pattern tests |
 | Rust foundation adapters | library bridge/macro, base libraries, bootstrap verifier | closed `#[poplib]` descriptors, exact ABI checks, explicit inventories, no runtime registration |
@@ -247,6 +249,7 @@ Minimum traceability matrix:
 | Compact prelude | resolver, `Pop.Standard` | exact prelude snapshot/collision tests |
 | Pop GC | compiler/runtime/backends | mutable-root relocation, immutable-shared proof, verified barrier-elision, scheduler-local parallel allocation/evacuation, capability/profile rejection, stress, and latency tests |
 | Proof-directed static reclamation | lifetime/escape analysis, HIR/MIR, PLRI, interpreter, LLVM, VM | scalar/array/aggregate positives, every-exit lifetime frontiers, region/root proofs, managed escape/cycle fallback, verifier negatives, and differential tests |
+| Compiler-proven Text/Bytes views | type/lifetime/effect checking, HIR/MIR, reference metadata, standard library, interpreter, LLVM, C validation | exact API/bounds/UTF-8/cost behavior, structured retention/result provenance, lender/root/frontier proofs, store/capture/suspend/ownership/FFI negatives, artifact/verifier corruption, C fail-closed behavior, and interpreter/LLVM relocation differentials under ADR 0097 |
 | Diagnostic fixes | compiler/tooling | applicability, atomicity, postcondition tests |
 | XML documentation | parser, resolver, docs, libraries | tag/signature/cref/artifact tests |
 | No Lua regression | all semantic layers | permanent forbidden-feature regression suite |
@@ -289,6 +292,9 @@ Architecture CI should eventually verify:
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;
+- ADR 0097 structured parameter-retention/result-provenance metadata, exact
+  Text/Bytes view lender/frontier proofs, relocation-safe lender roots,
+  explicit materialization, and rejection of runtime/dynamic borrow fallback;
 - typed public-function reference metadata and Bubble-scoped symbol identities;
 - naming/PascalCase/no-lower-snake rules;
 - default-internal visibility, private binary-entry shorthand, and absence of
@@ -300,7 +306,18 @@ Architecture CI should eventually verify:
 - allocation, copying, view, dispatch, blocking/suspension, and native-boundary
   contract checks;
 - compile-time/reflection capability negative tests;
+- ADR 0096 exact `@RetainMetadata` target/argument/type-graph rules,
+  deterministic `TargetSchema: Codec.Schema<Target>` identities, canonical
+  bounded `retained-adapters.popc`, full fingerprint/tamper/provenance checks,
+  public adapter-only JSON reference entries, dead stripping, and permanent
+  no-JSON-retained-schema/no-runtime-registry regressions;
 - native class field/method lowering without table/metatable lookup;
+- checked nominal-cast exact/descendant identity, visibility, optional absence,
+  metadata round trips, verifier negatives, interpreter/LLVM differentials, and
+  fail-closed unsupported backends under ADR 0095;
+- first-release Text/Bytes view API identities, bounds/UTF-8 behavior,
+  store/capture/suspension/ownership/FFI negatives, artifact/verifier corruption,
+  interpreter/LLVM differentials, and fail-closed C validation under ADR 0097;
 - Module/Bubble behavior without `require` value tables;
 - `bubble.toml`/`bubble.lock` and monorepo selection/reproducibility tests;
 - canonical native link plans, hashed local inputs, exact ABI fingerprints, and
