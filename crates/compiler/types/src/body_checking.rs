@@ -1214,6 +1214,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     is_async: signature.is_async(),
                     type_arguments: resolved_arguments,
                     arguments: checked_arguments,
+                    callee_span: callee.span(),
                     span,
                 },
                 results: result_types,

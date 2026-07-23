@@ -565,6 +565,8 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
                 )
             });
     let tooling_inlay_hints = hir.as_ref().map_or_else(Vec::new, tooling_inlay_hints);
+    let tooling_definition_occurrences =
+        tooling_definition_occurrences(input.bubble, hir.as_ref(), &tooling_declarations);
     sort_diagnostics(&mut diagnostics);
     FrontEndResult {
         hir,
@@ -590,8 +592,44 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
         retained_metadata,
         checked_documentation,
         tooling_declarations,
+        tooling_definition_occurrences,
         tooling_inlay_hints,
     }
+}
+
+fn tooling_definition_occurrences(
+    bubble: BubbleId,
+    hir: Option<&HirBubble>,
+    declarations: &[ToolingDeclaration],
+) -> Vec<ToolingDefinitionOccurrence> {
+    let mut occurrences = declarations
+        .iter()
+        .filter(|declaration| declaration.kind() == ToolingDeclarationKind::Function)
+        .map(|declaration| ToolingDefinitionOccurrence {
+            identity: declaration.identity(),
+            selection_span: declaration.selection_span(),
+        })
+        .collect::<Vec<_>>();
+    if let Some(hir) = hir {
+        occurrences.extend(
+            hir.functions()
+                .iter()
+                .chain(hir.methods().iter().map(pop_hir::HirMethod::function))
+                .flat_map(pop_hir::hir_source_calls)
+                .map(|call| ToolingDefinitionOccurrence {
+                    identity: SymbolIdentity::new(bubble, call.target()),
+                    selection_span: call.callee_span(),
+                }),
+        );
+    }
+    occurrences.sort_by_key(|occurrence| {
+        (
+            occurrence.selection_span.file(),
+            occurrence.selection_span.range().start(),
+            occurrence.identity,
+        )
+    });
+    occurrences
 }
 
 fn tooling_inlay_hints(hir: &HirBubble) -> Vec<ToolingInlayHint> {

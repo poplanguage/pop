@@ -379,9 +379,13 @@ fn private_language_server_uses_compiler_queries_without_cli_scraping() {
     assert!(implementation.contains("declaration.declaration_span().file() == source.id()"));
     assert!(implementation.contains("reanalyze_open_documents("));
     assert!(implementation.contains("document.scope == *scope"));
+    assert!(implementation.contains("tooling_definition_occurrences()"));
+    assert!(implementation.contains("occurrence.identity() == declaration.identity()"));
     let transport = read_required(root.join("crates/tools/language-server/src/transport.rs"));
     assert!(transport.contains("\"codeActionProvider\": true"));
     assert!(transport.contains("\"inlayHintProvider\": true"));
+    assert!(transport.contains("\"definitionProvider\": true"));
+    assert!(transport.contains("\"textDocument/definition\""));
     assert!(transport.contains("ConnectionAction::Replies"));
 }
 

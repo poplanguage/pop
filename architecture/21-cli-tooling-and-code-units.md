@@ -594,11 +594,18 @@ the nearest ancestor Package manifest selects conventional same-Bubble Modules
 when that Bubble has no unresolved dependency edge. Nested Packages remain
 distinct; an outer Workspace or editor folder never merges their visibility.
 
+ADR 0092 adds `textDocument/definition` for namespace-scope function
+declarations and statically resolved direct calls in that same immutable
+Bubble snapshot. The compiler projects exact occurrence spans and
+`SymbolIdentity`; the adapter joins by that identity and uses paths only to
+present the destination URI. Unsupported, unresolved, indirect, or
+dependency-owned uses return no destination.
+
 The adapter is a private executable protocol boundary, not the public
 `Pop.Lsp` API and not a re-export of `Pop.Rpc`. Completion, signature help,
-cross-Bubble navigation, references, rename, formatting, semantic tokens,
-incremental text edits, complete Workspace/dependency analysis, and public
-transport types require their separately reviewed schemas.
+local/member or cross-Bubble navigation, references, rename, formatting,
+semantic tokens, incremental text edits, complete Workspace/dependency
+analysis, and public transport types require their separately reviewed schemas.
 Editor extensions launch the server directly and consume structured LSP data;
 they may invoke `pop` commands for explicit user actions but never scrape CLI
 human output to synthesize language-server results.

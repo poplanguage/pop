@@ -54,6 +54,8 @@ diagnostics.
 - compiler-backed LSP diagnostics, related labels, quick fixes, document
   symbols, direct-call parameter inlay hints, and dependency-free same-Bubble
   snapshots;
+- compiler-resolved definition navigation for namespace-scope functions and
+  direct calls within those snapshots;
 - validated canonical binary/library scaffolding through `pop new` and
   `pop initialize`.
 

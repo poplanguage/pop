@@ -7,6 +7,43 @@ use pop_mir::{MirDeclarationKind, MirVerificationError, lower_hir_bubble};
 use pop_source::SourceFile;
 
 #[test]
+fn tooling_definition_occurrences_preserve_overload_identity_and_callee_span() {
+    let text = "namespace Main\nfunction choose(value: Int): Int\n    return value\nend\nfunction choose(value: String): String\n    return value\nend\nfunction run(): String\n    return choose(\"selected\")\nend\n";
+    let source = SourceFile::new(FileId::from_raw(0), "src/navigation.pop", text).expect("source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(7),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+
+    let call_start = text.rfind("choose").expect("call");
+    let call = result
+        .tooling_definition_occurrences()
+        .iter()
+        .find(|occurrence| occurrence.selection_span().range().start().to_usize() == call_start)
+        .expect("resolved call occurrence");
+    assert_eq!(
+        call.selection_span().range().end().to_usize(),
+        call_start + "choose".len(),
+        "the occurrence covers the callee only"
+    );
+    let target = result
+        .tooling_declarations()
+        .iter()
+        .find(|declaration| declaration.identity() == call.identity())
+        .expect("selected declaration identity");
+    let signature = &text[target.signature_span().range().start().to_usize()
+        ..target.signature_span().range().end().to_usize()];
+    assert_eq!(signature, "function choose(value: String): String");
+}
+
+#[test]
 fn explicit_generic_functions_records_and_unions_reach_concrete_mir() {
     let source = SourceFile::new(
         FileId::from_raw(0),

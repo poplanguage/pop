@@ -130,6 +130,174 @@ fn document_symbols_are_compiler_indexed_and_utf16_positioned() {
 }
 
 #[test]
+fn definition_uses_the_compiler_selected_function_identity() {
+    let mut server = LanguageServer::initialize(Some("en")).expect("server");
+    let uri = DocumentUri::new("file:///workspace/definition.pop").expect("URI");
+    server
+        .open(
+            uri.clone(),
+            DocumentVersion::new(1),
+            "namespace Example\nfunction one(): Int\n    return 1\nend\nfunction value(): Int\n    return one()\nend\n",
+            &CancellationToken::new(),
+        )
+        .expect("open definition source");
+
+    let definition = server
+        .definition(
+            &uri,
+            ProtocolPosition::new(5, 12),
+            &CancellationToken::new(),
+        )
+        .expect("definition query")
+        .expect("resolved definition");
+    assert_eq!(definition.uri(), &uri);
+    assert_eq!(definition.range().start(), ProtocolPosition::new(1, 9));
+    assert_eq!(definition.range().end(), ProtocolPosition::new(1, 12));
+
+    assert!(
+        server
+            .definition(&uri, ProtocolPosition::new(0, 0), &CancellationToken::new(),)
+            .expect("empty definition")
+            .is_none()
+    );
+}
+
+#[test]
+fn definition_crosses_modules_only_inside_the_selected_bubble() {
+    let root = std::env::temp_dir().join(format!("PopLspDefinition{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("bubble.toml"),
+        "[package]\nname = \"Studio.Navigation\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .unwrap();
+    let active = "namespace Studio.Navigation\nfunction value(): Int\n    return helper()\nend\n";
+    let helper = "namespace Studio.Navigation\nfunction helper(): Int\n    return 42\nend\n";
+    std::fs::write(root.join("src/lib.pop"), active).unwrap();
+    std::fs::write(root.join("src/helper.pop"), helper).unwrap();
+    let active_uri =
+        DocumentUri::new(format!("file://{}", root.join("src/lib.pop").display())).unwrap();
+    let helper_uri =
+        DocumentUri::new(format!("file://{}", root.join("src/helper.pop").display())).unwrap();
+    let mut server = LanguageServer::initialize(Some("en")).unwrap();
+    server
+        .open(
+            active_uri.clone(),
+            DocumentVersion::new(1),
+            active,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    let definition = server
+        .definition(
+            &active_uri,
+            ProtocolPosition::new(2, 12),
+            &CancellationToken::new(),
+        )
+        .expect("definition query")
+        .expect("sibling definition");
+    assert_eq!(definition.uri(), &helper_uri);
+    assert_eq!(definition.range().start(), ProtocolPosition::new(1, 9));
+    assert_eq!(definition.range().end(), ProtocolPosition::new(1, 15));
+
+    assert!(server.close(&active_uri));
+    assert!(matches!(
+        server.definition(
+            &active_uri,
+            ProtocolPosition::new(2, 12),
+            &CancellationToken::new(),
+        ),
+        Err(LanguageServerError::DocumentNotOpen { .. })
+    ));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn definition_does_not_fabricate_dependency_or_sibling_bubble_identity() {
+    let root = std::env::temp_dir().join(format!("PopLspDependency{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("bubble.toml"),
+        "[package]\nname = \"Studio.Consumer\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n[dependencies]\nShared = \"1.0\"\n",
+    )
+    .unwrap();
+    let active = "namespace Studio.Consumer\nfunction value(): Int\n    return helper()\nend\n";
+    std::fs::write(root.join("src/lib.pop"), active).unwrap();
+    std::fs::write(
+        root.join("src/helper.pop"),
+        "namespace Studio.Consumer\nfunction helper(): Int\n    return 42\nend\n",
+    )
+    .unwrap();
+    let uri = DocumentUri::new(format!("file://{}", root.join("src/lib.pop").display())).unwrap();
+    let mut server = LanguageServer::initialize(Some("en")).unwrap();
+    let analysis = server
+        .open(
+            uri.clone(),
+            DocumentVersion::new(1),
+            active,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+    assert!(
+        analysis
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == "POP1002"),
+        "dependency-bearing Packages must remain standalone until the resolver snapshot exists"
+    );
+    assert!(
+        server
+            .definition(
+                &uri,
+                ProtocolPosition::new(2, 12),
+                &CancellationToken::new(),
+            )
+            .expect("definition query")
+            .is_none()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn definition_positions_count_utf16_units_without_widening_the_occurrence() {
+    let mut server = LanguageServer::initialize(Some("en")).expect("server");
+    let uri = DocumentUri::new("file:///workspace/unicode-definition.pop").expect("URI");
+    server
+        .open(
+            uri.clone(),
+            DocumentVersion::new(1),
+            "namespace Example\nfunction one(): Int\n    return 1\nend\nfunction choose(label: String, value: Int): Int\n    return value\nend\nfunction value(): Int\n    return choose(\"😀\", one())\nend\n",
+            &CancellationToken::new(),
+        )
+        .expect("open Unicode definition source");
+
+    let definition = server
+        .definition(
+            &uri,
+            ProtocolPosition::new(8, 25),
+            &CancellationToken::new(),
+        )
+        .expect("definition query")
+        .expect("nested definition after non-BMP text");
+    assert_eq!(definition.range().start(), ProtocolPosition::new(1, 9));
+
+    assert!(
+        server
+            .definition(
+                &uri,
+                ProtocolPosition::new(8, 20),
+                &CancellationToken::new(),
+            )
+            .expect("argument position")
+            .is_none(),
+        "the string argument must not be treated as part of the callee occurrence"
+    );
+}
+
+#[test]
 fn malformed_documentation_is_diagnosed_and_never_enters_hover() {
     let mut server = LanguageServer::initialize(Some("en")).expect("server");
     let uri = DocumentUri::new("file:///workspace/broken-doc.pop").expect("URI");

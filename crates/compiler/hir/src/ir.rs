@@ -3693,6 +3693,7 @@ pub fn hir_referenced_call_instances(function: &HirFunction) -> Vec<(SymbolIdent
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HirSourceCall {
     target: SymbolId,
+    callee_span: SourceSpan,
     arguments: Vec<SourceSpan>,
 }
 
@@ -3700,6 +3701,11 @@ impl HirSourceCall {
     #[must_use]
     pub const fn target(&self) -> SymbolId {
         self.target
+    }
+
+    #[must_use]
+    pub const fn callee_span(&self) -> SourceSpan {
+        self.callee_span
     }
 
     #[must_use]
@@ -3718,6 +3724,7 @@ pub fn hir_source_calls(function: &HirFunction) -> Vec<HirSourceCall> {
         .filter_map(|call| match call.target {
             HirCollectedCallTarget::Direct(target) => Some(HirSourceCall {
                 target,
+                callee_span: call.callee_span,
                 arguments: call.source_arguments,
             }),
             _ => None,
@@ -3753,6 +3760,7 @@ pub fn hir_direct_data_references(function: &HirFunction) -> (Vec<ClassId>, Vec<
 struct HirCollectedCall {
     target: HirCollectedCallTarget,
     arguments: Vec<TypeId>,
+    callee_span: SourceSpan,
     source_arguments: Vec<SourceSpan>,
 }
 
@@ -3933,6 +3941,7 @@ fn collect_statement_calls(statements: &[HirStatement], calls: &mut Vec<HirColle
                     calls.push(HirCollectedCall {
                         target,
                         arguments: call.type_arguments().to_vec(),
+                        callee_span: call.callee_span(),
                         source_arguments: call
                             .arguments()
                             .iter()
@@ -4100,6 +4109,7 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             calls.push(HirCollectedCall {
                 target: HirCollectedCallTarget::Class(*class),
                 arguments: Vec::new(),
+                callee_span: expression.span(),
                 source_arguments: Vec::new(),
             });
             for field in fields {
@@ -4152,6 +4162,7 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             dispatch,
             type_arguments,
             arguments,
+            callee_span,
             ..
         } => {
             let target = match dispatch {
@@ -4170,6 +4181,7 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
                 calls.push(HirCollectedCall {
                     target,
                     arguments: type_arguments.clone(),
+                    callee_span: *callee_span,
                     source_arguments: arguments.iter().map(HirExpression::span).collect(),
                 });
             }
@@ -5520,6 +5532,7 @@ pub struct HirCall {
     pub(crate) is_async: bool,
     pub(crate) type_arguments: Vec<TypeId>,
     pub(crate) arguments: Vec<HirExpression>,
+    pub(crate) callee_span: SourceSpan,
     pub(crate) span: SourceSpan,
 }
 
@@ -5542,6 +5555,11 @@ impl HirCall {
     #[must_use]
     pub fn arguments(&self) -> &[HirExpression] {
         &self.arguments
+    }
+
+    #[must_use]
+    pub const fn callee_span(&self) -> SourceSpan {
+        self.callee_span
     }
 
     #[must_use]
@@ -5872,6 +5890,7 @@ pub enum HirExpressionKind {
         is_async: bool,
         type_arguments: Vec<TypeId>,
         arguments: Vec<HirExpression>,
+        callee_span: SourceSpan,
     },
     InterfaceUpcast {
         value: Box<HirExpression>,

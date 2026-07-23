@@ -92,6 +92,10 @@ fn stdio_session_negotiates_utf16_and_publishes_localized_diagnostics() {
         messages[0]["result"]["capabilities"]["inlayHintProvider"],
         true
     );
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["definitionProvider"],
+        true
+    );
     let publication = messages
         .iter()
         .find(|message| message["method"] == "textDocument/publishDiagnostics")
@@ -254,6 +258,36 @@ fn stdio_hover_and_document_symbols_use_compiler_results() {
         .expect("symbols");
     assert_eq!(symbols["result"][0]["name"], "one");
     assert_eq!(symbols["result"][0]["kind"], 12);
+}
+
+#[test]
+fn stdio_definition_returns_the_compiler_selected_location() {
+    let uri = "file:///workspace/navigation.pop";
+    let input = session(&[
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"locale":"en","capabilities":{}}}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"pop","version":1,"text":"namespace Example\nfunction one(): Int\n    return 1\nend\nfunction value(): Int\n    return one()\nend\n"}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":5,"character":12}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":0,"character":0}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ]);
+    let mut output = Vec::new();
+    serve(
+        BufReader::new(Cursor::new(input)),
+        &mut output,
+        TransportLimits::default(),
+    )
+    .expect("serve session");
+    let messages = responses(&output);
+    let location = &messages.iter().find(|message| message["id"] == 3).unwrap()["result"];
+    assert_eq!(location["uri"], uri);
+    assert_eq!(location["range"]["start"]["line"], 1);
+    assert_eq!(location["range"]["start"]["character"], 9);
+    assert_eq!(
+        messages.iter().find(|message| message["id"] == 4).unwrap()["result"],
+        Value::Null
+    );
 }
 
 #[test]

@@ -382,7 +382,13 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             );
             if resolution.symbols().len() > 1 {
                 return self
-                    .check_exact_source_overload(&name, resolution.symbols(), arguments, span)
+                    .check_exact_source_overload(
+                        &name,
+                        resolution.symbols(),
+                        arguments,
+                        callee.span(),
+                        span,
+                    )
                     .map(CheckedInvocation::Call);
             }
             if let Some(symbol) = resolution.symbol()
@@ -390,7 +396,14 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 && !signature.type_parameters().is_empty()
             {
                 return self
-                    .check_inferred_generic_call(symbol, &signature, arguments, expected, span)
+                    .check_inferred_generic_call(
+                        symbol,
+                        &signature,
+                        arguments,
+                        expected,
+                        callee.span(),
+                        span,
+                    )
                     .map(CheckedInvocation::Call);
             }
         }
@@ -457,6 +470,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             }
             typed_arguments.push(typed);
         }
+        let callee_span = callee.span();
         let dispatch = self.call_dispatch(callee);
         let results = self.call_result_types(is_async, results)?;
         Some(CheckedInvocation::Call(CheckedCall {
@@ -465,6 +479,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async,
                 type_arguments: Vec::new(),
                 arguments: typed_arguments,
+                callee_span,
                 span,
             },
             results,
@@ -1908,6 +1923,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         name: &str,
         symbols: &[pop_foundation::SymbolId],
         arguments: &[ExpressionSyntax],
+        callee_span: SourceSpan,
         span: SourceSpan,
     ) -> Option<CheckedCall> {
         let candidates = symbols
@@ -1982,6 +1998,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async: signature.is_async(),
                 type_arguments: Vec::new(),
                 arguments: typed_arguments,
+                callee_span,
                 span,
             },
             results,
@@ -1994,6 +2011,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         signature: &crate::ResolvedFunctionSignature,
         arguments: &[ExpressionSyntax],
         expected: Option<ExpectedExpressionType>,
+        callee_span: SourceSpan,
         span: SourceSpan,
     ) -> Option<CheckedCall> {
         if signature.parameters().len() != arguments.len() {
@@ -2128,6 +2146,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async: signature.is_async(),
                 type_arguments: inferred_type_arguments,
                 arguments: typed_arguments,
+                callee_span,
                 span,
             },
             results,
@@ -3255,6 +3274,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async: false,
                 type_arguments: Vec::new(),
                 arguments: typed_arguments,
+                callee_span: span,
                 span,
             },
             results: result_types.clone(),
@@ -3307,6 +3327,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 arguments,
                 expected,
                 span,
+                span,
             )?;
             let symbolic = inferred
                 .call
@@ -3330,6 +3351,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                         is_async: false,
                         type_arguments: Vec::new(),
                         arguments: inferred.call.arguments,
+                        callee_span: inferred.call.callee_span,
                         span,
                     },
                     results: instance_method.results().to_vec(),
@@ -3344,6 +3366,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     is_async: false,
                     type_arguments: Vec::new(),
                     arguments: inferred.call.arguments,
+                    callee_span: inferred.call.callee_span,
                     span,
                 },
                 results: instance_method.results().to_vec(),
@@ -3416,6 +3439,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     is_async: false,
                     type_arguments: Vec::new(),
                     arguments: Vec::new(),
+                    callee_span: span,
                     span,
                 },
                 results: vec![result],
@@ -3534,6 +3558,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async: false,
                 type_arguments: Vec::new(),
                 arguments: typed_arguments,
+                callee_span: span,
                 span,
             },
             results: method.results().to_vec(),
@@ -3581,6 +3606,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async: false,
                 type_arguments: Vec::new(),
                 arguments: typed_arguments,
+                callee_span: span,
                 span,
             },
             results: method.results().to_vec(),
@@ -3606,6 +3632,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             is_async,
             type_arguments,
             arguments,
+            callee_span,
             span,
         } = checked.call;
         let kind = match dispatch {
@@ -3618,12 +3645,14 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 is_async,
                 type_arguments,
                 arguments,
+                callee_span,
             },
             TypedCallDispatch::Referenced { function } => TypedExpressionKind::ReferencedCall {
                 function,
                 is_async,
                 type_arguments,
                 arguments,
+                callee_span,
             },
             TypedCallDispatch::DirectMethod { method, receiver } => {
                 TypedExpressionKind::DirectMethodCall {

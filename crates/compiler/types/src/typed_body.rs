@@ -304,6 +304,7 @@ pub struct TypedCall {
     pub(crate) is_async: bool,
     pub(crate) type_arguments: Vec<TypeId>,
     pub(crate) arguments: Vec<TypedExpression>,
+    pub(crate) callee_span: SourceSpan,
     pub(crate) span: SourceSpan,
 }
 
@@ -326,6 +327,11 @@ impl TypedCall {
     #[must_use]
     pub fn arguments(&self) -> &[TypedExpression] {
         &self.arguments
+    }
+
+    #[must_use]
+    pub const fn callee_span(&self) -> SourceSpan {
+        self.callee_span
     }
 
     #[must_use]
@@ -698,12 +704,14 @@ pub enum TypedExpressionKind {
         is_async: bool,
         type_arguments: Vec<TypeId>,
         arguments: Vec<TypedExpression>,
+        callee_span: SourceSpan,
     },
     ReferencedCall {
         function: SymbolIdentity,
         is_async: bool,
         type_arguments: Vec<TypeId>,
         arguments: Vec<TypedExpression>,
+        callee_span: SourceSpan,
     },
     StandardCall {
         function: StandardFunctionId,
