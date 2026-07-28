@@ -211,6 +211,9 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0118 exact checked UTF-8 encode/decode overloads, direct
   non-mutating buffer finish, malformed-data optional flow, interpreter/LLVM
   execution, fail-closed C behavior, and native ABI 1.26/2.4 coverage.
+- [x] Implement ADR 0119 canonical lowercase hexadecimal encoding and complete
+  case-insensitive optional decoding as ordinary portable Pop, with
+  interpreter/LLVM execution and no compiler/native name recognition.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

@@ -159,3 +159,5 @@ api:100	Api	Pop.Standard	Pop.Text	encodeUtf8	encodeUtf8(String)->Bytes	standard	
 api:101	Api	Pop.Standard	Pop.Text	encodeUtf8	encodeUtf8(Text.View)->Bytes	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
 api:102	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.View)->String?	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
 api:103	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.Buffer)->String?	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
+api:104	Api	Pop.Standard	Pop.Bytes	hexEncode	hexEncode(Bytes.View)->String	standard	implemented	false	architecture/decisions/0119-portable-hexadecimal-codec.md
+api:105	Api	Pop.Standard	Pop.Bytes	hexDecode	hexDecode(String)->Bytes?	standard	implemented	false	architecture/decisions/0119-portable-hexadecimal-codec.md

@@ -1829,6 +1829,28 @@ fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
 }
 
 #[test]
+fn portable_hexadecimal_codec_follows_adr_0119_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0119-portable-hexadecimal-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(bytes.matches("public function hexEncode").count(), 1);
+    assert_eq!(bytes.matches("public function hexDecode").count(), 1);
+    assert!(bytes.contains("Text.decodeUtf8(buffer)"));
+    assert!(bytes.contains("for rune in value do"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("hexEncode"));
+        assert!(!implementation.contains("hexDecode"));
+    }
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");

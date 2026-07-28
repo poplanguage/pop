@@ -4467,6 +4467,53 @@ fn emitted_llvm_executes_checked_utf8_transcoding() {
 }
 
 #[test]
+fn emitted_llvm_executes_portable_hexadecimal_codec() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local buffer = Bytes.create()\n\
+                 Bytes.write(buffer, 0)\n\
+                 Bytes.write(buffer, 171)\n\
+                 Bytes.write(buffer, 255)\n\
+                 local source = Bytes.toBytes(buffer)\n\
+                 local sourceView = Bytes.view(source)\n\
+                 if hexEncode(sourceView) ~= \"00abff\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = hexDecode(\"00aBfF\")\n\
+                 if local decoded = decodedOptional then\n\
+                     local decodedView = Bytes.view(decoded)\n\
+                     if not equals(sourceView, decodedView) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if hexDecode(\"0\") ~= nil or hexDecode(\"0x00\") ~= nil or hexDecode(\"gg\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-hexadecimal");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted hexadecimal codec: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

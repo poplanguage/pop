@@ -1530,7 +1530,8 @@ fn expression_proves_no_view_retention(expression: &ExpressionSyntax) -> bool {
                     if matches!(path.as_slice(), [namespace, operation]
                         if matches!(namespace.as_str(), "Bytes" | "Text")
                             && matches!(operation.as_str(),
-                                "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
+                                "view" | "slice" | "length" | "get" | "toBytes" | "toString"
+                                    | "create" | "withCapacity" | "write" | "decodeUtf8"))
                         || is_scalar_numeric_conversion(path)
             ) && arguments.iter().all(expression_proves_no_view_retention)
         }
@@ -1560,7 +1561,8 @@ fn is_scalar_numeric_conversion(path: &[String]) -> bool {
         path,
         [name] if matches!(
             name.as_str(),
-            "Int"
+            "Byte"
+                | "Int"
                 | "Int8"
                 | "Int16"
                 | "Int32"

@@ -1612,6 +1612,68 @@ fn checked_utf8_transcoding_is_exact_and_keeps_buffers_reusable() {
 }
 
 #[test]
+fn portable_hexadecimal_codec_is_canonical_and_checked() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local buffer = Bytes.create()\n\
+                 Bytes.write(buffer, 0)\n\
+                 Bytes.write(buffer, 1)\n\
+                 Bytes.write(buffer, 10)\n\
+                 Bytes.write(buffer, 15)\n\
+                 Bytes.write(buffer, 16)\n\
+                 Bytes.write(buffer, 171)\n\
+                 Bytes.write(buffer, 255)\n\
+                 local source = Bytes.toBytes(buffer)\n\
+                 local sourceView = Bytes.view(source)\n\
+                 local encoded = hexEncode(sourceView)\n\
+                 if encoded ~= \"00010a0f10abff\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = hexDecode(\"00010A0f10aBfF\")\n\
+                 if local decoded = decodedOptional then\n\
+                     local decodedView = Bytes.view(decoded)\n\
+                     if not equals(sourceView, decodedView) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 local emptyOptional = hexDecode(\"\")\n\
+                 if local empty = emptyOptional then\n\
+                     local emptyView = Bytes.view(empty)\n\
+                     if Bytes.length(emptyView) ~= 0 then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 if hexDecode(\"0\") ~= nil or hexDecode(\"0x00\") ~= nil or hexDecode(\"00 01\") ~= nil or hexDecode(\"gg\") ~= nil or hexDecode(\"é0\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("hex consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified hexadecimal MIR");
+
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("portable hexadecimal execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

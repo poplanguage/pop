@@ -1,5 +1,101 @@
 namespace Pop.Bytes
 
+private function hexadecimalValue(value: UInt32): Int?
+    if value >= 48 and value <= 57 then
+        return Int(value - 48)
+    end
+    if value >= 65 and value <= 70 then
+        return Int(value - 55)
+    end
+    if value >= 97 and value <= 102 then
+        return Int(value - 87)
+    end
+    return nil
+end
+
+--- <summary>
+--- Encodes bytes as canonical lowercase hexadecimal text.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Two lowercase ASCII hexadecimal digits for each input byte.
+--- </returns>
+---
+--- <remarks>
+--- Empty input produces the empty String. The returned String owns storage independent of the input.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function hexEncode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    for index = 1, length do
+        local byte = Int(Bytes.get(value, index) ?? 0)
+        local high = byte / 16
+        local low = byte % 16
+        if high < 10 then
+            Bytes.write(buffer, Byte(high + 48))
+        else
+            Bytes.write(buffer, Byte(high + 87))
+        end
+        if low < 10 then
+            Bytes.write(buffer, Byte(low + 48))
+        else
+            Bytes.write(buffer, Byte(low + 87))
+        end
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete hexadecimal text into immutable bytes.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing hexadecimal digits.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not hexadecimal.
+--- </returns>
+---
+--- <remarks>
+--- Uppercase and lowercase ASCII digits are accepted. Odd lengths, prefixes, separators, whitespace, and non-ASCII text are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function hexDecode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local waiting = false
+    local high = 0
+    for rune in value do
+        local digit = hexadecimalValue(Unicode.codePoint(rune))?
+        if waiting then
+            Bytes.write(buffer, Byte(high * 16 + digit))
+            waiting = false
+        else
+            high = digit
+            waiting = true
+        end
+    end
+    if waiting then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
 --- <summary>
 --- Tests whether two byte views contain the same bytes.
 --- </summary>

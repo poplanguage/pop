@@ -320,6 +320,9 @@ Architecture CI should eventually verify:
 - ADR 0118's exact checked UTF-8 overloads, malformed-data optional result,
   non-mutating direct buffer decode, interpreter/LLVM agreement, fail-closed C
   behavior, and immutable ABI 1.26/2.4 descriptors;
+- ADR 0119's lowercase hexadecimal encoding, complete case-insensitive checked
+  decoding, ordinary portable Pop implementation, reference metadata, and
+  interpreter/LLVM agreement without compiler or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

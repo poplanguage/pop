@@ -219,6 +219,8 @@ transplanted into a Luau-shaped file.
 - ADR 0118 adds exact checked UTF-8 transcoding between String/Text views and
   Bytes views/buffers. Malformed bytes return `nil`, buffer decoding does not
   mutate storage, and the native descriptors advance to ABI 1.26 and 2.4.
+- ADR 0119 implements canonical lowercase hexadecimal encoding and checked
+  case-insensitive decoding as ordinary portable Pop source.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across
