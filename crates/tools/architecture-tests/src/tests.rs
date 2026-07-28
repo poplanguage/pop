@@ -2019,6 +2019,29 @@ fn essential_text_search_follows_adr_0124_without_a_native_duplicate() {
 }
 
 #[test]
+fn essential_text_ascii_casing_follows_adr_0125_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0125-essential-text-ascii-casing.md"));
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["toAsciiLower", "toAsciiUpper", "equalsAsciiIgnoreCase"] {
+        assert_eq!(
+            text.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(!compiler.contains(&format!("\"{function}\"")));
+        assert!(!native.contains(&format!("\"{function}\"")));
+    }
+    assert!(text.contains("byte >= 65 and byte <= 90"));
+    assert!(text.contains("byte >= 97 and byte <= 122"));
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");

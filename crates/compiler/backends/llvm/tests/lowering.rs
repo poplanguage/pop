@@ -4739,6 +4739,42 @@ fn emitted_llvm_executes_scalar_indexed_text_search() {
 }
 
 #[test]
+fn emitted_llvm_executes_text_ascii_casing() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if toAsciiLower(\"HTTP-É中😀\") ~= \"http-É中😀\" or toAsciiUpper(\"http-é中😀\") ~= \"HTTP-é中😀\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not equalsAsciiIgnoreCase(\"Content-TYPE\", \"content-type\") or equalsAsciiIgnoreCase(\"É\", \"é\") then\n\
+                     return 2\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text-ascii-casing");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Text ASCII casing: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

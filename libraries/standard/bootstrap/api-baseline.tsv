@@ -181,3 +181,6 @@ api:122	Api	Pop.Standard	Pop.Text	startsWith	startsWith(String,String)->Boolean	
 api:123	Api	Pop.Standard	Pop.Text	endsWith	endsWith(String,String)->Boolean	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
 api:124	Api	Pop.Standard	Pop.Text	contains	contains(String,String)->Boolean	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
 api:125	Api	Pop.Standard	Pop.Text	indexOf	indexOf(String,String,Int)->Int?	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
+api:126	Api	Pop.Standard	Pop.Text	toAsciiLower	toAsciiLower(String)->String	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md
+api:127	Api	Pop.Standard	Pop.Text	toAsciiUpper	toAsciiUpper(String)->String	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md
+api:128	Api	Pop.Standard	Pop.Text	equalsAsciiIgnoreCase	equalsAsciiIgnoreCase(String,String)->Boolean	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md

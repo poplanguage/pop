@@ -231,6 +231,8 @@ transplanted into a Luau-shaped file.
   replace/split/join, and checked complete-range integer parsing.
 - ADR 0124 adds exact prefix/suffix/containment and one-based scalar-indexed
   text search without exposing UTF-8 byte offsets.
+- ADR 0125 adds whole-String ASCII casing and ASCII-insensitive equality while
+  preserving non-ASCII UTF-8 exactly.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

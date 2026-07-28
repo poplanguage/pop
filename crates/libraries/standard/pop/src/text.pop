@@ -21,6 +21,122 @@ private function bytesMatchAt(
 end
 
 --- <summary>
+--- Converts ASCII uppercase letters in a String to lowercase.
+--- </summary>
+---
+--- <param name="value">
+--- The String to convert.
+--- </param>
+---
+--- <returns>
+--- An owned String with non-ASCII text preserved exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, one reusable buffer, and one String result.
+--- </allocation>
+public function toAsciiLower(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 65 and byte <= 90 then
+            byte = byte + 32
+        end
+        Bytes.write(buffer, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Converts ASCII lowercase letters in a String to uppercase.
+--- </summary>
+---
+--- <param name="value">
+--- The String to convert.
+--- </param>
+---
+--- <returns>
+--- An owned String with non-ASCII text preserved exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, one reusable buffer, and one String result.
+--- </allocation>
+public function toAsciiUpper(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 97 and byte <= 122 then
+            byte = byte - 32
+        end
+        Bytes.write(buffer, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Compares Strings while ignoring ASCII letter case.
+--- </summary>
+---
+--- <param name="left">
+--- The left String.
+--- </param>
+---
+--- <param name="right">
+--- The right String.
+--- </param>
+---
+--- <returns>
+--- True when ASCII-folded bytes are equal and non-ASCII bytes match exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function equalsAsciiIgnoreCase(left: String, right: String): Boolean
+    local leftBytes = Text.encodeUtf8(left)
+    local rightBytes = Text.encodeUtf8(right)
+    local leftView = Bytes.view(leftBytes)
+    local rightView = Bytes.view(rightBytes)
+    local length = Bytes.length(leftView)
+    if length ~= Bytes.length(rightView) then
+        return false
+    end
+    local index = 1
+    while index <= length do
+        local leftByte = Int(Bytes.get(leftView, index) ?? 0)
+        local rightByte = Int(Bytes.get(rightView, index) ?? 0)
+        if leftByte >= 65 and leftByte <= 90 then
+            leftByte = leftByte + 32
+        end
+        if rightByte >= 65 and rightByte <= 90 then
+            rightByte = rightByte + 32
+        end
+        if leftByte ~= rightByte then
+            return false
+        end
+        index = index + 1
+    end
+    return true
+end
+
+--- <summary>
 --- Tests whether a String begins with exact text.
 --- </summary>
 ---

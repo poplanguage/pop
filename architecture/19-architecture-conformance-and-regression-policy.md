@@ -339,6 +339,9 @@ Architecture CI should eventually verify:
 - ADR 0124's exact case-sensitive prefix/suffix/containment, one-based
   scalar-indexed search boundaries, empty-pattern policy, and
   interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0125's ASCII-only whole-String casing, byte-exact non-ASCII preservation,
+  ASCII-insensitive equality, and interpreter/LLVM agreement without compiler
+  or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

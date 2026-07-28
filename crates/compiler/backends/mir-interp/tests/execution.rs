@@ -2052,6 +2052,56 @@ fn essential_text_search_returns_exact_scalar_boundaries() {
 }
 
 #[test]
+fn essential_text_ascii_casing_preserves_non_ascii_bytes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if toAsciiLower(\"HTTP-É中😀-42\") ~= \"http-É中😀-42\" then\n\
+                     return 1\n\
+                 end\n\
+                 if toAsciiUpper(\"http-é中😀-42\") ~= \"HTTP-é中😀-42\" then\n\
+                     return 2\n\
+                 end\n\
+                 if toAsciiLower(\"\") ~= \"\" or toAsciiUpper(\"Already\") ~= \"ALREADY\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not equalsAsciiIgnoreCase(\"Content-TYPE\", \"content-type\") then\n\
+                     return 4\n\
+                 end\n\
+                 if equalsAsciiIgnoreCase(\"É\", \"é\") or equalsAsciiIgnoreCase(\"abc\", \"ab\") or equalsAsciiIgnoreCase(\"abc\", \"abd\") then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("ASCII casing consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified ASCII casing MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("ASCII casing execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
