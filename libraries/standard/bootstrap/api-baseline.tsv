@@ -161,3 +161,5 @@ api:102	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.View)->String?	sta
 api:103	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.Buffer)->String?	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
 api:104	Api	Pop.Standard	Pop.Bytes	hexEncode	hexEncode(Bytes.View)->String	standard	implemented	false	architecture/decisions/0119-portable-hexadecimal-codec.md
 api:105	Api	Pop.Standard	Pop.Bytes	hexDecode	hexDecode(String)->Bytes?	standard	implemented	false	architecture/decisions/0119-portable-hexadecimal-codec.md
+api:106	Api	Pop.Standard	Pop.Bytes	base64Encode	base64Encode(Bytes.View)->String	standard	implemented	false	architecture/decisions/0120-portable-base64-codec.md
+api:107	Api	Pop.Standard	Pop.Bytes	base64Decode	base64Decode(String)->Bytes?	standard	implemented	false	architecture/decisions/0120-portable-base64-codec.md

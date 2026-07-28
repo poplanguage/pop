@@ -214,6 +214,9 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0119 canonical lowercase hexadecimal encoding and complete
   case-insensitive optional decoding as ordinary portable Pop, with
   interpreter/LLVM execution and no compiler/native name recognition.
+- [x] Implement ADR 0120 canonical padded base64 encoding and strict complete
+  optional decoding, including padding/unused-bit rejection, in ordinary Pop
+  with interpreter/LLVM execution and no compiler/native name recognition.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

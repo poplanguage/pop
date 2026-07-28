@@ -323,6 +323,9 @@ Architecture CI should eventually verify:
 - ADR 0119's lowercase hexadecimal encoding, complete case-insensitive checked
   decoding, ordinary portable Pop implementation, reference metadata, and
   interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0120's canonical padded standard base64 alphabet, strict complete
+  decoding including unused-bit validation, ordinary Pop implementation, and
+  interpreter/LLVM agreement without compiler or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

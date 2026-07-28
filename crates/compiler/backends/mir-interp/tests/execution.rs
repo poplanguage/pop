@@ -1674,6 +1674,74 @@ fn portable_hexadecimal_codec_is_canonical_and_checked() {
 }
 
 #[test]
+fn portable_base64_codec_matches_canonical_vectors_and_rejects_malformed_text() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local bytes = Text.encodeUtf8(\"foobar\")\n\
+                 local view = Bytes.view(bytes)\n\
+                 if base64Encode(view) ~= \"Zm9vYmFy\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = base64Decode(\"Zm9vYmFy\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if (Text.decodeUtf8(Bytes.view(decoded)) ?? \"\") ~= \"foobar\" then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if base64Encode(Bytes.view(Text.encodeUtf8(\"f\"))) ~= \"Zg==\" or base64Encode(Bytes.view(Text.encodeUtf8(\"fo\"))) ~= \"Zm8=\" then\n\
+                     return 3\n\
+                 end\n\
+                 if base64Encode(Bytes.view(Text.encodeUtf8(\"foo\"))) ~= \"Zm9v\" or base64Encode(Bytes.view(Text.encodeUtf8(\"foob\"))) ~= \"Zm9vYg==\" or base64Encode(Bytes.view(Text.encodeUtf8(\"fooba\"))) ~= \"Zm9vYmE=\" then\n\
+                     return 5\n\
+                 end\n\
+                 local binary = Bytes.create()\n\
+                 Bytes.write(binary, 0)\n\
+                 Bytes.write(binary, 16)\n\
+                 Bytes.write(binary, 131)\n\
+                 Bytes.write(binary, 255)\n\
+                 if base64Encode(Bytes.view(Bytes.toBytes(binary))) ~= \"ABCD/w==\" then\n\
+                     return 6\n\
+                 end\n\
+                 local boundaries = base64Decode(\"+///\")\n\
+                 if local boundaryBytes = boundaries then\n\
+                     if (Bytes.get(Bytes.view(boundaryBytes), 1) ?? 0) ~= 251 or (Bytes.get(Bytes.view(boundaryBytes), 2) ?? 0) ~= 255 or (Bytes.get(Bytes.view(boundaryBytes), 3) ?? 0) ~= 255 then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if base64Decode(\"Zg=\") ~= nil or base64Decode(\"Zg\") ~= nil or base64Decode(\"====\") ~= nil or base64Decode(\"Z=== \") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if base64Decode(\"Zg=A\") ~= nil or base64Decode(\"Zg==A\") ~= nil or base64Decode(\"Zh==\") ~= nil or base64Decode(\"Zm9=\") ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if base64Decode(\"Zm 8=\") ~= nil or base64Decode(\"Zm\\n8=\") ~= nil or base64Decode(\"Zm-8\") ~= nil or base64Decode(\"Zm_8\") ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("base64 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified base64 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("base64 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

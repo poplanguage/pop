@@ -13,6 +13,25 @@ private function hexadecimalValue(value: UInt32): Int?
     return nil
 end
 
+private function base64Value(value: UInt32): Int?
+    if value >= 65 and value <= 90 then
+        return Int(value - 65)
+    end
+    if value >= 97 and value <= 122 then
+        return Int(value - 71)
+    end
+    if value >= 48 and value <= 57 then
+        return Int(value + 4)
+    end
+    if value == 43 then
+        return 62
+    end
+    if value == 47 then
+        return 63
+    end
+    return nil
+end
+
 --- <summary>
 --- Encodes bytes as canonical lowercase hexadecimal text.
 --- </summary>
@@ -91,6 +110,180 @@ public function hexDecode(value: String): Bytes?
         end
     end
     if waiting then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Encodes bytes with the canonical padded base64 alphabet.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Standard-alphabet base64 text with required equals-sign padding.
+--- </returns>
+---
+--- <remarks>
+--- The output contains no whitespace or line breaks. Empty input produces the empty String.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function base64Encode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local remaining = length - index
+        local first = Int(Bytes.get(value, index) ?? 0)
+        local second = 0
+        local third = 0
+        if remaining >= 1 then
+            second = Int(Bytes.get(value, index + 1) ?? 0)
+        end
+        if remaining >= 2 then
+            third = Int(Bytes.get(value, index + 2) ?? 0)
+        end
+        local firstDigit = first / 4
+        local secondDigit = (first % 4) * 16 + second / 16
+        local thirdDigit = (second % 16) * 4 + third / 64
+        local fourthDigit = third % 64
+        if firstDigit < 26 then
+            Bytes.write(buffer, Byte(firstDigit + 65))
+        elseif firstDigit < 52 then
+            Bytes.write(buffer, Byte(firstDigit + 71))
+        elseif firstDigit < 62 then
+            Bytes.write(buffer, Byte(firstDigit - 4))
+        elseif firstDigit == 62 then
+            Bytes.write(buffer, 43)
+        else
+            Bytes.write(buffer, 47)
+        end
+        if secondDigit < 26 then
+            Bytes.write(buffer, Byte(secondDigit + 65))
+        elseif secondDigit < 52 then
+            Bytes.write(buffer, Byte(secondDigit + 71))
+        elseif secondDigit < 62 then
+            Bytes.write(buffer, Byte(secondDigit - 4))
+        elseif secondDigit == 62 then
+            Bytes.write(buffer, 43)
+        else
+            Bytes.write(buffer, 47)
+        end
+        if remaining == 0 then
+            Bytes.write(buffer, 61)
+            Bytes.write(buffer, 61)
+        else
+            if thirdDigit < 26 then
+                Bytes.write(buffer, Byte(thirdDigit + 65))
+            elseif thirdDigit < 52 then
+                Bytes.write(buffer, Byte(thirdDigit + 71))
+            elseif thirdDigit < 62 then
+                Bytes.write(buffer, Byte(thirdDigit - 4))
+            elseif thirdDigit == 62 then
+                Bytes.write(buffer, 43)
+            else
+                Bytes.write(buffer, 47)
+            end
+            if remaining == 1 then
+                Bytes.write(buffer, 61)
+            elseif fourthDigit < 26 then
+                Bytes.write(buffer, Byte(fourthDigit + 65))
+            elseif fourthDigit < 52 then
+                Bytes.write(buffer, Byte(fourthDigit + 71))
+            elseif fourthDigit < 62 then
+                Bytes.write(buffer, Byte(fourthDigit - 4))
+            elseif fourthDigit == 62 then
+                Bytes.write(buffer, 43)
+            else
+                Bytes.write(buffer, 47)
+            end
+        end
+        index = index + 3
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete canonical padded base64 text.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing standard-alphabet base64 text.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not canonical base64.
+--- </returns>
+---
+--- <remarks>
+--- Whitespace, URL-safe digits, missing or misplaced padding, trailing data, and nonzero unused bits are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function base64Decode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local position = 0
+    local first = 0
+    local second = 0
+    local third = 0
+    local fourth = 0
+    local finished = false
+    for rune in value do
+        if finished then
+            return nil
+        end
+        local point = Unicode.codePoint(rune)
+        local digit = -1
+        if point ~= 61 then
+            digit = base64Value(point)?
+        end
+        if position == 0 then
+            first = digit
+        elseif position == 1 then
+            second = digit
+        elseif position == 2 then
+            third = digit
+        else
+            fourth = digit
+        end
+        position = position + 1
+        if position == 4 then
+            if first < 0 or second < 0 then
+                return nil
+            end
+            Bytes.write(buffer, Byte(first * 4 + second / 16))
+            if third < 0 then
+                if third ~= -1 or fourth ~= -1 or second % 16 ~= 0 then
+                    return nil
+                end
+                finished = true
+            else
+                Bytes.write(buffer, Byte((second % 16) * 16 + third / 4))
+                if fourth < 0 then
+                    if fourth ~= -1 or third % 4 ~= 0 then
+                        return nil
+                    end
+                    finished = true
+                else
+                    Bytes.write(buffer, Byte((third % 4) * 64 + fourth))
+                end
+            end
+            position = 0
+        end
+    end
+    if position ~= 0 then
         return nil
     end
     return Bytes.toBytes(buffer)

@@ -221,6 +221,8 @@ transplanted into a Luau-shaped file.
   mutate storage, and the native descriptors advance to ABI 1.26 and 2.4.
 - ADR 0119 implements canonical lowercase hexadecimal encoding and checked
   case-insensitive decoding as ordinary portable Pop source.
+- ADR 0120 implements canonical padded standard-alphabet base64 encoding and
+  strict decoding as ordinary portable Pop source.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

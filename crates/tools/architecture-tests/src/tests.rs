@@ -1651,19 +1651,20 @@ fn portable_bytes_inspection_has_one_pop_implementation() {
             "Pop.Bytes must own `{function}` as ordinary Pop source"
         );
     }
-    for forbidden in [
-        "Bytes.toBytes(",
-        "Dynamic",
-        "Any",
-        "@Ffi.",
-        "extern ",
-        "unsafe",
-    ] {
+    for forbidden in ["Dynamic", "Any", "@Ffi.", "extern ", "unsafe"] {
         assert!(
             !bytes.contains(forbidden),
             "portable Pop.Bytes source contains forbidden `{forbidden}`"
         );
     }
+    let inspection = bytes
+        .split_once("public function equals")
+        .expect("inspection family follows construction codecs")
+        .1;
+    assert!(
+        !inspection.contains("Bytes.toBytes("),
+        "allocation-free Pop.Bytes inspection must not materialize owned Bytes"
+    );
 
     let tooling = fs::read_to_string(root.join("crates/compiler/driver/src/tooling.rs"))
         .expect("read tooling Standard source inventory");
@@ -1847,6 +1848,29 @@ fn portable_hexadecimal_codec_follows_adr_0119_without_a_native_duplicate() {
     for implementation in [call_checking, hir, mir, native, native_symbols] {
         assert!(!implementation.contains("hexEncode"));
         assert!(!implementation.contains("hexDecode"));
+    }
+}
+
+#[test]
+fn portable_base64_codec_follows_adr_0120_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0120-portable-base64-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("unused-bit form"));
+    assert_eq!(bytes.matches("public function base64Encode").count(), 1);
+    assert_eq!(bytes.matches("public function base64Decode").count(), 1);
+    assert!(bytes.contains("second % 16 ~= 0"));
+    assert!(bytes.contains("third % 4 ~= 0"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("base64Encode"));
+        assert!(!implementation.contains("base64Decode"));
     }
 }
 
