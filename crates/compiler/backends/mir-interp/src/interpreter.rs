@@ -1461,7 +1461,12 @@ impl<'mir, R: RuntimeAdapter> MirInterpreter<'mir, R> {
             active_task: None,
         }
         .call(function, &arguments)
-        .map(|values| values.into_iter().map(|value| value.visible).collect())
+        .map(|values| {
+            values
+                .into_iter()
+                .map(|value| value.observed_visible())
+                .collect()
+        })
     }
 }
 
@@ -2333,6 +2338,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 return Ok(RuntimeValue {
                     visible: MirValue::CancellationToken(token),
                     reference: source.reference,
+                    shared_visible: None,
                 });
             }
             MirInstructionKind::CancelRequest { source } => {
@@ -2990,7 +2996,9 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 let tuple = MirValue::Tuple(
                     elements
                         .iter()
-                        .map(|element| value(values, *element).map(|value| value.visible.clone()))
+                        .map(|element| {
+                            value(values, *element).map(RuntimeValue::observed_visible)
+                        })
                         .collect::<Result<_, _>>()?,
                 );
                 let Some(SemanticType::Tuple(element_types)) =
@@ -3044,13 +3052,11 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         *element_map,
                     ))
                     .map_err(ExecutionError::Runtime)?;
-                let visible = MirValue::Array(
-                    elements
-                        .iter()
-                        .map(|element| value(values, *element).map(|value| value.visible.clone()))
-                        .collect::<Result<_, _>>()?,
-                );
-                return Ok(RuntimeValue::managed(visible, reference));
+                let elements = elements
+                    .iter()
+                    .map(|element| value(values, *element).map(|value| value.visible.clone()))
+                    .collect::<Result<_, _>>()?;
+                return Ok(RuntimeValue::managed_array(elements, reference));
             }
             MirInstructionKind::ArrayCreate {
                 length,
@@ -3085,7 +3091,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     .try_reserve_exact(length as usize)
                     .map_err(|_| ExecutionError::InvalidControlFlow)?;
                 elements.resize(length as usize, initial_value);
-                return Ok(RuntimeValue::managed(MirValue::Array(elements), reference));
+                return Ok(RuntimeValue::managed_array(elements, reference));
             }
             MirInstructionKind::TableMake {
                 entries,
@@ -3167,10 +3173,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 MirValue::Nil
             }
             MirInstructionKind::ArrayGet { array, index } => {
-                let (MirValue::Array(elements), MirValue::Integer(index)) = (
-                    &value(values, *array)?.visible,
-                    &value(values, *index)?.visible,
-                ) else {
+                let array = value(values, *array)?;
+                let MirValue::Integer(index) = &value(values, *index)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let shared = array.shared_visible.as_ref().map(|value| value.borrow());
+                let visible = shared.as_deref().unwrap_or(&array.visible);
+                let MirValue::Array(elements) = visible else {
                     return Err(ExecutionError::TypeMismatch);
                 };
                 if index.kind() != IntegerKind::Int64 {
@@ -3190,7 +3199,10 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 ));
             }
             MirInstructionKind::ArrayLength { array } => {
-                let MirValue::Array(elements) = &value(values, *array)?.visible else {
+                let array = value(values, *array)?;
+                let shared = array.shared_visible.as_ref().map(|value| value.borrow());
+                let visible = shared.as_deref().unwrap_or(&array.visible);
+                let MirValue::Array(elements) = visible else {
                     return Err(ExecutionError::TypeMismatch);
                 };
                 MirValue::Integer(
@@ -3199,10 +3211,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 )
             }
             MirInstructionKind::ArrayGetChecked { array, index } => {
-                let (MirValue::Array(elements), MirValue::Integer(index)) = (
-                    &value(values, *array)?.visible,
-                    &value(values, *index)?.visible,
-                ) else {
+                let array = value(values, *array)?;
+                let MirValue::Integer(index) = &value(values, *index)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let shared = array.shared_visible.as_ref().map(|value| value.borrow());
+                let visible = shared.as_deref().unwrap_or(&array.visible);
+                let MirValue::Array(elements) = visible else {
                     return Err(ExecutionError::TypeMismatch);
                 };
                 let Some(zero_based) = index
@@ -3247,7 +3262,24 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 };
                 let stored = value(values, *stored)?.visible.clone();
                 let mut updated = false;
+                if let Some(shared) = value(values, *array)?.shared_visible.as_ref() {
+                    let mut visible = shared.borrow_mut();
+                    let MirValue::Array(elements) = &mut *visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    let Some(slot) = elements.get_mut(zero_based) else {
+                        return Err(ExecutionError::Runtime(
+                            self.runtime
+                                .raise_trap(Trap::new(TrapKind::BoundsViolation)),
+                        ));
+                    };
+                    *slot = stored.clone();
+                    updated = true;
+                }
                 for candidate in values.values_mut() {
+                    if candidate.shared_visible.is_some() {
+                        continue;
+                    }
                     if candidate.reference != Some(owner) {
                         continue;
                     }
@@ -3278,7 +3310,18 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     .ok_or(ExecutionError::TypeMismatch)?;
                 let stored = value(values, *stored)?.visible.clone();
                 let mut updated = false;
+                if let Some(shared) = value(values, *array)?.shared_visible.as_ref() {
+                    let mut visible = shared.borrow_mut();
+                    let MirValue::Array(elements) = &mut *visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    elements.fill(stored.clone());
+                    updated = true;
+                }
                 for candidate in values.values_mut() {
+                    if candidate.shared_visible.is_some() {
+                        continue;
+                    }
                     if candidate.reference != Some(owner) {
                         continue;
                     }

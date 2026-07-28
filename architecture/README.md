@@ -233,6 +233,8 @@ transplanted into a Luau-shaped file.
   text search without exposing UTF-8 byte offsets.
 - ADR 0125 adds whole-String ASCII casing and ASCII-insensitive equality while
   preserving non-ASCII UTF-8 exactly.
+- ADR 0126 adds one explicit deterministic pseudo-random state with a frozen
+  stream, unbiased byte filling, and unbiased in-place array shuffling.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

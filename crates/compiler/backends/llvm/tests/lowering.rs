@@ -4775,6 +4775,52 @@ fn emitted_llvm_executes_text_ascii_casing() {
 }
 
 #[test]
+fn emitted_llvm_executes_deterministic_random_state() {
+    let module = native_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             private function main(): Int\n\
+                 local state = seed(1)\n\
+                 if next(state) ~= 16807 or next(state) ~= 282475249 or next(state) ~= 1622650073 then\n\
+                     return 1\n\
+                 end\n\
+                 local values: {Int} = {1, 2, 3, 4, 5}\n\
+                 local shuffleState = seed(1)\n\
+                 if not shuffle(shuffleState, values) then\n\
+                     return 2\n\
+                 end\n\
+                 if Array.get(values, 1) ~= 4 or Array.get(values, 3) ~= 5 or Array.get(values, 5) ~= 2 then\n\
+                     return 3\n\
+                 end\n\
+                 local output = Bytes.create()\n\
+                 if not fill(seed(1), output, 4) then\n\
+                     return 4\n\
+                 end\n\
+                 local snapshot = Bytes.toBytes(output)\n\
+                 if Bytes.length(Bytes.view(snapshot)) ~= 4 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 166 or (Bytes.get(Bytes.view(snapshot), 4) ?? 0) ~= 41 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-random-state");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic Random.State: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

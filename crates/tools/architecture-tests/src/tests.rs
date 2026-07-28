@@ -1335,7 +1335,9 @@ fn foundation_libraries_are_partitioned_by_contributor_ownership() {
         "standard/pop/src/math.pop",
         "standard/pop/src/bytes.pop",
         "standard/pop/src/unicode.pop",
+        "standard/pop/src/text.pop",
         "standard/pop/src/sequence.pop",
+        "standard/pop/src/random.pop",
         "standard/tests/bytes.rs",
         "standard/tests/unicode.rs",
         "internal/src/runtime.rs",
@@ -2042,6 +2044,36 @@ fn essential_text_ascii_casing_follows_adr_0125_without_a_native_duplicate() {
 }
 
 #[test]
+fn deterministic_random_state_follows_adr_0126_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0126-deterministic-random-state.md"));
+    let random = read_required(root.join("crates/libraries/standard/pop/src/random.pop"));
+    let tooling = read_required(root.join("crates/compiler/driver/src/tooling.rs"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(random.matches("public class State").count(), 1);
+    for function in ["seed", "next", "fill", "shuffle"] {
+        assert_eq!(
+            random
+                .matches(&format!("public function {function}"))
+                .count(),
+            1
+        );
+    }
+    assert!(!compiler.contains("Pop.Random"));
+    assert!(!native.contains("Pop.Random"));
+    assert!(!compiler.contains("\"shuffle\""));
+    assert!(!native.contains("\"shuffle\""));
+    for constant in ["2147483647", "2147483646", "127773", "2836", "16807"] {
+        assert!(random.contains(constant));
+    }
+    assert!(!random.contains("public function State.new"));
+    assert!(tooling.contains("libraries/standard/pop/src/random.pop"));
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");
@@ -2308,7 +2340,7 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
     for public_root in PUBLIC_LIBRARY_ROOTS {
         let expected = if *public_root == "Bytes" {
             "implemented"
-        } else if ["Math", "Sequence", "Text", "Unicode"].contains(public_root) {
+        } else if ["Math", "Random", "Sequence", "Text", "Unicode"].contains(public_root) {
             "prototype"
         } else if bootstrap.contains(public_root) {
             "bootstrap"

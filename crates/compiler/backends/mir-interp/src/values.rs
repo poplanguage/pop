@@ -227,6 +227,7 @@ impl MirClassValue {
 pub(crate) struct RuntimeValue {
     pub(crate) visible: MirValue,
     pub(crate) reference: Option<ManagedReference>,
+    pub(crate) shared_visible: Option<Rc<RefCell<MirValue>>>,
 }
 
 impl RuntimeValue {
@@ -243,14 +244,34 @@ impl RuntimeValue {
             }) => Some(*reference),
             _ => None,
         };
-        Self { visible, reference }
+        Self {
+            visible,
+            reference,
+            shared_visible: None,
+        }
     }
 
     pub(crate) const fn managed(visible: MirValue, reference: ManagedReference) -> Self {
         Self {
             visible,
             reference: Some(reference),
+            shared_visible: None,
         }
+    }
+
+    pub(crate) fn managed_array(elements: Vec<MirValue>, reference: ManagedReference) -> Self {
+        let visible = MirValue::Array(elements);
+        Self {
+            visible: visible.clone(),
+            reference: Some(reference),
+            shared_visible: Some(Rc::new(RefCell::new(visible))),
+        }
+    }
+
+    pub(crate) fn observed_visible(&self) -> MirValue {
+        self.shared_visible
+            .as_ref()
+            .map_or_else(|| self.visible.clone(), |value| value.borrow().clone())
     }
 
     pub(crate) fn install_relocated_reference(

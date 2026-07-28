@@ -233,6 +233,9 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0125 whole-String ASCII lower/upper conversion and
   ASCII-insensitive equality with byte-exact non-ASCII preservation in
   ordinary Pop and interpreter/LLVM agreement.
+- [x] Implement ADR 0126 explicit deterministic random state, frozen next
+  values, unbiased byte fill, and unbiased in-place generic shuffle in ordinary
+  Pop with interpreter/LLVM agreement.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

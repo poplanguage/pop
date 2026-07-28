@@ -46,7 +46,7 @@ Package	tooling	data/observability/tooling	planned
 Path	standard	system/network/security	planned
 Platform	standard/platform	system/network/security	planned
 Process	standard/platform	system/network/security	planned
-Random	standard	core/portable	planned
+Random	standard	core/portable	prototype
 Regex	standard	core/portable	planned
 Resource	standard/tooling	core/portable	planned
 Rpc	official	application/media/science	bootstrap

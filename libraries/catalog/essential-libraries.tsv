@@ -24,7 +24,7 @@ Net	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-sec
 Path	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Platform	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Process	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
-Random	Pop.Standard	core	planned	architecture/22.1-core-and-portable-library-catalog.md
+Random	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
 Regex	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Resource	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Sequence	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md

@@ -2102,6 +2102,106 @@ fn essential_text_ascii_casing_preserves_non_ascii_bytes() {
 }
 
 #[test]
+fn deterministic_random_state_matches_the_frozen_stream() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             public function verify(): Int\n\
+                 local state = seed(1)\n\
+                 if next(state) ~= 16807 or next(state) ~= 282475249 or next(state) ~= 1622650073 then\n\
+                     return 1\n\
+                 end\n\
+                 if not verifyBytes() then\n\
+                     return 2\n\
+                 end\n\
+                 if not verifySeeds() then\n\
+                     return 3\n\
+                 end\n\
+                 local shuffleResult = verifyShuffle()\n\
+                 if shuffleResult ~= 42 then\n\
+                     return shuffleResult\n\
+                 end\n\
+                 if fill(seed(1), Bytes.create(), -1) then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function verifySeeds(): Boolean\n\
+                 if next(seed(0)) ~= 16807 or next(seed(2147483647)) ~= 16807 or next(seed(4294967295)) ~= 16807 then\n\
+                     return false\n\
+                 end\n\
+                 local unchanged = seed(1)\n\
+                 if not fill(unchanged, Bytes.create(), 0) or next(unchanged) ~= 16807 then\n\
+                     return false\n\
+                 end\n\
+                 local checkpoint = seed(1)\n\
+                 local index = 0\n\
+                 local value = 0\n\
+                 while index < 10000 do\n\
+                     value = Int(next(checkpoint))\n\
+                     index += 1\n\
+                 end\n\
+                 return value == 1043618065\n\
+             end\n\
+             private function verifyBytes(): Boolean\n\
+                 local output = Bytes.create()\n\
+                 local bytesState = seed(1)\n\
+                 if not fill(bytesState, output, 4) then\n\
+                     return false\n\
+                 end\n\
+                 local snapshot = Bytes.toBytes(output)\n\
+                 if Bytes.length(Bytes.view(snapshot)) ~= 4 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 166 or (Bytes.get(Bytes.view(snapshot), 4) ?? 0) ~= 41 then\n\
+                     return false\n\
+                 end\n\
+                 return true\n\
+             end\n\
+             private function verifyShuffle(): Int\n\
+                 local values: {Int} = {1, 2, 3, 4, 5}\n\
+                 local shuffleState = seed(1)\n\
+                 if not shuffle(shuffleState, values) then\n\
+                     return 31\n\
+                 end\n\
+                 if Array.get(values, 1) ~= 4 then\n\
+                     return 100 + Array.get(values, 1)\n\
+                 end\n\
+                 if Array.get(values, 2) ~= 3 then\n\
+                     return 33\n\
+                 end\n\
+                 if Array.get(values, 3) ~= 5 then\n\
+                     return 34\n\
+                 end\n\
+                 if Array.get(values, 4) ~= 1 or Array.get(values, 5) ~= 2 then\n\
+                     return 35\n\
+                 end\n\
+                 if next(shuffleState) ~= 1144108930 then\n\
+                     return 36\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("random consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified random MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("deterministic random execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -2924,6 +3024,34 @@ fn arrays_and_tables_execute_identically_before_and_after_mir_optimization() {
             .call(function, &[])
             .expect("optimized collections"),
         expected
+    );
+}
+
+#[test]
+fn managed_array_mutation_through_a_call_preserves_identity() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         private function replaceFirst(values: {Int})\n\
+             values[1] = 42\n\
+         end\n\
+         public function verify(): Int\n\
+             local values: {Int} = {1, 2}\n\
+             replaceFirst(values)\n\
+             return Array.get(values, 1)\n\
+         end\n",
+    );
+    let verify = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("array identity consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified array identity MIR")
+            .call(verify, &[])
+            .expect("array mutation through call"),
+        vec![int(42)]
     );
 }
 

@@ -53,6 +53,7 @@ namespace:0	Namespace	Pop.Standard	Pop	Sequence	namespace Pop.Sequence	prelude	p
 namespace:1	Namespace	Pop.Standard	Pop	Math	namespace Pop.Math	standard	prototype	false	architecture/decisions/0062-first-portable-integer-math.md
 namespace:2	Namespace	Pop.Standard	Pop	Metadata	namespace Pop.Metadata	prelude	implemented	true	architecture/decisions/0096-generated-retained-metadata-adapters.md
 namespace:3	Namespace	Pop.Standard	Pop	Codec	namespace Pop.Codec	prelude	implemented	true	architecture/decisions/0096-generated-retained-metadata-adapters.md
+namespace:4	Namespace	Pop.Standard	Pop	Random	namespace Pop.Random	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
 function:0	Function	Pop.Standard	Pop	print	print(Int)->()	prelude	prototype	true	architecture/16-base-libraries.md
 function:1	Function	Pop.Standard	Pop	print	print(String)->()	prelude	prototype	true	architecture/16-base-libraries.md
 api:0	Api	Pop.Standard	Pop.Sequence	map	map<T,TSource:Iterable<T>,U>(TSource,function(T)->U)->Iterator<U>	standard	prototype	false	architecture/decisions/0053-nominal-iteration-sequences-and-growable-lists.md
@@ -184,3 +185,8 @@ api:125	Api	Pop.Standard	Pop.Text	indexOf	indexOf(String,String,Int)->Int?	stand
 api:126	Api	Pop.Standard	Pop.Text	toAsciiLower	toAsciiLower(String)->String	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md
 api:127	Api	Pop.Standard	Pop.Text	toAsciiUpper	toAsciiUpper(String)->String	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md
 api:128	Api	Pop.Standard	Pop.Text	equalsAsciiIgnoreCase	equalsAsciiIgnoreCase(String,String)->Boolean	standard	implemented	false	architecture/decisions/0125-essential-text-ascii-casing.md
+api:129	Api	Pop.Standard	Pop.Random	State	class State(private UInt32)	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
+api:130	Api	Pop.Standard	Pop.Random	seed	seed(UInt32)->Random.State	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
+api:131	Api	Pop.Standard	Pop.Random	next	next(Random.State)->UInt32	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
+api:132	Api	Pop.Standard	Pop.Random	fill	fill(Random.State,Bytes.Buffer,Int)->Boolean	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
+api:133	Api	Pop.Standard	Pop.Random	shuffle	shuffle<T>(Random.State,{T})->Boolean	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md

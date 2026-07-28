@@ -342,6 +342,9 @@ Architecture CI should eventually verify:
 - ADR 0125's ASCII-only whole-String casing, byte-exact non-ASCII preservation,
   ASCII-insensitive equality, and interpreter/LLVM agreement without compiler
   or native name recognition;
+- ADR 0126's frozen explicit random stream, total UInt32 seed normalization,
+  unbiased byte filling and shuffling, managed-array identity across calls, and
+  interpreter/LLVM agreement without global state or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

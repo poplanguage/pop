@@ -53,6 +53,10 @@ pub fn tooling_standard_reference_metadata() -> &'static ReferenceMetadata {
                 "Pop.Standard/src/sequence.pop",
                 include_str!("../../../libraries/standard/pop/src/sequence.pop"),
             ),
+            (
+                "Pop.Standard/src/random.pop",
+                include_str!("../../../libraries/standard/pop/src/random.pop"),
+            ),
         ]
         .into_iter()
         .enumerate()

@@ -161,7 +161,9 @@ fn standard_library_sources_use_their_complete_source_bubble_without_a_self_refe
         "math.pop",
         "bytes.pop",
         "unicode.pop",
+        "text.pop",
         "sequence.pop",
+        "random.pop",
     ] {
         let source_path = source_root.join(name);
         let source = std::fs::read_to_string(&source_path).expect("Standard source");
