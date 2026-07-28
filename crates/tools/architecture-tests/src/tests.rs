@@ -935,8 +935,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 23)"),
-        (&native_abi, "NativeAbiVersion::new(2, 1)"),
+        (&native_abi, "NativeAbiVersion::new(1, 24)"),
+        (&native_abi, "NativeAbiVersion::new(2, 2)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1737,6 +1737,35 @@ fn portable_unicode_ascii_helpers_have_one_pop_implementation() {
         tooling.contains("libraries/standard/pop/src/unicode.pop"),
         "editor tooling must analyze the public Unicode Module"
     );
+}
+
+#[test]
+fn linear_string_iteration_follows_adr_0116_without_materialization() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0116-linear-string-rune-iteration.md"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native_iteration = read_required(root.join("crates/runtime/native/src/iteration.rs"));
+    let native_string_step =
+        read_required(root.join("crates/runtime/native/src/iteration/string.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(typed.contains("String,"));
+    assert!(hir.contains("HirIterationSource::String"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 24)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 2)"));
+    assert!(native_abi.contains("String = 4"));
+    assert!(native_iteration.contains("scalar_array_values"));
+    assert!(!native_iteration.contains("utf8_string_bytes"));
+    assert!(native_string_step.contains("[0_u8; 4]"));
+    assert!(!native_string_step.contains("Vec<"));
+    assert!(llvm.contains("IterationCollectionKind::String"));
+    assert!(c.contains("is_iteration_instruction"));
 }
 
 #[test]

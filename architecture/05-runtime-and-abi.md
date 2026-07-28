@@ -556,6 +556,15 @@ on success. ABI 1.11 through 1.22 and ABI 2.0 remain immutable.
 The default facade supports ABI 1.11 through 1.23; the production facade
 supports ABI 2.0 and 2.1.
 
+ADR 0116 advances the additive stable-token descriptor to ABI 1.24 and the
+production descriptor to ABI 2.2. It appends the exact closed
+`IterationCollectionKind::String` identity to the existing native iteration
+operations. Acquisition validates one immutable managed `String`; each step
+decodes one scalar at the stored UTF-8 byte offset without allocation or an
+earlier-byte scan. ABI 1.11 through 1.23 and ABI 2.0 through 2.1 remain
+immutable. The default facade supports ABI 1.11 through 1.24; the production
+facade supports ABI 2.0 through 2.2.
+
 ADR 0103 establishes the ABI 2 production facade as a separate static build
 composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots

@@ -1265,6 +1265,7 @@ pub(crate) fn lower_builtin_iteration_call(
             .ok_or(LlvmLoweringError::InvalidType(receiver_type))?;
         let kind = match types.get(receiver_type) {
             Some(SemanticType::Array(_)) => IterationCollectionKind::Array,
+            Some(SemanticType::Primitive(PrimitiveType::String)) => IterationCollectionKind::String,
             Some(SemanticType::Table { .. }) => IterationCollectionKind::Table,
             Some(SemanticType::Builtin { definition, .. }) if *definition == protocol.list() => {
                 IterationCollectionKind::List

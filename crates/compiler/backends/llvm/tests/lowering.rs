@@ -2844,7 +2844,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 1)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 2)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -3323,6 +3323,93 @@ end\n",
         result.status.code(),
         Some(42),
         "native executable misexecuted generalized iteration: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_linear_unicode_string_iteration() {
+    let module = native_module(
+        "namespace Main\n\
+private function main(): Int\n\
+    local count = 0\n\
+    for rune in \"Aé中😀\\0e\\u{301}\" do\n\
+        count += 1\n\
+        local point = Unicode.codePoint(rune)\n\
+        if count == 1 and point ~= 65 then\n\
+            return 1\n\
+        end\n\
+        if count == 2 and point ~= 233 then\n\
+            return 2\n\
+        end\n\
+        if count == 3 and point ~= 20013 then\n\
+            return 3\n\
+        end\n\
+        if count == 4 and point ~= 128512 then\n\
+            return 4\n\
+        end\n\
+        if count == 5 and point ~= 0 then\n\
+            return 5\n\
+        end\n\
+        if count == 6 and point ~= 101 then\n\
+            return 6\n\
+        end\n\
+        if count == 7 and point ~= 769 then\n\
+            return 7\n\
+        end\n\
+    end\n\
+    if count ~= 7 then\n\
+        return 8\n\
+    end\n\
+    return 42\n\
+end\n",
+    );
+    let text = module.to_string();
+    assert!(
+        text.contains("call i64 @pop_rt_iteration_acquire(i64") && text.contains("i8 4"),
+        "String iteration must select the closed append-only kind:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "string-rune-iteration");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted String rune iteration: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_specializes_sequence_count_over_string_runes() {
+    let module = native_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private function main(): Int\n\
+                 local scalarCount = count(\"Aé中😀e\\u{301}\")\n\
+                 if scalarCount ~= 6 then\n\
+                     return 1\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let text = module.to_string();
+    assert!(
+        text.contains("call i64 @pop_rt_iteration_acquire(i64") && text.contains("i8 4"),
+        "Sequence.count(String) must retain the exact String specialization:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "sequence-count-string-runes");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "Sequence.count(String) misexecuted: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
     );
@@ -6282,7 +6369,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && (minor == 0 || minor == 1);\n",
+            "  return major == 2 && minor <= 2;\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -6404,7 +6491,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && (minor == 0 || minor == 1);\n",
+            "  return major == 2 && minor <= 2;\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",

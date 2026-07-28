@@ -4724,6 +4724,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
         let (expected_length, range_current) = match &source.visible {
             MirValue::Array(elements) => (elements.len(), None),
             MirValue::List(elements) => (elements.len(), None),
+            MirValue::String(text) => (text.len(), None),
             MirValue::Table(entries) => (entries.len(), None),
             MirValue::Range { first, .. } => (0, Some(*first)),
             _ => return Err(ExecutionError::TypeMismatch),
@@ -4789,14 +4790,33 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 .cloned()
         });
         let current = current.as_ref().unwrap_or(&source);
-        let (length, item, next_range) = match &current.visible {
-            MirValue::Array(elements) => (elements.len(), elements.get(position).cloned(), None),
-            MirValue::List(elements) => (elements.len(), elements.get(position).cloned(), None),
+        let (length, item, next_range, next_position) = match &current.visible {
+            MirValue::Array(elements) => {
+                (elements.len(), elements.get(position).cloned(), None, None)
+            }
+            MirValue::List(elements) => {
+                (elements.len(), elements.get(position).cloned(), None, None)
+            }
+            MirValue::String(text) => {
+                let item = text.get(position..).and_then(|remaining| {
+                    remaining
+                        .chars()
+                        .next()
+                        .map(|value| MirValue::Rune(u32::from(value)))
+                });
+                let next_position = item.as_ref().and_then(|item| match item {
+                    MirValue::Rune(value) => char::from_u32(*value)
+                        .map(|value| position.saturating_add(value.len_utf8())),
+                    _ => None,
+                });
+                (text.len(), item, None, next_position)
+            }
             MirValue::Table(entries) => (
                 entries.len(),
                 entries
                     .get(position)
                     .map(|(key, value)| MirValue::Tuple(vec![key.clone(), value.clone()])),
+                None,
                 None,
             ),
             MirValue::Range { last, step, .. } => {
@@ -4835,7 +4855,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     return self.iteration_result(iteration_type, None);
                 }
                 let following = (!ordering.is_eq()).then_some(next);
-                (0, Some(MirValue::Integer(next)), following)
+                (0, Some(MirValue::Integer(next)), following, None)
             }
             _ => return Err(ExecutionError::TypeMismatch),
         };
@@ -4857,7 +4877,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 *range_current = next_range;
                 *range_started = true;
             } else {
-                *position = position.saturating_add(1);
+                *position = next_position.unwrap_or_else(|| position.saturating_add(1));
             }
         }
         self.iteration_result(iteration_type, item)

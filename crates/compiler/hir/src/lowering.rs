@@ -708,6 +708,7 @@ fn lower_statement(
                 TypedIterationSource::Array => HirIterationSource::Array,
                 TypedIterationSource::List => HirIterationSource::List,
                 TypedIterationSource::Range => HirIterationSource::Range,
+                TypedIterationSource::String => HirIterationSource::String,
                 TypedIterationSource::Table => HirIterationSource::Table,
                 TypedIterationSource::Iterable => HirIterationSource::Iterable,
                 TypedIterationSource::Iterator => HirIterationSource::Iterator,

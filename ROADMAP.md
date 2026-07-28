@@ -201,6 +201,9 @@ Post-baseline library work has begun without widening the release foundation:
   optional scalar-indexed `Text.get`, allocation-free ASCII helpers, and
   interpreter/LLVM/native ABI 1.23/2.1 coverage; keep `Unicode` and `Text`
   partial until their remaining generated data and algorithm gates pass.
+- [x] Implement ADR 0116 exact `String: Iterable<Rune>` specialization with
+  linear scalar decoding, generic Sequence consumption, interpreter/LLVM
+  agreement, fail-closed C behavior, and native ABI 1.24/2.2 coverage.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

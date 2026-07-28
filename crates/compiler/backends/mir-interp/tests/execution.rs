@@ -554,6 +554,57 @@ fn generalized_iteration_executes_arrays_and_table_tuple_bindings_in_order() {
 }
 
 #[test]
+fn string_iteration_decodes_each_unicode_scalar_once_in_order() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function inspect(): Int\n\
+             local count = 0\n\
+             for rune in \"Aé中😀\\0e\\u{301}\" do\n\
+                 count += 1\n\
+                 local point = Unicode.codePoint(rune)\n\
+                 if count == 1 and point ~= 65 then\n\
+                     return 1\n\
+                 end\n\
+                 if count == 2 and point ~= 233 then\n\
+                     return 2\n\
+                 end\n\
+                 if count == 3 and point ~= 20013 then\n\
+                     return 3\n\
+                 end\n\
+                 if count == 4 and point ~= 128512 then\n\
+                     return 4\n\
+                 end\n\
+                 if count == 5 and point ~= 0 then\n\
+                     return 5\n\
+                 end\n\
+                 if count == 6 and point ~= 101 then\n\
+                     return 6\n\
+                 end\n\
+                 if count == 7 and point ~= 769 then\n\
+                     return 7\n\
+                 end\n\
+             end\n\
+             if count ~= 7 then\n\
+                 return 8\n\
+             end\n\
+             local emptyCount = 0\n\
+             for rune in \"\" do\n\
+                 emptyCount += 1\n\
+             end\n\
+             return 42 + emptyCount\n\
+         end\n",
+    );
+    let function = mir.functions()[0].symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified String iteration MIR")
+            .call(function, &[])
+            .expect("String iteration"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn generalized_iteration_observes_replacement_and_traps_structural_mutation() {
     let (mir, types) = executable_source(
         "namespace Main\n\

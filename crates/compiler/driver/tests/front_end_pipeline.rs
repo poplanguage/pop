@@ -354,6 +354,93 @@ fn generalized_for_uses_a_proven_generic_iterable_bound() {
 }
 
 #[test]
+fn owned_string_specializes_an_exact_generic_rune_iterable_bound() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/stringIteration.pop",
+        "namespace Main\n\
+         private function scalarCount<TSource: Iterable<Rune>>(source: TSource): Int\n\
+             local count = 0\n\
+             for rune in source do\n\
+                 local checked: Rune = rune\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n\
+         public function run(text: String): Int\n\
+             return scalarCount(text)\n\
+         end\n",
+    )
+    .expect("source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let hir = result.hir().expect("String iteration HIR");
+    let scalar_count = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "scalarCount")
+        .expect("generic scalarCount");
+    assert!(matches!(
+        scalar_count.body()[1].kind(),
+        HirStatementKind::GeneralizedFor {
+            source: pop_hir::HirIterationSource::BoundIterable,
+            ..
+        }
+    ));
+    let mir = lower_hir_bubble(hir, result.types()).expect("specialized String iteration MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("call.builtinInterface"), "{dump}");
+    assert!(!dump.contains("type-parameter"), "{dump}");
+    assert!(!dump.contains("text.get"), "{dump}");
+}
+
+#[test]
+fn string_iteration_rejects_wrong_item_bounds_and_borrowed_views() {
+    for source_text in [
+        "namespace Main\n\
+         private function consume<TSource: Iterable<Int>>(source: TSource): Int\n\
+             return 0\n\
+         end\n\
+         public function invalid(text: String): Int\n\
+             return consume(text)\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(text: String): Int\n\
+             local count = 0\n\
+             for rune in Text.view(text) do\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    ] {
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            "src/invalidStringIteration.pop",
+            source_text,
+        )
+        .expect("source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+        assert!(result.hir().is_none(), "{}", result.diagnostic_snapshot());
+        assert!(!result.diagnostics().is_empty());
+    }
+}
+
+#[test]
 fn generalized_for_rejects_an_unbounded_generic_source() {
     let source = SourceFile::new(
         FileId::from_raw(0),

@@ -849,6 +849,34 @@ fn runtime_free_c_rejects_nominal_iteration_without_a_fallback() {
 }
 
 #[test]
+fn runtime_free_c_rejects_string_iteration_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         function main(): Int\n\
+             local count = 0\n\
+             for rune in \"Pop 🫧\" do\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    );
+
+    let dump = mir.dump();
+    assert!(
+        dump.contains("call.builtinInterface"),
+        "optimized MIR must retain String iteration for fail-closed validation:\n{dump}"
+    );
+    assert!(matches!(
+        lower_mir_to_c(
+            &mir,
+            &types,
+            CLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+        ),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn runtime_free_c_rejects_specialized_nominal_iterator_witnesses() {
     let (mir, types) = lower(
         "namespace Main\n\

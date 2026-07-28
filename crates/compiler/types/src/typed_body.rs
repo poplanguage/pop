@@ -201,6 +201,7 @@ pub enum TypedIterationSource {
     Array,
     List,
     Range,
+    String,
     Table,
     Iterable,
     Iterator,

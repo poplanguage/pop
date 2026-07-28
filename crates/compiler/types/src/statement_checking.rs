@@ -410,6 +410,10 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         let semantic = self.resolver.arena().get(iterable_type)?.clone();
         let (source, item_type) = match semantic {
             SemanticType::Array(element) => (TypedIterationSource::Array, element),
+            SemanticType::Primitive(crate::PrimitiveType::String) => (
+                TypedIterationSource::String,
+                self.resolver.arena().source_type("Rune")?,
+            ),
             SemanticType::Table { key, value } => {
                 let item = self
                     .resolver

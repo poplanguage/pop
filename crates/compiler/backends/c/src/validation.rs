@@ -35,6 +35,19 @@ pub(crate) fn validate_bubble(
         return Err(CBackendError::UnsupportedDeclarations);
     }
     for function in bubble.functions() {
+        if let Some(instruction) = function
+            .blocks()
+            .iter()
+            .flat_map(pop_mir::MirBlock::instructions)
+            .find(|instruction| is_iteration_instruction(instruction.kind()))
+        {
+            return Err(CBackendError::UnsupportedInstruction {
+                function: function.function(),
+                value: instruction.result(),
+            });
+        }
+    }
+    for function in bubble.functions() {
         validate_function(function, types)?;
     }
     if let Some(entry) = options.entry_point {
@@ -52,6 +65,16 @@ pub(crate) fn validate_bubble(
         }
     }
     Ok(())
+}
+
+fn is_iteration_instruction(kind: &MirInstructionKind) -> bool {
+    matches!(
+        kind,
+        MirInstructionKind::CallBuiltinInterface { .. }
+            | MirInstructionKind::IterationIsItem { .. }
+            | MirInstructionKind::IterationGetItem { .. }
+            | MirInstructionKind::IterationMake { .. }
+    )
 }
 
 fn is_view_instruction(kind: &MirInstructionKind) -> bool {

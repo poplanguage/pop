@@ -44,7 +44,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 23);
+    assert_eq!(pop_rt_abi_minor(), 24);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -59,8 +59,10 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 21), 1);
     assert_eq!(pop_rt_supports_abi(1, 22), 1);
     assert_eq!(pop_rt_supports_abi(1, 23), 1);
+    assert_eq!(pop_rt_supports_abi(1, 24), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
+    assert_eq!(pop_rt_supports_abi(2, 2), 0);
 }
 
 #[test]
@@ -1130,6 +1132,47 @@ fn integer_range_abi_iterates_without_materializing_items() {
         let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
         assert_eq!(status, IterationStatus::End as u8);
     }
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn string_iteration_abi_decodes_scalars_and_stays_exhausted() {
+    let _guard = abi_test_lock();
+    let string = allocate_utf8_string_literal("Aé中😀\0e\u{301}".as_bytes());
+    assert_ne!(string, 0);
+    let iterator = pop_rt_iteration_acquire(string, IterationCollectionKind::String as u8);
+    assert_ne!(iterator, 0);
+    let mut value = u64::MAX;
+    for expected in [65, 233, 20_013, 128_512, 0, 101, 769] {
+        // SAFETY: `value` is live and writable for the complete call.
+        let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
+        assert_eq!(status, IterationStatus::Item as u8);
+        assert_eq!(value, expected);
+    }
+    for _ in 0..2 {
+        // SAFETY: `value` is live and writable for the complete call.
+        let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
+        assert_eq!(status, IterationStatus::End as u8);
+        assert_eq!(value, 0);
+    }
+    let repeat = pop_rt_iteration_acquire(string, IterationCollectionKind::String as u8);
+    assert_ne!(repeat, 0);
+    // SAFETY: `value` is live and writable for the complete call.
+    assert_eq!(
+        unsafe { pop_rt_iteration_next(repeat, &raw mut value) },
+        IterationStatus::Item as u8
+    );
+    assert_eq!(value, 65);
+
+    assert_eq!(
+        pop_rt_iteration_acquire(0, IterationCollectionKind::String as u8),
+        0
+    );
+    let not_string = pop_rt_allocate_object(0);
+    assert_eq!(
+        pop_rt_iteration_acquire(not_string, IterationCollectionKind::String as u8),
+        0
+    );
 }
 
 #[test]

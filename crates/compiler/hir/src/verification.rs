@@ -2087,6 +2087,13 @@ impl Verifier<'_> {
                         (HirIterationSource::Array, Some(SemanticType::Array(element))) => {
                             *element == *item_type
                         }
+                        (
+                            HirIterationSource::String,
+                            Some(SemanticType::Primitive(pop_types::PrimitiveType::String)),
+                        ) => self
+                            .arena
+                            .source_type("Rune")
+                            .is_some_and(|rune| rune == *item_type),
                         (HirIterationSource::Table, Some(SemanticType::Table { key, value })) => {
                             matches!(
                                 self.arena.get(*item_type),

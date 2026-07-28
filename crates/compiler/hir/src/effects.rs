@@ -462,6 +462,7 @@ fn infer_statement(
                 HirIterationSource::Array
                 | HirIterationSource::List
                 | HirIterationSource::Range
+                | HirIterationSource::String
                 | HirIterationSource::Table => EffectSummary::empty(),
             };
             infer_expression(iterable, context, environment)

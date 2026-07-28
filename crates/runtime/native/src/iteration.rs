@@ -1,6 +1,7 @@
 //! Closed native adapters for reserved nominal collection iteration.
 
 mod constructor;
+mod string;
 
 use pop_runtime_collector::StableGenerationalRuntime;
 use pop_runtime_interface::{
@@ -10,6 +11,7 @@ use pop_runtime_native_abi::{IterationCollectionKind, IterationStatus};
 
 use crate::range::{load_range, range_iteration_step};
 use crate::state::{abi_lists, abi_tables, lock_abi_runtime};
+use string::string_iteration_item;
 
 pub use constructor::pop_rt_iteration_make;
 
@@ -50,6 +52,11 @@ pub extern "C" fn pop_rt_iteration_acquire(source: u64, kind: u8) -> u64 {
         lists.get(&source).map(|list| (u64::from(list.length), 0))
     } else if kind == IterationCollectionKind::Range as u8 {
         load_range(&runtime, ManagedReference::new(source)).map(|(first, _, _, _, _)| (0, first))
+    } else if kind == IterationCollectionKind::String as u8 {
+        runtime
+            .scalar_array_values(ManagedReference::new(source), RuntimeTypeId::new(1))
+            .and_then(|values| u64::try_from(values.len()).ok())
+            .map(|length| (length, 0))
     } else {
         None
     };
@@ -164,6 +171,8 @@ fn iteration_item(
         list_iteration_item(runtime, source, position)
     } else if kind == u64::from(IterationCollectionKind::Range as u8) {
         range_iteration_item(runtime, source, position, state)
+    } else if kind == u64::from(IterationCollectionKind::String as u8) {
+        string_iteration_item(runtime, source, position)
     } else {
         Err(IterationStatus::Failure)
     }

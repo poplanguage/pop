@@ -207,6 +207,11 @@ transplanted into a Luau-shaped file.
   `Text.get` returns `Rune?` without allocation or partial UTF-8; checked
   construction excludes surrogates and values above U+10FFFF. The typed native
   adapter advances the additive descriptors to ABI 1.23 and 2.1.
+- Owned immutable `String` implements exactly `Iterable<Rune>` under ADR 0116.
+  Its generalized iteration decodes each Unicode scalar once in O(n) total
+  UTF-8 bytes with allocation-free steps; `Text.View` remains non-iterable.
+  The closed native iteration kind advances the descriptors to ABI 1.24 and
+  2.2.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

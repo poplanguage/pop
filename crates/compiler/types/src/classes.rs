@@ -379,6 +379,19 @@ impl SignatureResolver<'_> {
                 *definition == protocol.iterable() && arguments.as_slice() == [*element]
             }),
             (
+                Some(SemanticType::Primitive(crate::PrimitiveType::String)),
+                Some(SemanticType::Builtin {
+                    definition,
+                    arguments,
+                }),
+            ) => self.schema().iteration_protocol().is_some_and(|protocol| {
+                *definition == protocol.iterable()
+                    && self
+                        .arena()
+                        .source_type("Rune")
+                        .is_some_and(|rune| arguments.as_slice() == [rune])
+            }),
+            (
                 Some(SemanticType::Builtin {
                     definition: actual_definition,
                     arguments: actual_arguments,

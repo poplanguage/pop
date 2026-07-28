@@ -12,10 +12,11 @@ use pop_runtime_native_abi::AllocationSiteDescriptorAbi;
 #[test]
 #[allow(unsafe_code)]
 fn production_facade_selects_abi_two_and_rewrites_a_forced_native_root() {
-    assert_eq!((pop_rt_abi_major(), pop_rt_abi_minor()), (2, 1));
+    assert_eq!((pop_rt_abi_major(), pop_rt_abi_minor()), (2, 2));
     assert_eq!(pop_rt_supports_abi(2, 0), 1);
-    assert_eq!(pop_rt_supports_abi(1, 23), 0);
+    assert_eq!(pop_rt_supports_abi(1, 24), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 1);
+    assert_eq!(pop_rt_supports_abi(2, 2), 1);
     assert_eq!(pop_rt_gc_stage(), 3);
 
     let binding = pop_rt_attach_managed_thread(1);

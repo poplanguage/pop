@@ -2458,6 +2458,9 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         let protocol = self.resolver.schema().iteration_protocol()?;
         match semantic {
             SemanticType::Array(element) => Some(*element),
+            SemanticType::Primitive(PrimitiveType::String) => {
+                self.resolver.arena().source_type("Rune")
+            }
             SemanticType::Table { key, value } => self
                 .resolver
                 .arena_mut()

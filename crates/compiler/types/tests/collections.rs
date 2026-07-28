@@ -231,6 +231,38 @@ fn generalized_for_accepts_exact_list_and_protocol_instances() {
 }
 
 #[test]
+fn generalized_for_treats_owned_strings_as_exact_rune_iterables() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function collections(text: String): Int\n\
+             local count = 0\n\
+             for rune in text do\n\
+                 local checked: Rune = rune\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    );
+
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+    let statements = fixture.result.body().expect("typed body").statements();
+    assert!(matches!(
+        statements[1].kind(),
+        TypedStatementKind::GeneralizedFor {
+            source: pop_types::TypedIterationSource::String,
+            item_type,
+            bindings,
+            ..
+        } if *item_type == fixture.arena.source_type("Rune").expect("Rune")
+            && bindings[0].local_type() == *item_type
+    ));
+}
+
+#[test]
 fn first_class_integer_ranges_are_exact_generalized_iteration_sources() {
     let fixture = check_function(
         "namespace Example\n\

@@ -309,6 +309,10 @@ Architecture CI should eventually verify:
   homogeneous/strided map proofs;
 - ADR 0114's ABI 1.23/2.1 exact Unicode-scalar Text-view adapter, immutable
   prior descriptors, and default/production profile negotiation;
+- ADR 0116's exact `String: Iterable<Rune>` specialization, linear UTF-8
+  traversal, non-iterable `Text.View` boundary, backend-neutral reserved
+  protocol lowering, fail-closed C behavior, and immutable ABI 1.24/2.2
+  descriptors;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

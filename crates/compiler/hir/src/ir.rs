@@ -4362,6 +4362,9 @@ fn specialize_statement(
             ) {
                 *source = match arena.get(iterable.type_id())? {
                     pop_types::SemanticType::Array(_) => HirIterationSource::Array,
+                    pop_types::SemanticType::Primitive(pop_types::PrimitiveType::String) => {
+                        HirIterationSource::String
+                    }
                     pop_types::SemanticType::Table { .. } => HirIterationSource::Table,
                     pop_types::SemanticType::Builtin { definition, .. }
                         if *definition == protocol.list() =>
@@ -5256,6 +5259,7 @@ pub enum HirIterationSource {
     Array,
     List,
     Range,
+    String,
     Table,
     Iterable,
     Iterator,

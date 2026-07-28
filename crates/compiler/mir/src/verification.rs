@@ -5275,6 +5275,9 @@ fn iteration_source_item(
 ) -> Option<TypeId> {
     match arena.get(type_id) {
         Some(SemanticType::Array(item)) => Some(*item),
+        Some(SemanticType::Primitive(pop_types::PrimitiveType::String)) => {
+            arena.source_type("Rune")
+        }
         Some(SemanticType::Table { key, value }) => {
             arena.find(&SemanticType::Tuple(vec![*key, *value]))
         }
