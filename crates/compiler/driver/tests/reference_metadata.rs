@@ -870,6 +870,73 @@ fn portable_generic_capsules_specialize_private_helpers_without_widening_visibil
 }
 
 #[test]
+fn portable_generic_capsules_lower_only_helpers_reachable_from_consumer_calls() {
+    let library_bubble = BubbleId::from_raw(2);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        library_bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/generics.pop",
+            "namespace Pop.Sequence\n\
+             public class State\n\
+                 private value: Int = 0\n\
+                 public function State.new(value: Int): State\n\
+                     return State { value = value }\n\
+                 end\n\
+             end\n\
+             private function readState(state: State): Int\n\
+                 return state.value\n\
+             end\n\
+             public function unused<T>(state: State, value: T): T\n\
+                 local ignored = readState(state)\n\
+                 return value\n\
+             end\n\
+             public function identity<T>(value: T): T\n\
+                 return value\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        library.diagnostics().is_empty(),
+        "{}",
+        library.diagnostic_snapshot()
+    );
+    let metadata = library.reference_metadata().expect("generic metadata");
+
+    let application = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(7),
+            NamespaceId::from_raw(7),
+            vec![library_bubble],
+            vec![module(
+                0,
+                "src/main.pop",
+                "namespace Application\n\
+                 using Pop.Sequence\n\
+                 public function run(): Int\n\
+                     return identity(42)\n\
+                 end\n",
+            )],
+        )
+        .with_reference_metadata(vec![metadata.clone()]),
+    );
+    assert!(
+        application.diagnostics().is_empty(),
+        "{}",
+        application.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(
+        application.hir().expect("generic consumer HIR"),
+        application.types(),
+    )
+    .expect("only the called capsule is specialized");
+    let dump = mir.dump();
+    assert_eq!(dump.matches("function s").count(), 2, "{dump}");
+}
+
+#[test]
 fn portable_generic_capsules_remap_recursive_types_into_the_consumer_arena() {
     let library_bubble = BubbleId::from_raw(2);
     let library = analyze_bubble(FrontEndBubbleInput::new(

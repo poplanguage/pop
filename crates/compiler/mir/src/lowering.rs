@@ -20,8 +20,8 @@ use pop_hir::{
     HirErrorMatchArm, HirExpression, HirExpressionKind, HirFieldValue, HirFunction,
     HirGeneratedCodecEntry, HirGeneratedCodecEntryBody, HirGeneratedCodecMemberId,
     HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm, HirResultMatchArm,
-    HirStatement, HirStatementKind, HirTableEntry, hir_generic_call_instances,
-    remap_hir_function_dispatches, specialize_hir_function,
+    HirStatement, HirStatementKind, HirTableEntry, hir_direct_call_instances,
+    hir_generic_call_instances, remap_hir_function_dispatches, specialize_hir_function,
 };
 use pop_runtime_interface::{
     ArrayElementMap, FfiAbiLayoutId, FfiCallbackLifetime, FfiCallbackThread, ObjectMap, ObjectSlot,
@@ -1466,12 +1466,18 @@ fn specialize_reachable_functions(
         .with_classes(data_classes, data_methods)
         .with_interfaces(interface_instances);
     let mut pending = BTreeSet::new();
+    let mut pending_helpers = BTreeSet::new();
+    let mut reachable_helpers = BTreeSet::new();
     for function in local_functions
         .iter()
-        .chain(capsule_functions.iter())
         .filter(|function| function.type_parameters().is_empty())
     {
         pending.extend(hir_generic_call_instances(function));
+        pending_helpers.extend(
+            hir_direct_call_instances(function)
+                .into_iter()
+                .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+        );
     }
     let mut next_symbol = templates
         .values()
@@ -1487,7 +1493,25 @@ fn specialize_reachable_functions(
         .max()
         .unwrap_or(0)
         .saturating_add(1);
-    while let Some(key) = pending.pop_first() {
+    while !pending.is_empty() || !pending_helpers.is_empty() {
+        if let Some(helper) = pending_helpers.pop_first() {
+            if !reachable_helpers.insert(helper) {
+                continue;
+            }
+            let Some(template) = templates.get(&helper) else {
+                continue;
+            };
+            pending.extend(hir_generic_call_instances(template));
+            pending_helpers.extend(
+                hir_direct_call_instances(template)
+                    .into_iter()
+                    .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+            );
+            continue;
+        }
+        let Some(key) = pending.pop_first() else {
+            continue;
+        };
         if instances.contains_key(&key) {
             continue;
         }
@@ -1501,6 +1525,11 @@ fn specialize_reachable_functions(
             specialize_hir_function(template, symbol, &key.1, &instances, &data_instances, arena)
         {
             pending.extend(hir_generic_call_instances(&specialized));
+            pending_helpers.extend(
+                hir_direct_call_instances(&specialized)
+                    .into_iter()
+                    .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+            );
         } else {
             return Err(vec![MirVerificationError::InvalidGenericSpecialization(
                 key.0,
@@ -1515,8 +1544,12 @@ fn specialize_reachable_functions(
     let mut specialized = Vec::new();
     for function in local_functions
         .iter()
-        .chain(capsule_functions.iter())
         .filter(|function| function.type_parameters().is_empty())
+        .chain(
+            capsule_functions
+                .iter()
+                .filter(|function| reachable_helpers.contains(&function.symbol())),
+        )
     {
         specialized.push(
             specialize_hir_function(
