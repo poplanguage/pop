@@ -1571,6 +1571,47 @@ fn reusable_byte_buffers_trap_before_negative_capacity_mutation() {
 }
 
 #[test]
+fn checked_utf8_transcoding_is_exact_and_keeps_buffers_reusable() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function verify(): Int\n\
+             local text = \"Aé中🦀\"\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             if (Text.decodeUtf8(Bytes.view(encoded)) ?? \"\") ~= text then\n\
+                 return 1\n\
+             end\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 2, 2))\n\
+             if (Text.decodeUtf8(Bytes.view(selected)) ?? \"\") ~= \"é中\" then\n\
+                 return 2\n\
+             end\n\
+             local empty = Text.encodeUtf8(\"\")\n\
+             if (Text.decodeUtf8(Bytes.view(empty)) ?? \"missing\") ~= \"\" then\n\
+                 return 3\n\
+             end\n\
+             local buffer = Bytes.create()\n\
+             Bytes.write(buffer, 195)\n\
+             Bytes.write(buffer, 169)\n\
+             local decoded = Text.decodeUtf8(buffer)\n\
+             if (decoded ?? \"\") ~= \"é\" or Bytes.length(buffer) ~= 2 then\n\
+                 return 4\n\
+             end\n\
+             Bytes.write(buffer, 255)\n\
+             if Text.decodeUtf8(buffer) ~= nil or Bytes.length(buffer) ~= 3 then\n\
+                 return 5\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let entry = mir.functions().last().expect("UTF-8 function").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified UTF-8 MIR");
+
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("UTF-8 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

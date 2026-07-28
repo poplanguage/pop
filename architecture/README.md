@@ -216,6 +216,9 @@ transplanted into a Luau-shaped file.
   Exact byte, owned/view, and fixed-width endian writes append atomically;
   `toBytes` returns an independent immutable snapshot. It is neither a List
   nor FFI storage and advances the native descriptors to ABI 1.25 and 2.3.
+- ADR 0118 adds exact checked UTF-8 transcoding between String/Text views and
+  Bytes views/buffers. Malformed bytes return `nil`, buffer decoding does not
+  mutate storage, and the native descriptors advance to ABI 1.26 and 2.4.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

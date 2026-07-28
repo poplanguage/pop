@@ -707,6 +707,18 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
             native_runtime_symbol(RuntimeOperation::ByteBufferMaterialize)
         ),
         format!(
+            "declare i64 @{}(i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8Encode)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8DecodeView)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8DecodeBuffer)
+        ),
+        format!(
             "declare i64 @{}(i64, i64, i64, i1, i8) nounwind",
             native_runtime_symbol(RuntimeOperation::RangeCreate)
         ),

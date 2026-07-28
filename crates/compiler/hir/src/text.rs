@@ -974,6 +974,18 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             output.push_str("byteBufferMaterialize ");
             dump_expression(output, buffer, arena);
         }
+        HirExpressionKind::Utf8Encode { view, .. } => {
+            output.push_str("utf8Encode ");
+            dump_expression(output, view, arena);
+        }
+        HirExpressionKind::Utf8DecodeView { view, .. } => {
+            output.push_str("utf8DecodeView ");
+            dump_expression(output, view, arena);
+        }
+        HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            output.push_str("utf8DecodeBuffer ");
+            dump_expression(output, buffer, arena);
+        }
         HirExpressionKind::RangeCreate { first, last, step } => {
             output.push_str("range.create ");
             dump_expression(output, first, arena);

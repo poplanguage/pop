@@ -696,6 +696,17 @@ fn infer_expression(
                 .union(allocating_effects())
                 .with(Effect::MayTrap)
         }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            infer_expression(view, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
+        HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
         HirExpressionKind::ArrayGetChecked { .. }
         | HirExpressionKind::ListGetChecked { .. }
         | HirExpressionKind::FfiBufferLength { .. }
@@ -1288,6 +1299,7 @@ fn visit_expression_children_mut(
         | HirExpressionKind::ByteBufferLength { buffer: base }
         | HirExpressionKind::ByteBufferClear { buffer: base }
         | HirExpressionKind::ByteBufferMaterialize { buffer: base, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer: base, .. }
         | HirExpressionKind::OptionalNarrow { optional: base }
         | HirExpressionKind::Await { task: base }
         | HirExpressionKind::TaskCancelToken { source: base }
@@ -1317,7 +1329,9 @@ fn visit_expression_children_mut(
         | HirExpressionKind::ResultPropagate { result: base, .. } => visit(base),
         HirExpressionKind::ViewCreate { lender: base, .. }
         | HirExpressionKind::ViewLength { view: base, .. }
-        | HirExpressionKind::ViewMaterialize { view: base, .. } => visit(base),
+        | HirExpressionKind::ViewMaterialize { view: base, .. }
+        | HirExpressionKind::Utf8Encode { view: base, .. }
+        | HirExpressionKind::Utf8DecodeView { view: base, .. } => visit(base),
         HirExpressionKind::ArrayGet { array, index }
         | HirExpressionKind::ArrayGetChecked { array, index }
         | HirExpressionKind::ListGet { list: array, index }

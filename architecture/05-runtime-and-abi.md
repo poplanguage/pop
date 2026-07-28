@@ -574,6 +574,14 @@ orders fail before partial mutation. ABI 1.11 through 1.24 and ABI 2.0 through
 2.2 remain immutable. The default facade supports ABI 1.11 through 1.25; the
 production facade supports ABI 2.0 through 2.3.
 
+ADR 0118 advances the additive stable-token descriptor to ABI 1.26 and the
+production descriptor to ABI 2.4. It appends checked Text-view UTF-8 encoding,
+Bytes-view decoding, and direct reusable-buffer decoding. Decode status
+distinguishes runtime failure, malformed input, and valid output; malformed
+input does not allocate or mutate the source. ABI 1.11 through 1.25 and ABI 2.0
+through 2.3 remain immutable. The default facade supports ABI 1.11 through
+1.26; the production facade supports ABI 2.0 through 2.4.
+
 ADR 0103 establishes the ABI 2 production facade as a separate static build
 composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots

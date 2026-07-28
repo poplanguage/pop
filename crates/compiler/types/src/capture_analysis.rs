@@ -303,7 +303,8 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         }
         TypedExpressionKind::ByteBufferLength { buffer }
         | TypedExpressionKind::ByteBufferClear { buffer }
-        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             finalize_expression_captures(buffer, written);
         }
         TypedExpressionKind::ListAdd { list, value } => {
@@ -554,7 +555,9 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         }
         TypedExpressionKind::ViewCreate { lender: value, .. }
         | TypedExpressionKind::ViewLength { view: value, .. }
-        | TypedExpressionKind::ViewMaterialize { view: value, .. } => {
+        | TypedExpressionKind::ViewMaterialize { view: value, .. }
+        | TypedExpressionKind::Utf8Encode { view: value, .. }
+        | TypedExpressionKind::Utf8DecodeView { view: value, .. } => {
             finalize_expression_captures(value, written);
         }
         TypedExpressionKind::ViewSlice {

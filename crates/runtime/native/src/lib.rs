@@ -19,6 +19,7 @@ mod state;
 mod storage;
 mod task;
 mod text;
+mod utf8;
 mod view;
 
 pub use allocation::*;
@@ -39,4 +40,5 @@ pub use scheduler::*;
 pub use storage::*;
 pub use task::*;
 pub use text::*;
+pub use utf8::*;
 pub use view::*;

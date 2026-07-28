@@ -1092,6 +1092,39 @@ fn dump_instruction(output: &mut String, instruction: &MirInstructionKind) {
                 buffer.raw()
             );
         }
+        MirInstructionKind::Utf8Encode {
+            view,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8Encode site#{} v{}",
+                allocation_site.raw(),
+                view.raw()
+            );
+        }
+        MirInstructionKind::Utf8DecodeView {
+            view,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8DecodeView site#{} v{}",
+                allocation_site.raw(),
+                view.raw()
+            );
+        }
+        MirInstructionKind::Utf8DecodeBuffer {
+            buffer,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8DecodeBuffer site#{} v{}",
+                allocation_site.raw(),
+                buffer.raw()
+            );
+        }
         MirInstructionKind::RangeCreate { first, last, step } => {
             let _ = write!(
                 output,

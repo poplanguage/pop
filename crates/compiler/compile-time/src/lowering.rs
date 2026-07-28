@@ -572,7 +572,10 @@ fn unsupported_compile_time_construct(
         | TypedExpressionKind::ByteBufferWriteBytes { .. }
         | TypedExpressionKind::ByteBufferWriteView { .. }
         | TypedExpressionKind::ByteBufferWriteInteger { .. }
-        | TypedExpressionKind::ByteBufferMaterialize { .. } => {
+        | TypedExpressionKind::ByteBufferMaterialize { .. }
+        | TypedExpressionKind::Utf8Encode { .. }
+        | TypedExpressionKind::Utf8DecodeView { .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { .. } => {
             UnsupportedCompileTimeConstruct::ResultlessCall
         }
         TypedExpressionKind::RuneFromCodePoint { .. }

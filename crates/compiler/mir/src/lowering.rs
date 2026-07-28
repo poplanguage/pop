@@ -2624,8 +2624,13 @@ fn visit_expression_closures(
         }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
-        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             visit_expression_closures(buffer, parameters, locals);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            visit_expression_closures(view, parameters, locals);
         }
         HirExpressionKind::ListAdd { list, value } => {
             visit_expression_closures(list, parameters, locals);
@@ -5521,6 +5526,27 @@ impl<'hir> FunctionBuilder<'hir> {
                 buffer: self.lower_expression(buffer),
                 allocation_site: *allocation_site,
             },
+            HirExpressionKind::Utf8Encode {
+                view,
+                allocation_site,
+            } => MirInstructionKind::Utf8Encode {
+                view: self.lower_expression(view),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::Utf8DecodeView {
+                view,
+                allocation_site,
+            } => MirInstructionKind::Utf8DecodeView {
+                view: self.lower_expression(view),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::Utf8DecodeBuffer {
+                buffer,
+                allocation_site,
+            } => MirInstructionKind::Utf8DecodeBuffer {
+                buffer: self.lower_expression(buffer),
+                allocation_site: *allocation_site,
+            },
             HirExpressionKind::RangeCreate { first, last, step } => {
                 MirInstructionKind::RangeCreate {
                     first: self.lower_expression(first),
@@ -7239,6 +7265,14 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         ]),
         MirInstructionKind::ByteBufferMaterialize { .. } => MirEffectSummary::from_effects([
             MirEffect::Allocates,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
+        MirInstructionKind::Utf8Encode { .. }
+        | MirInstructionKind::Utf8DecodeView { .. }
+        | MirInstructionKind::Utf8DecodeBuffer { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
             MirEffect::MayUnwind,
             MirEffect::GcSafePoint,
         ]),

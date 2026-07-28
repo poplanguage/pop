@@ -2195,6 +2195,33 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
             allocation_site: AllocationSiteId::from_raw(parse_hash(site, "site#", line)?),
         });
     }
+    for (prefix, operation) in [
+        ("utf8Encode ", 0_u8),
+        ("utf8DecodeView ", 1),
+        ("utf8DecodeBuffer ", 2),
+    ] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            let (site, value) = rest
+                .split_once(' ')
+                .ok_or_else(|| error(line, "UTF-8 transcoding"))?;
+            let value = ValueId::from_raw(parse_prefixed(value, 'v', line)?);
+            let allocation_site = AllocationSiteId::from_raw(parse_hash(site, "site#", line)?);
+            return Ok(match operation {
+                0 => MirInstructionKind::Utf8Encode {
+                    view: value,
+                    allocation_site,
+                },
+                1 => MirInstructionKind::Utf8DecodeView {
+                    view: value,
+                    allocation_site,
+                },
+                _ => MirInstructionKind::Utf8DecodeBuffer {
+                    buffer: value,
+                    allocation_site,
+                },
+            });
+        }
+    }
     if let Some(operands) = text.strip_prefix("rangeCreate ") {
         let (first, last, step) = parse_three_values(operands, line)?;
         return Ok(MirInstructionKind::RangeCreate { first, last, step });

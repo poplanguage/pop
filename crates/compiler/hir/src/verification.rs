@@ -3029,6 +3029,43 @@ impl Verifier<'_> {
                     });
                 }
             }
+            HirExpressionKind::Utf8Encode { view, .. } => {
+                self.verify_expression(view, visible);
+                if !self.is_builtin_type(view.type_id(), "Text.View", &[])
+                    || !self.is_builtin_type(expression.type_id(), "Bytes", &[])
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::Utf8DecodeView { view, .. } => {
+                self.verify_expression(view, visible);
+                let string = self.arena.source_type("String");
+                if !self.is_builtin_type(view.type_id(), "Bytes.View", &[])
+                    || string.is_none()
+                    || self.optional_inner_type(expression.type_id()) != string
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+                self.verify_expression(buffer, visible);
+                let string = self.arena.source_type("String");
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || string.is_none()
+                    || self.optional_inner_type(expression.type_id()) != string
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
             HirExpressionKind::RangeCreate { first, last, step } => {
                 self.verify_expression(first, visible);
                 self.verify_expression(last, visible);
@@ -6540,8 +6577,13 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
         HirExpressionKind::ListLength { list } => collect_cell_captures(list, written),
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
-        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             collect_cell_captures(buffer, written);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            collect_cell_captures(view, written);
         }
         HirExpressionKind::ListAdd { list, value } => {
             collect_cell_captures(list, written);

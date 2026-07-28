@@ -292,6 +292,27 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .map(CheckedInvocation::Value);
             }
             if matches!(path.as_slice(), [namespace, operation]
+                if namespace == "Text"
+                    && matches!(operation.as_str(), "encodeUtf8" | "decodeUtf8"))
+                && self.binding_by_name("Text").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_utf8_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [namespace, operation]
                 if matches!(namespace.as_str(), "Bytes" | "Text")
                     && matches!(operation.as_str(), "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
                 && path
@@ -752,6 +773,87 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 arguments: Vec::new(),
             })
             .ok()
+    }
+
+    fn check_utf8_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let [_, operation] = path else {
+            return None;
+        };
+        self.require_view_arity(span, path, arguments, 1)?;
+        let supplied = self.check_expression(&arguments[0])?;
+        let text = self.resolver.arena().source_type("String")?;
+        let bytes = self.ffi_builtin_type("Bytes", Vec::new())?;
+        let text_view = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::TEXT_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()?;
+        let bytes_view = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::BYTES_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()?;
+        let allocation_site = self.fresh_allocation_site();
+        match operation.as_str() {
+            "encodeUtf8" => {
+                let view = if supplied.type_id() == text {
+                    let provenance = self.lender_for_expression(&supplied);
+                    let borrow = self.fresh_view_borrow(provenance);
+                    TypedExpression {
+                        kind: TypedExpressionKind::ViewCreate {
+                            kind: crate::ViewKind::Text,
+                            lender: Box::new(supplied),
+                            borrow,
+                        },
+                        type_id: text_view,
+                        span: arguments[0].span(),
+                    }
+                } else {
+                    self.require_same_type(text_view, supplied.type_id(), supplied.span(), span);
+                    supplied
+                };
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::Utf8Encode {
+                        view: Box::new(view),
+                        allocation_site,
+                    },
+                    type_id: bytes,
+                    span,
+                })
+            }
+            "decodeUtf8" => {
+                let result = self.resolver.arena_mut().optional(text).ok()?;
+                let kind = if supplied.type_id() == self.byte_buffer_type()? {
+                    TypedExpressionKind::Utf8DecodeBuffer {
+                        buffer: Box::new(supplied),
+                        allocation_site,
+                    }
+                } else {
+                    self.require_same_type(bytes_view, supplied.type_id(), supplied.span(), span);
+                    TypedExpressionKind::Utf8DecodeView {
+                        view: Box::new(supplied),
+                        allocation_site,
+                    }
+                };
+                Some(TypedExpression {
+                    kind,
+                    type_id: result,
+                    span,
+                })
+            }
+            _ => None,
+        }
     }
 
     fn check_byte_buffer_invocation(

@@ -155,3 +155,7 @@ api:96	Api	Pop.Standard	Pop.Bytes	writeUInt32LittleEndian	writeUInt32LittleEndia
 api:97	Api	Pop.Standard	Pop.Bytes	writeUInt64BigEndian	writeUInt64BigEndian(Bytes.Buffer,UInt64)->()	standard	implemented	false	architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md
 api:98	Api	Pop.Standard	Pop.Bytes	writeUInt64LittleEndian	writeUInt64LittleEndian(Bytes.Buffer,UInt64)->()	standard	implemented	false	architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md
 api:99	Api	Pop.Standard	Pop.Bytes	toBytes	toBytes(Bytes.Buffer)->Bytes	standard	implemented	false	architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md
+api:100	Api	Pop.Standard	Pop.Text	encodeUtf8	encodeUtf8(String)->Bytes	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
+api:101	Api	Pop.Standard	Pop.Text	encodeUtf8	encodeUtf8(Text.View)->Bytes	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
+api:102	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.View)->String?	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md
+api:103	Api	Pop.Standard	Pop.Text	decodeUtf8	decodeUtf8(Bytes.Buffer)->String?	standard	implemented	false	architecture/decisions/0118-checked-utf8-transcoding.md

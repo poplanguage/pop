@@ -227,6 +227,21 @@ pub trait RuntimeAdapter {
         Err(RuntimeFailure::runtime_invariant())
     }
 
+    /// Copies one already bounds-checked range from a reusable byte accumulator.
+    ///
+    /// # Errors
+    ///
+    /// Rejects forged storage or a range inconsistent with the target length.
+    fn byte_buffer_read(
+        &self,
+        buffer: ManagedReference,
+        offset: u64,
+        target: &mut [u8],
+    ) -> Result<(), RuntimeFailure> {
+        let _ = (buffer, offset, target);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
     /// Reserves room for at least `additional` more bytes without changing length.
     ///
     /// # Errors

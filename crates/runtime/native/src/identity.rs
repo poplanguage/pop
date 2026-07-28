@@ -21,11 +21,11 @@ pub extern "C" fn pop_rt_abi_minor() -> u16 {
 pub extern "C" fn pop_rt_supports_abi(major: u16, minor: u16) -> u8 {
     #[cfg(feature = "production-generational")]
     let supported = major == NATIVE_ABI_2_VERSION.major()
-        && matches!(minor, 0..=3)
+        && matches!(minor, 0..=4)
         && minor <= NATIVE_ABI_2_VERSION.minor();
     #[cfg(not(feature = "production-generational"))]
     let supported = major == NATIVE_ABI_1_VERSION.major()
-        && matches!(minor, 11..=25)
+        && matches!(minor, 11..=26)
         && minor <= NATIVE_ABI_1_VERSION.minor();
     u8::from(supported)
 }

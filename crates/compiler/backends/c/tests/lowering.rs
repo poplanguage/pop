@@ -121,6 +121,25 @@ fn experimental_c_backend_rejects_reusable_byte_buffers_without_a_fallback() {
 }
 
 #[test]
+fn experimental_c_backend_rejects_checked_utf8_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function decode(text: String): String?\n\
+             local bytes = Text.encodeUtf8(text)\n\
+             return Text.decodeUtf8(Bytes.view(bytes))\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("utf8Encode"), "{dump}");
+    assert!(dump.contains("utf8DecodeView"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn experimental_c_backend_rejects_rune_and_text_scalar_mir_without_a_fallback() {
     let (mir, types) = lower(
         "namespace Main\n\

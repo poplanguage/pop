@@ -1156,6 +1156,73 @@ pub(crate) fn lower_instruction(
                 native_runtime_symbol(RuntimeOperation::Trap),
             )
         }
+        MirInstructionKind::Utf8Encode { view, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8Encode);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result} = call i64 @{symbol}(i64 {result}_lender, i64 {result}_offset, i64 {result}_length)\n\
+                 {result}_allocated = icmp ne i64 {result}, 0\n\
+                 br i1 {result}_allocated, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:",
+                view.raw(),
+                view.raw(),
+                view.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::Utf8DecodeView { view, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8DecodeView);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result}_output = alloca i64, align 8\n\
+                 store i64 0, ptr {result}_output, align 8\n\
+                 {result}_status = call i8 @{symbol}(i64 {result}_lender, i64 {result}_offset, i64 {result}_length, ptr {result}_output)\n\
+                 {result}_completed = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_completed, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result}_present = icmp eq i8 {result}_status, 2\n\
+                   {result}_value = load i64, ptr {result}_output, align 8\n\
+                   {result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0\n\
+                   {result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {result}_value, 1",
+                view.raw(),
+                view.raw(),
+                view.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8DecodeBuffer);
+            format!(
+                "{result}_output = alloca i64, align 8\n\
+                 store i64 0, ptr {result}_output, align 8\n\
+                 {result}_status = call i8 @{symbol}(i64 %v{}, ptr {result}_output)\n\
+                 {result}_completed = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_completed, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result}_present = icmp eq i8 {result}_status, 2\n\
+                   {result}_value = load i64, ptr {result}_output, align 8\n\
+                   {result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0\n\
+                   {result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {result}_value, 1",
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
         MirInstructionKind::RangeCreate { first, last, step } => lower_range_create(
             &result,
             instruction.result_type(),

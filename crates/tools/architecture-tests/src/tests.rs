@@ -935,8 +935,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 25)"),
-        (&native_abi, "NativeAbiVersion::new(2, 3)"),
+        (&native_abi, "NativeAbiVersion::new(1, 26)"),
+        (&native_abi, "NativeAbiVersion::new(2, 4)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1757,8 +1757,8 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(adr.contains("- Status: accepted"));
     assert!(typed.contains("String,"));
     assert!(hir.contains("HirIterationSource::String"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 25)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 3)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
     assert!(native_abi.contains("String = 4"));
     assert!(native_iteration.contains("scalar_array_values"));
     assert!(!native_iteration.contains("utf8_string_bytes"));
@@ -1791,10 +1791,41 @@ fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
     assert!(native_state.contains("ABI_BYTE_BUFFERS"));
     assert!(!native_buffer.contains("abi_lists"));
     assert!(!native_buffer.contains("FfiBuffer"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 25)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 3)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
     assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
     assert!(c.contains("is_byte_buffer_instruction"));
+}
+
+#[test]
+fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0118-checked-utf8-transcoding.md"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter =
+        read_required(root.join("crates/compiler/backends/mir-interp/src/interpreter.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/utf8.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("Malformed UTF-8 is expected data"));
+    assert!(typed.contains("Utf8DecodeBuffer"));
+    assert!(hir.contains("Utf8DecodeBuffer"));
+    assert!(mir.contains("Utf8DecodeBuffer"));
+    assert!(interpreter.contains("String::from_utf8"));
+    assert!(llvm.contains("RuntimeOperation::Utf8DecodeBuffer"));
+    assert!(native.contains("pop_rt_byte_buffer_decode_utf8"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
+    assert!(c.contains("MirInstructionKind::Utf8DecodeBuffer"));
+    for forbidden in ["Any", "Dynamic", "from_utf8_lossy", "runtime name"] {
+        assert!(!adr.contains(forbidden), "ADR 0118 contains {forbidden}");
+    }
 }
 
 #[test]

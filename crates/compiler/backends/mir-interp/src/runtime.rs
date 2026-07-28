@@ -299,6 +299,25 @@ impl RuntimeAdapter for ReferenceRuntimeAdapter {
             .ok_or_else(RuntimeFailure::runtime_invariant)
     }
 
+    fn byte_buffer_read(
+        &self,
+        buffer: ManagedReference,
+        offset: u64,
+        target: &mut [u8],
+    ) -> Result<(), RuntimeFailure> {
+        let payload = self
+            .byte_buffers
+            .get(&buffer)
+            .ok_or_else(RuntimeFailure::runtime_invariant)?;
+        let start = usize::try_from(offset).map_err(|_| RuntimeFailure::runtime_invariant())?;
+        let end = start
+            .checked_add(target.len())
+            .filter(|end| *end <= payload.len())
+            .ok_or_else(RuntimeFailure::runtime_invariant)?;
+        target.copy_from_slice(&payload[start..end]);
+        Ok(())
+    }
+
     fn byte_buffer_reserve(
         &mut self,
         buffer: ManagedReference,

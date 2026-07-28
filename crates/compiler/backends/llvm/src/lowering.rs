@@ -2371,7 +2371,10 @@ pub(crate) fn llvm_block_exit_label(
                 | MirInstructionKind::ByteBufferWriteBytes { .. }
                 | MirInstructionKind::ByteBufferWriteView { .. }
                 | MirInstructionKind::ByteBufferWriteInteger { .. }
-                | MirInstructionKind::ByteBufferMaterialize { .. } => "continue",
+                | MirInstructionKind::ByteBufferMaterialize { .. }
+                | MirInstructionKind::Utf8Encode { .. }
+                | MirInstructionKind::Utf8DecodeView { .. }
+                | MirInstructionKind::Utf8DecodeBuffer { .. } => "continue",
                 MirInstructionKind::GcSafePoint { .. } => "poll_continue",
                 MirInstructionKind::ArrayCreate { .. } => "create",
                 MirInstructionKind::ListCreate { .. } => "create",

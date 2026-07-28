@@ -10,20 +10,21 @@ use pop_runtime_native::{
     pop_rt_allocate_initialized_self_referential_object_at_site, pop_rt_allocate_object,
     pop_rt_allocate_table, pop_rt_array_fill, pop_rt_array_get, pop_rt_array_get_checked,
     pop_rt_array_get_object_field_checked, pop_rt_array_length, pop_rt_array_set,
-    pop_rt_cancel_source_create, pop_rt_cancel_source_release, pop_rt_cancel_source_token,
-    pop_rt_cancel_token_release, pop_rt_codec_read_event, pop_rt_codec_write_event,
-    pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow,
-    pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read,
-    pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow,
-    pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2, pop_rt_gc_stage,
-    pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next, pop_rt_list_add,
-    pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked, pop_rt_list_length,
-    pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root, pop_rt_resolve_root,
-    pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat, pop_rt_string_equal,
-    pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi, pop_rt_suspend,
-    pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
-    pop_rt_task_cancellation_requested, pop_rt_text_view_get_rune, pop_rt_unpin,
-    request_abi_collection,
+    pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_write_byte,
+    pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8, pop_rt_cancel_source_create,
+    pop_rt_cancel_source_release, pop_rt_cancel_source_token, pop_rt_cancel_token_release,
+    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow,
+    pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length,
+    pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write,
+    pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set,
+    pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make,
+    pop_rt_iteration_next, pop_rt_list_add, pop_rt_list_create, pop_rt_list_get,
+    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create,
+    pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
+    pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
+    pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
+    pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested,
+    pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     AllocationSiteDescriptorAbi, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
@@ -44,7 +45,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 25);
+    assert_eq!(pop_rt_abi_minor(), 26);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -61,15 +62,86 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 23), 1);
     assert_eq!(pop_rt_supports_abi(1, 24), 1);
     assert_eq!(pop_rt_supports_abi(1, 25), 1);
+    assert_eq!(pop_rt_supports_abi(1, 26), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
-    assert_eq!(pop_rt_supports_abi(2, 3), 0);
+    assert_eq!(pop_rt_supports_abi(2, 4), 0);
 }
 
 #[test]
 fn native_unicode_scalar_adapter_has_the_exact_versioned_shape() {
     let _: TextViewGetRuneAbi = pop_rt_text_view_get_rune;
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_checked_utf8_transcoding_distinguishes_malformed_data() {
+    let _guard = abi_test_lock();
+    let source = allocate_utf8_string_literal("Aé中🦀".as_bytes());
+    let encoded = pop_rt_text_view_encode_utf8(source, 1, "é中".len() as u64);
+    assert_ne!(encoded, 0);
+
+    let mut decoded = 0;
+    assert_eq!(
+        unsafe {
+            pop_rt_bytes_view_decode_utf8(encoded, 0, "é中".len() as u64, &raw mut decoded)
+        },
+        2
+    );
+    let needed = unsafe { pop_rt_string_read(decoded, std::ptr::null_mut(), 0) };
+    assert_eq!(needed, "é中".len() as u64 + 1);
+    let mut text = vec![0_u8; "é中".len()];
+    assert_eq!(
+        unsafe { pop_rt_string_read(decoded, text.as_mut_ptr(), text.len() as u64) },
+        needed
+    );
+    assert_eq!(text, "é中".as_bytes());
+
+    for malformed_bytes in [
+        &[0xc2][..],
+        &[0x80][..],
+        &[0xe0, 0x80, 0x80][..],
+        &[0xed, 0xa0, 0x80][..],
+        &[0xf4, 0x90, 0x80, 0x80][..],
+    ] {
+        let malformed = allocate_immutable_bytes(malformed_bytes);
+        decoded = 77;
+        assert_eq!(
+            unsafe {
+                pop_rt_bytes_view_decode_utf8(
+                    malformed,
+                    0,
+                    malformed_bytes.len() as u64,
+                    &raw mut decoded,
+                )
+            },
+            1
+        );
+        assert_eq!(decoded, 77);
+    }
+    assert_eq!(
+        unsafe { pop_rt_bytes_view_decode_utf8(u64::MAX, 0, 3, &raw mut decoded) },
+        0
+    );
+    assert_eq!(decoded, 77);
+
+    let buffer = pop_rt_byte_buffer_create(4);
+    assert_ne!(buffer, 0);
+    assert_eq!(pop_rt_byte_buffer_write_bytes(buffer, encoded), 1);
+    decoded = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_decode_utf8(buffer, &raw mut decoded) },
+        2
+    );
+    assert_ne!(decoded, 0);
+    assert_eq!(pop_rt_byte_buffer_write_byte(buffer, 0xff), 1);
+    decoded = 91;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_decode_utf8(buffer, &raw mut decoded) },
+        1
+    );
+    assert_eq!(decoded, 91);
 }
 
 #[test]

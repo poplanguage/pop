@@ -317,6 +317,9 @@ Architecture CI should eventually verify:
   writes, independent snapshots, lender/root proofs, interpreter/LLVM
   differential execution, fail-closed C behavior, and immutable ABI 1.25/2.3
   descriptors;
+- ADR 0118's exact checked UTF-8 overloads, malformed-data optional result,
+  non-mutating direct buffer decode, interpreter/LLVM agreement, fail-closed C
+  behavior, and immutable ABI 1.26/2.4 descriptors;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

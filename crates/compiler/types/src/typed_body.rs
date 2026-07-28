@@ -505,6 +505,18 @@ pub enum TypedExpressionKind {
         buffer: Box<TypedExpression>,
         allocation_site: pop_foundation::AllocationSiteId,
     },
+    Utf8Encode {
+        view: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
+        buffer: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
     RangeCreate {
         first: Box<TypedExpression>,
         last: Box<TypedExpression>,

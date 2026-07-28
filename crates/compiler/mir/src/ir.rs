@@ -2003,6 +2003,18 @@ pub enum MirInstructionKind {
         buffer: ValueId,
         allocation_site: AllocationSiteId,
     },
+    Utf8Encode {
+        view: ValueId,
+        allocation_site: AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: ValueId,
+        allocation_site: AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
+        buffer: ValueId,
+        allocation_site: AllocationSiteId,
+    },
     RangeCreate {
         first: ValueId,
         last: ValueId,

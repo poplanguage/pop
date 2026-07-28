@@ -1197,6 +1197,27 @@ fn lower_expression(
             buffer: Box::new(lower_expression(buffer, interface_slots)),
             allocation_site: *allocation_site,
         },
+        TypedExpressionKind::Utf8Encode {
+            view,
+            allocation_site,
+        } => HirExpressionKind::Utf8Encode {
+            view: Box::new(lower_expression(view, interface_slots)),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::Utf8DecodeView {
+            view,
+            allocation_site,
+        } => HirExpressionKind::Utf8DecodeView {
+            view: Box::new(lower_expression(view, interface_slots)),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::Utf8DecodeBuffer {
+            buffer,
+            allocation_site,
+        } => HirExpressionKind::Utf8DecodeBuffer {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            allocation_site: *allocation_site,
+        },
         TypedExpressionKind::RangeCreate { first, last, step } => HirExpressionKind::RangeCreate {
             first: Box::new(lower_expression(first, interface_slots)),
             last: Box::new(lower_expression(last, interface_slots)),
@@ -2221,8 +2242,13 @@ fn first_unknown_interface_expression(
         TypedExpressionKind::ListLength { list } => first_unknown_interface_expression(list, slots),
         TypedExpressionKind::ByteBufferLength { buffer }
         | TypedExpressionKind::ByteBufferClear { buffer }
-        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             first_unknown_interface_expression(buffer, slots)
+        }
+        TypedExpressionKind::Utf8Encode { view, .. }
+        | TypedExpressionKind::Utf8DecodeView { view, .. } => {
+            first_unknown_interface_expression(view, slots)
         }
         TypedExpressionKind::ListAdd { list, value } => {
             first_unknown_interface_expression(list, slots)
@@ -2662,8 +2688,13 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         TypedExpressionKind::ListLength { list } => first_compile_time_only_expression(list),
         TypedExpressionKind::ByteBufferLength { buffer }
         | TypedExpressionKind::ByteBufferClear { buffer }
-        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             first_compile_time_only_expression(buffer)
+        }
+        TypedExpressionKind::Utf8Encode { view, .. }
+        | TypedExpressionKind::Utf8DecodeView { view, .. } => {
+            first_compile_time_only_expression(view)
         }
         TypedExpressionKind::ListAdd { list, value } => first_compile_time_only_expression(list)
             .or_else(|| first_compile_time_only_expression(value)),

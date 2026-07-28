@@ -19,6 +19,9 @@ pub(crate) fn validate_bubble(
                     MirInstructionKind::CheckedDowncast { .. }
                         | MirInstructionKind::CodecEncode { .. }
                         | MirInstructionKind::CodecDecode { .. }
+                        | MirInstructionKind::Utf8Encode { .. }
+                        | MirInstructionKind::Utf8DecodeView { .. }
+                        | MirInstructionKind::Utf8DecodeBuffer { .. }
                 ) || is_view_instruction(instruction.kind())
                     || is_byte_buffer_instruction(instruction.kind())
             }) {

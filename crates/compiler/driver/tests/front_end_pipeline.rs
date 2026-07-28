@@ -7,6 +7,87 @@ use pop_mir::{MirDeclarationKind, MirVerificationError, lower_hir_bubble};
 use pop_source::SourceFile;
 
 #[test]
+fn checked_utf8_transcoding_reaches_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/utf8.pop",
+        "namespace Main\n\
+         public function roundTrip(text: String): String\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 1, Text.length(Text.view(text))))\n\
+             local decoded = Text.decodeUtf8(Bytes.view(encoded)) ?? \"\"\n\
+             local buffer = Bytes.withCapacity(Bytes.length(Bytes.view(selected)))\n\
+             Bytes.write(buffer, selected)\n\
+             local finished = Text.decodeUtf8(buffer) ?? \"\"\n\
+             return decoded .. finished\n\
+         end\n",
+    )
+    .expect("UTF-8 source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(result.hir().expect("UTF-8 HIR"), result.types())
+        .expect("verified UTF-8 MIR");
+    let dump = mir.dump();
+    for operation in ["utf8Encode", "utf8DecodeView", "utf8DecodeBuffer"] {
+        assert!(dump.contains(operation), "missing {operation} in:\n{dump}");
+    }
+}
+
+#[test]
+fn checked_utf8_transcoding_rejects_wrong_types_and_arities() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/invalidUtf8.pop",
+        "namespace Main\n\
+         public function invalid(bytes: Bytes): ()\n\
+             Text.encodeUtf8(bytes)\n\
+             Text.encodeUtf8()\n\
+             Text.decodeUtf8(bytes)\n\
+             Text.decodeUtf8(Bytes.view(bytes), Bytes.view(bytes))\n\
+         end\n",
+    )
+    .expect("invalid UTF-8 source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    let snapshot = result.diagnostic_snapshot();
+    assert_eq!(
+        snapshot
+            .lines()
+            .filter(|line| line.starts_with("POP2003"))
+            .count(),
+        2,
+        "{snapshot}"
+    );
+    assert_eq!(
+        snapshot
+            .lines()
+            .filter(|line| line.starts_with("POP2004"))
+            .count(),
+        2,
+        "{snapshot}"
+    );
+    assert!(
+        result.hir().is_none(),
+        "invalid overloads must not produce HIR"
+    );
+}
+
+#[test]
 fn reusable_byte_buffer_operations_reach_verified_mir() {
     let source = SourceFile::new(
         FileId::from_raw(0),

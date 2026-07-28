@@ -378,6 +378,21 @@ pub(crate) fn instruction_allocation_site(kind: &MirInstructionKind) -> Option<A
         | MirInstructionKind::ViewMaterialize {
             allocation_site, ..
         }
+        | MirInstructionKind::ByteBufferCreate {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ByteBufferMaterialize {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8Encode {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8DecodeView {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8DecodeBuffer {
+            allocation_site, ..
+        }
         | MirInstructionKind::CaptureCellAllocate {
             allocation_site, ..
         }
@@ -3186,6 +3201,8 @@ fn verify_view_escapes(
                     MirInstructionKind::ViewSlice { view, .. }
                         | MirInstructionKind::ViewLength { view, .. }
                         | MirInstructionKind::ViewMaterialize { view, .. }
+                        | MirInstructionKind::Utf8Encode { view, .. }
+                        | MirInstructionKind::Utf8DecodeView { view, .. }
                         if *view == operand
                 ) || matches!(
                     instruction.kind(),
@@ -3696,6 +3713,9 @@ fn verify_instruction_types(
             | MirInstructionKind::ViewGetByte { .. }
             | MirInstructionKind::ViewGetRune { .. }
             | MirInstructionKind::ViewMaterialize { .. }
+            | MirInstructionKind::Utf8Encode { .. }
+            | MirInstructionKind::Utf8DecodeView { .. }
+            | MirInstructionKind::Utf8DecodeBuffer { .. }
             | MirInstructionKind::RuneFromCodePoint { .. }
             | MirInstructionKind::RuneCodePoint { .. }
     );
@@ -4987,6 +5007,42 @@ fn verify_instruction_types(
                 verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
             }
             if builtin_type(arena, pop_types::BYTES_TYPE_ID) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8Encode { view, .. } => {
+            if builtin_type(arena, pop_types::TEXT_VIEW_TYPE_ID) != values.get(view).copied() {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+            if builtin_type(arena, pop_types::BYTES_TYPE_ID) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8DecodeView { view, .. } => {
+            if builtin_type(arena, pop_types::BYTES_VIEW_TYPE_ID) != values.get(view).copied()
+                || optional_inner_type(arena, instruction.result_type())
+                    != arena.source_type("String")
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => {
+            if byte_buffer_type(arena) != values.get(buffer).copied()
+                || optional_inner_type(arena, instruction.result_type())
+                    != arena.source_type("String")
+            {
                 errors.push(MirVerificationError::InvalidInstructionType {
                     instruction: instruction.result(),
                     result_type: instruction.result_type(),
@@ -7416,7 +7472,10 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
         }
         MirInstructionKind::ByteBufferLength { buffer }
         | MirInstructionKind::ByteBufferClear { buffer }
-        | MirInstructionKind::ByteBufferMaterialize { buffer, .. } => vec![*buffer],
+        | MirInstructionKind::ByteBufferMaterialize { buffer, .. }
+        | MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => vec![*buffer],
+        MirInstructionKind::Utf8Encode { view, .. }
+        | MirInstructionKind::Utf8DecodeView { view, .. } => vec![*view],
         MirInstructionKind::ByteBufferReserve {
             buffer,
             additional_capacity,

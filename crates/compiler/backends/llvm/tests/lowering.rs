@@ -2844,7 +2844,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 3)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 4)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -4424,6 +4424,43 @@ fn emitted_llvm_executes_reusable_byte_buffer_writes_and_snapshots() {
         result.status.code(),
         Some(42),
         "native executable misexecuted reusable Bytes.Buffer: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_checked_utf8_transcoding() {
+    let module = native_module(
+        "namespace Main\n\
+         private function main(): Int\n\
+             local text = \"Aé中🦀\"\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             if (Text.decodeUtf8(Bytes.view(encoded)) ?? \"\") ~= text then\n\
+                 return 1\n\
+             end\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 2, 2))\n\
+             if (Text.decodeUtf8(Bytes.view(selected)) ?? \"\") ~= \"é中\" then\n\
+                 return 2\n\
+             end\n\
+             local buffer = Bytes.create()\n\
+             Bytes.write(buffer, 195)\n\
+             Bytes.write(buffer, 169)\n\
+             if (Text.decodeUtf8(buffer) ?? \"\") ~= \"é\" then\n\
+                 return 3\n\
+             end\n\
+             Bytes.write(buffer, 255)\n\
+             if Text.decodeUtf8(buffer) ~= nil or Bytes.length(buffer) ~= 3 then\n\
+                 return 4\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "checked-utf8");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted checked UTF-8: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
     );
@@ -6421,7 +6458,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && minor <= 3;\n",
+            "  return major == 2 && minor <= 4;\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -6543,7 +6580,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && minor <= 3;\n",
+            "  return major == 2 && minor <= 4;\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",

@@ -2666,6 +2666,55 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     }
                 }
             }
+            MirInstructionKind::Utf8Encode { view, .. } => {
+                let MirValue::View(view) = &value(values, *view)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if view.kind != pop_mir::MirViewKind::Text {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let reference = self
+                    .runtime
+                    .allocate_immutable_bytes(view_text(view)?.as_bytes())
+                    .map_err(ExecutionError::Runtime)?;
+                return Ok(RuntimeValue::managed(MirValue::Bytes(reference), reference));
+            }
+            MirInstructionKind::Utf8DecodeView { view, .. } => {
+                let MirValue::View(view) = &value(values, *view)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if view.kind != pop_mir::MirViewKind::Bytes {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let reference = view_bytes_reference(view)?;
+                let mut bytes = vec![0_u8; view.byte_length];
+                self.runtime
+                    .immutable_bytes_read(
+                        reference,
+                        u64::try_from(view.byte_offset)
+                            .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                        &mut bytes,
+                    )
+                    .map_err(ExecutionError::Runtime)?;
+                String::from_utf8(bytes).map_or(MirValue::Nil, MirValue::String)
+            }
+            MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .byte_buffer_length(buffer)
+                    .and_then(|length| {
+                        usize::try_from(length).map_err(|_| RuntimeFailure::runtime_invariant())
+                    })
+                    .map_err(ExecutionError::Runtime)?;
+                let mut bytes = vec![0_u8; length];
+                self.runtime
+                    .byte_buffer_read(buffer, 0, &mut bytes)
+                    .map_err(ExecutionError::Runtime)?;
+                String::from_utf8(bytes).map_or(MirValue::Nil, MirValue::String)
+            }
             MirInstructionKind::RuneFromCodePoint { value: code_point } => {
                 let MirValue::Integer(value) = value(values, *code_point)?.visible else {
                     return Err(ExecutionError::TypeMismatch);

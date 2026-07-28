@@ -3469,8 +3469,13 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
         }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
-        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             remap_aggregate_expression(buffer, instances);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            remap_aggregate_expression(view, instances);
         }
         HirExpressionKind::ByteBufferReserve {
             buffer,
@@ -4119,8 +4124,13 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
         }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
-        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             collect_expression_calls(buffer, calls);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            collect_expression_calls(view, calls);
         }
         HirExpressionKind::ByteBufferReserve {
             buffer,
@@ -4898,8 +4908,13 @@ fn specialize_expression(
         }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
-        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
             specialize_expression(buffer, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            specialize_expression(view, substitutions, instances, arena)?;
         }
         HirExpressionKind::ByteBufferReserve {
             buffer,
@@ -5763,6 +5778,18 @@ pub enum HirExpressionKind {
         order: ByteOrder,
     },
     ByteBufferMaterialize {
+        buffer: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8Encode {
+        view: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
         buffer: Box<HirExpression>,
         allocation_site: pop_foundation::AllocationSiteId,
     },

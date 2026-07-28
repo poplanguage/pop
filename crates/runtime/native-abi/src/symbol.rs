@@ -21,7 +21,7 @@ pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 /// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
 pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.25.
+/// Returns the native C symbol for an operation implemented through ABI 1.26.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -63,6 +63,9 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ByteBufferWriteView => Some("pop_rt_byte_buffer_write_view"),
         RuntimeOperation::ByteBufferWriteInteger => Some("pop_rt_byte_buffer_write_integer"),
         RuntimeOperation::ByteBufferMaterialize => Some("pop_rt_byte_buffer_materialize"),
+        RuntimeOperation::Utf8Encode => Some("pop_rt_text_view_encode_utf8"),
+        RuntimeOperation::Utf8DecodeView => Some("pop_rt_bytes_view_decode_utf8"),
+        RuntimeOperation::Utf8DecodeBuffer => Some("pop_rt_byte_buffer_decode_utf8"),
         RuntimeOperation::RangeCreate => Some("pop_rt_range_create"),
         RuntimeOperation::IterationAcquire => Some("pop_rt_iteration_acquire"),
         RuntimeOperation::IterationNext => Some("pop_rt_iteration_next"),
