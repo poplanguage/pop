@@ -68,7 +68,7 @@ fn production_facade_selects_abi_two_and_rewrites_a_forced_native_root() {
     let mut length = 0;
     // SAFETY: `length` is one writable output slot for the complete call.
     assert_eq!(
-        unsafe { pop_rt_byte_buffer_length(buffer_roots[0], &mut length) },
+        unsafe { pop_rt_byte_buffer_length(buffer_roots[0], &raw mut length) },
         1
     );
     assert_eq!(length, 1);
