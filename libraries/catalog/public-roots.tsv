@@ -70,7 +70,7 @@ Text	standard	core/portable	prototype
 Time	standard/platform	core/portable	planned
 Toml	standard	core/portable	planned
 Ui	official/platform	application/media/science	planned
-Unicode	standard	core/portable	planned
+Unicode	standard	core/portable	prototype
 Units	official	application/media/science	planned
 Uri	standard	core/portable	planned
 Version	standard	core/portable	planned

@@ -1919,6 +1919,85 @@ fn portable_bytes_bitwise_transforms_preserve_empty_length() {
 }
 
 #[test]
+fn essential_text_algorithms_are_unicode_safe_linear_and_checked() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if trim(\"\t\u{a0} hello \u{3000}\\n\") ~= \"hello\" then\n\
+                     return 1\n\
+                 end\n\
+                 if trimStart(\"\u{2003}\u{2003}é \") ~= \"é \" or trimEnd(\" é\u{202f}\") ~= \" é\" then\n\
+                     return 2\n\
+                 end\n\
+                 if trim(\"\u{1680}\u{205f}\") ~= \"\" or trim(\"中\") ~= \"中\" then\n\
+                     return 3\n\
+                 end\n\
+                 if replace(\"aé中éz\", \"é\", \"--\") ~= \"a--中--z\" or replace(\"aaaa\", \"aa\", \"b\") ~= \"bb\" then\n\
+                     return 4\n\
+                 end\n\
+                 if replace(\"same\", \"\", \"x\") ~= \"same\" or replace(\"same\", \"z\", \"x\") ~= \"same\" then\n\
+                     return 5\n\
+                 end\n\
+                 local pieces = split(\"éaé中é\", \"é\")\n\
+                 if List.length(pieces) ~= 4 or List.get(pieces, 1) ~= \"\" or List.get(pieces, 2) ~= \"a\" or List.get(pieces, 3) ~= \"中\" or List.get(pieces, 4) ~= \"\" then\n\
+                     return 6\n\
+                 end\n\
+                 local unsplit = split(\"abc\", \"\")\n\
+                 if List.length(unsplit) ~= 1 or List.get(unsplit, 1) ~= \"abc\" then\n\
+                     return 7\n\
+                 end\n\
+                 local values = List.create<<String>>()\n\
+                 List.add(values, \"a\")\n\
+                 List.add(values, \"中\")\n\
+                 List.add(values, \"\")\n\
+                 if join(values, \"·\") ~= \"a·中·\" then\n\
+                     return 8\n\
+                 end\n\
+                 local empty = List.create<<String>>()\n\
+                 if join(empty, \",\") ~= \"\" then\n\
+                     return 9\n\
+                 end\n\
+                 if (parseInt(\"0\") ?? 99) ~= 0 or (parseInt(\"+42\") ?? 0) ~= 42 or (parseInt(\"-42\") ?? 0) ~= -42 then\n\
+                     return 10\n\
+                 end\n\
+                 if (parseInt(\"9223372036854775807\") ?? 0) ~= 9223372036854775807 or (parseInt(\"-9223372036854775808\") ?? 0) ~= -9223372036854775807 - 1 then\n\
+                     return 11\n\
+                 end\n\
+                 if parseInt(\"9223372036854775808\") ~= nil or parseInt(\"-9223372036854775809\") ~= nil then\n\
+                     return 12\n\
+                 end\n\
+                 if parseInt(\"\") ~= nil or parseInt(\"+\") ~= nil or parseInt(\" 1\") ~= nil or parseInt(\"１２\") ~= nil or parseInt(\"1x\") ~= nil then\n\
+                     return 13\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Text consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Text MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Text execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

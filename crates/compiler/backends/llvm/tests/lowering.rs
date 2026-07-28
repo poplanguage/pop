@@ -4651,6 +4651,52 @@ fn emitted_llvm_executes_portable_bytes_bitwise_transforms() {
 }
 
 #[test]
+fn emitted_llvm_executes_essential_text_algorithms() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if trim(\"\u{a0} hello \u{3000}\") ~= \"hello\" then\n\
+                     return 1\n\
+                 end\n\
+                 if replace(\"aé中é\", \"é\", \"--\") ~= \"a--中--\" then\n\
+                     return 2\n\
+                 end\n\
+                 local pieces = split(\"a·中·\", \"·\")\n\
+                 if List.length(pieces) ~= 3 or List.get(pieces, 3) ~= \"\" then\n\
+                     return 3\n\
+                 end\n\
+                 if join(pieces, \"·\") ~= \"a·中·\" then\n\
+                     return 4\n\
+                 end\n\
+                 if (parseInt(\"-9223372036854775808\") ?? 0) ~= -9223372036854775807 - 1 or parseInt(\"9223372036854775808\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted essential Text algorithms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

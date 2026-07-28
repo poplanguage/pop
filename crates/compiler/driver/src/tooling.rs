@@ -46,6 +46,10 @@ pub fn tooling_standard_reference_metadata() -> &'static ReferenceMetadata {
                 include_str!("../../../libraries/standard/pop/src/unicode.pop"),
             ),
             (
+                "Pop.Standard/src/text.pop",
+                include_str!("../../../libraries/standard/pop/src/text.pop"),
+            ),
+            (
                 "Pop.Standard/src/sequence.pop",
                 include_str!("../../../libraries/standard/pop/src/sequence.pop"),
             ),

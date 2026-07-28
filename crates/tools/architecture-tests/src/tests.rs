@@ -1947,6 +1947,46 @@ fn portable_bytes_bitwise_transforms_follow_adr_0122_without_a_native_duplicate(
 }
 
 #[test]
+fn essential_text_algorithms_follow_adr_0123_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0123-essential-text-algorithms-and-integer-parsing.md"),
+    );
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let unicode = read_required(root.join("crates/libraries/standard/pop/src/unicode.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(unicode.matches("public function isWhitespace").count(), 1);
+    for (function, declaration) in [
+        ("trimStart", "public function trimStart("),
+        ("trimEnd", "public function trimEnd("),
+        ("trim", "public function trim("),
+        ("replace", "public function replace("),
+        ("split", "public function split("),
+        ("join", "public function join<"),
+        ("parseInt", "public function parseInt("),
+    ] {
+        assert_eq!(text.matches(declaration).count(), 1);
+        for implementation in [
+            call_checking.as_str(),
+            hir.as_str(),
+            mir.as_str(),
+            native.as_str(),
+            native_symbols.as_str(),
+        ] {
+            assert!(!implementation.contains(&format!("\"{function}\"")));
+        }
+    }
+    assert!(text.contains("Bytes.withCapacity(valueLength)"));
+    assert!(!text.contains("result = result .."));
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");
@@ -2213,7 +2253,7 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
     for public_root in PUBLIC_LIBRARY_ROOTS {
         let expected = if *public_root == "Bytes" {
             "implemented"
-        } else if ["Math", "Sequence", "Text"].contains(public_root) {
+        } else if ["Math", "Sequence", "Text", "Unicode"].contains(public_root) {
             "prototype"
         } else if bootstrap.contains(public_root) {
             "bootstrap"

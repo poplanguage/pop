@@ -109,6 +109,28 @@ public function isAsciiWhitespace(value: Rune): Boolean
 end
 
 --- <summary>
+--- Tests whether a rune has the Unicode White_Space property.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for a Unicode 17.0.0 White_Space scalar; otherwise false.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isWhitespace(value: Rune): Boolean
+    local point = Unicode.codePoint(value)
+    return (point >= 9 and point <= 13) or point == 32 or point == 133 or point == 160 or point == 5760 or (point >= 8192 and point <= 8202) or point == 8232 or point == 8233 or point == 8239 or point == 8287 or point == 12288
+end
+
+--- <summary>
 --- Converts an uppercase ASCII letter to lowercase.
 --- </summary>
 ---

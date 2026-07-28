@@ -333,6 +333,9 @@ Architecture CI should eventually verify:
 - ADR 0122's checked equal-length bytewise AND, OR, and XOR, complete bytewise
   NOT, owned outputs, ordinary Pop implementation, and interpreter/LLVM
   agreement without compiler or native name recognition;
+- ADR 0123's Unicode whitespace, scalar-safe trim, exact buffered
+  replace/split/join, checked complete-range integer parsing, and
+  interpreter/LLVM agreement without compiler or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;
