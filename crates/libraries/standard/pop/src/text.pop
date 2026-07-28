@@ -21,6 +21,145 @@ private function bytesMatchAt(
 end
 
 --- <summary>
+--- Tests whether a String begins with exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="prefix">
+--- The exact prefix text.
+--- </param>
+---
+--- <returns>
+--- True when the complete prefix occurs at the first scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function startsWith(value: String, prefix: String): Boolean
+    return (indexOf(value, prefix, 1) ?? 0) == 1
+end
+
+--- <summary>
+--- Tests whether a String ends with exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="suffix">
+--- The exact suffix text.
+--- </param>
+---
+--- <returns>
+--- True when the complete suffix ends at the final scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function endsWith(value: String, suffix: String): Boolean
+    local valueLength = 0
+    for _ in value do
+        valueLength = valueLength + 1
+    end
+    local suffixLength = 0
+    for _ in suffix do
+        suffixLength = suffixLength + 1
+    end
+    if suffixLength > valueLength then
+        return false
+    end
+    local start = valueLength - suffixLength + 1
+    return (indexOf(value, suffix, start) ?? 0) == start
+end
+
+--- <summary>
+--- Tests whether a String contains exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="pattern">
+--- The exact text to find.
+--- </param>
+---
+--- <returns>
+--- True when the pattern occurs at any scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs through the search operation.
+--- </allocation>
+public function contains(value: String, pattern: String): Boolean
+    return indexOf(value, pattern, 1) ~= nil
+end
+
+--- <summary>
+--- Finds exact text at or after a scalar index.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="pattern">
+--- The exact text to find.
+--- </param>
+---
+--- <param name="start">
+--- The one-based Unicode scalar boundary where search begins.
+--- </param>
+---
+--- <returns>
+--- The first matching scalar index, or nil for no match or an invalid start.
+--- </returns>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one remainder String plus split fields for a nonempty pattern.
+--- </allocation>
+public function indexOf(value: String, pattern: String, start: Int): Int?
+    local scalarLength = 0
+    for _ in value do
+        scalarLength = scalarLength + 1
+    end
+    if start < 1 or start > scalarLength + 1 then
+        return nil
+    end
+    if pattern == "" then
+        return start
+    end
+    if start == scalarLength + 1 then
+        return nil
+    end
+    local remainderView = Text.slice(value, start, scalarLength - start + 1)
+    local remainder = Text.toString(remainderView)
+    local pieces = split(remainder, pattern)
+    if List.length(pieces) == 1 then
+        return nil
+    end
+    local prefixLength = 0
+    for _ in List.get(pieces, 1) do
+        prefixLength = prefixLength + 1
+    end
+    return start + prefixLength
+end
+
+--- <summary>
 --- Removes Unicode whitespace from the start of a String.
 --- </summary>
 ---

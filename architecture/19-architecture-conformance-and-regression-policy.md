@@ -336,6 +336,9 @@ Architecture CI should eventually verify:
 - ADR 0123's Unicode whitespace, scalar-safe trim, exact buffered
   replace/split/join, checked complete-range integer parsing, and
   interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0124's exact case-sensitive prefix/suffix/containment, one-based
+  scalar-indexed search boundaries, empty-pattern policy, and
+  interpreter/LLVM agreement without compiler or native name recognition;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

@@ -1987,6 +1987,38 @@ fn essential_text_algorithms_follow_adr_0123_without_a_native_duplicate() {
 }
 
 #[test]
+fn essential_text_search_follows_adr_0124_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0124-essential-text-search.md"));
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["startsWith", "endsWith", "contains", "indexOf"] {
+        assert_eq!(
+            text.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        for implementation in [
+            call_checking.as_str(),
+            hir.as_str(),
+            mir.as_str(),
+            native.as_str(),
+            native_symbols.as_str(),
+        ] {
+            assert!(!implementation.contains(&format!("\"{function}\"")));
+        }
+    }
+    assert!(text.contains("local remainderView = Text.slice("));
+    assert!(text.contains("local prefixLength = 0"));
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");

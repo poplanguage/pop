@@ -227,6 +227,9 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0123 Unicode whitespace, scalar-safe trim, buffered exact
   replace/split/join, and checked complete-range integer parsing as ordinary
   Pop with interpreter/LLVM execution and no compiler/native name recognition.
+- [x] Implement ADR 0124 exact prefix/suffix/containment and one-based
+  scalar-indexed search as ordinary Pop with interpreter/LLVM execution and no
+  compiler/native name recognition.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

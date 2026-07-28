@@ -177,3 +177,7 @@ api:118	Api	Pop.Standard	Pop.Text	replace	replace(String,String,String)->String	
 api:119	Api	Pop.Standard	Pop.Text	split	split(String,String)->List<String>	standard	implemented	false	architecture/decisions/0123-essential-text-algorithms-and-integer-parsing.md
 api:120	Api	Pop.Standard	Pop.Text	join	join<TSource:Iterable<String>>(TSource,String)->String	standard	implemented	false	architecture/decisions/0123-essential-text-algorithms-and-integer-parsing.md
 api:121	Api	Pop.Standard	Pop.Text	parseInt	parseInt(String)->Int?	standard	implemented	false	architecture/decisions/0123-essential-text-algorithms-and-integer-parsing.md
+api:122	Api	Pop.Standard	Pop.Text	startsWith	startsWith(String,String)->Boolean	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
+api:123	Api	Pop.Standard	Pop.Text	endsWith	endsWith(String,String)->Boolean	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
+api:124	Api	Pop.Standard	Pop.Text	contains	contains(String,String)->Boolean	standard	implemented	false	architecture/decisions/0124-essential-text-search.md
+api:125	Api	Pop.Standard	Pop.Text	indexOf	indexOf(String,String,Int)->Int?	standard	implemented	false	architecture/decisions/0124-essential-text-search.md

@@ -1998,6 +1998,60 @@ fn essential_text_algorithms_are_unicode_safe_linear_and_checked() {
 }
 
 #[test]
+fn essential_text_search_returns_exact_scalar_boundaries() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if not startsWith(\"é中😀z\", \"é中\") or startsWith(\"é中\", \"é中😀\") or not startsWith(\"x\", \"\") then\n\
+                     return 1\n\
+                 end\n\
+                 if not endsWith(\"é中😀z\", \"😀z\") or endsWith(\"é中\", \"xé中\") or not endsWith(\"\", \"\") then\n\
+                     return 2\n\
+                 end\n\
+                 if not contains(\"aé中😀é\", \"中😀\") or contains(\"aé中😀é\", \"É\") or not contains(\"\", \"\") then\n\
+                     return 3\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"é\", 1) ?? 0) ~= 2 or (indexOf(\"aé中😀é\", \"é\", 3) ?? 0) ~= 5 then\n\
+                     return 4\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"😀\", 1) ?? 0) ~= 4 or (indexOf(\"aaaa\", \"aa\", 2) ?? 0) ~= 2 then\n\
+                     return 5\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"\", 6) ?? 0) ~= 6 or indexOf(\"aé中😀é\", \"\", 0) ~= nil or indexOf(\"aé中😀é\", \"\", 7) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if indexOf(\"aé中😀é\", \"missing\", 1) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Text search consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Text search MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Text search execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

@@ -4697,6 +4697,48 @@ fn emitted_llvm_executes_essential_text_algorithms() {
 }
 
 #[test]
+fn emitted_llvm_executes_scalar_indexed_text_search() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if not startsWith(\"é中😀z\", \"é中\") or not endsWith(\"é中😀z\", \"😀z\") then\n\
+                     return 1\n\
+                 end\n\
+                 if not contains(\"aé中😀é\", \"中😀\") or contains(\"aé中😀é\", \"É\") then\n\
+                     return 2\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"é\", 3) ?? 0) ~= 5 or (indexOf(\"aé中😀é\", \"\", 6) ?? 0) ~= 6 then\n\
+                     return 3\n\
+                 end\n\
+                 if indexOf(\"aé中😀é\", \"\", 7) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text-search");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Text search: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

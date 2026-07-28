@@ -229,6 +229,8 @@ transplanted into a Luau-shaped file.
   bitwise AND, OR, XOR, and bytewise NOT transforms in ordinary Pop source.
 - ADR 0123 adds exact Unicode whitespace, Unicode-safe trim, buffered
   replace/split/join, and checked complete-range integer parsing.
+- ADR 0124 adds exact prefix/suffix/containment and one-based scalar-indexed
+  text search without exposing UTF-8 byte offsets.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across
