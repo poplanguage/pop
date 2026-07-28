@@ -10,7 +10,7 @@ fn documentation_xml_is_sorted_deterministic_and_schema_versioned() {
     let earlier = DocumentationMember::new(
         "function:Studio.Gameplay.alpha(Int)",
         XmlFragment::parse(
-            "<summary>Returns <see cref=\"Studio.Value\"/>.</summary><param name=\"value\">Input.</param>",
+            "<summary>Returns <see cref=\"Studio.Map&lt;Int&gt;&amp;&quot;\"/>.</summary><param name=\"value\">Input.</param>",
         )
         .expect("safe fragment"),
     );
@@ -25,7 +25,7 @@ fn documentation_xml_is_sorted_deterministic_and_schema_versioned() {
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
             "<doc schemaVersion=\"1\" bubble=\"Studio.Gameplay\">\n",
             "  <members>\n",
-            "    <member id=\"function:Studio.Gameplay.alpha(Int)\"><summary>Returns <see cref=\"Studio.Value\"/>.</summary><param name=\"value\">Input.</param></member>\n",
+            "    <member id=\"function:Studio.Gameplay.alpha(Int)\"><summary>Returns <see cref=\"Studio.Map&lt;Int&gt;&amp;&quot;\"/>.</summary><param name=\"value\">Input.</param></member>\n",
             "    <member id=\"function:Studio.Gameplay.zeta()\"><summary>Later &amp; safe.</summary></member>\n",
             "  </members>\n",
             "</doc>\n",

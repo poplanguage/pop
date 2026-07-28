@@ -802,8 +802,7 @@ impl XmlParser<'_> {
         let start = self.cursor;
         while let Some(character) = self.remaining().chars().next() {
             if character == quote {
-                let value = self.text[start..self.cursor].to_owned();
-                validate_entities(&value)?;
+                let value = decode_entities(&self.text[start..self.cursor])?;
                 self.cursor += quote.len_utf8();
                 return Ok(value);
             }
@@ -823,9 +822,7 @@ impl XmlParser<'_> {
             }
             self.cursor += character.len_utf8();
         }
-        let text = self.text[start..self.cursor].to_owned();
-        validate_entities(&text)?;
-        Ok(text)
+        decode_entities(&self.text[start..self.cursor])
     }
 
     fn skip_whitespace(&mut self) {
@@ -860,24 +857,46 @@ fn normalize_element_boundary_whitespace(children: &mut [XmlNode]) {
     }
 }
 
-fn validate_entities(text: &str) -> Result<(), XmlParseError> {
+fn decode_entities(text: &str) -> Result<String, XmlParseError> {
+    let mut decoded = String::with_capacity(text.len());
     let mut remaining = text;
     while let Some(start) = remaining.find('&') {
-        remaining = &remaining[start + 1..];
-        let Some(end) = remaining.find(';') else {
+        decoded.push_str(&remaining[..start]);
+        let entity_text = &remaining[start + 1..];
+        let Some(end) = entity_text.find(';') else {
             return Err(XmlParseError::Malformed);
         };
-        let entity = &remaining[..end];
-        let numeric = entity
-            .strip_prefix('#')
-            .is_some_and(|number| number.parse::<u32>().is_ok())
-            || entity
-                .strip_prefix("#x")
-                .is_some_and(|number| u32::from_str_radix(number, 16).is_ok());
-        if !numeric && !matches!(entity, "amp" | "lt" | "gt" | "quot" | "apos") {
-            return Err(XmlParseError::UnsafeConstruct);
-        }
-        remaining = &remaining[end + 1..];
+        let entity = &entity_text[..end];
+        let character = match entity {
+            "amp" => '&',
+            "lt" => '<',
+            "gt" => '>',
+            "quot" => '"',
+            "apos" => '\'',
+            _ => decode_numeric_entity(entity)?,
+        };
+        decoded.push(character);
+        remaining = &entity_text[end + 1..];
     }
-    Ok(())
+    decoded.push_str(remaining);
+    Ok(decoded)
+}
+
+fn decode_numeric_entity(entity: &str) -> Result<char, XmlParseError> {
+    let value = if let Some(number) = entity.strip_prefix("#x") {
+        u32::from_str_radix(number, 16).map_err(|_| XmlParseError::UnsafeConstruct)?
+    } else if let Some(number) = entity.strip_prefix('#') {
+        number
+            .parse::<u32>()
+            .map_err(|_| XmlParseError::UnsafeConstruct)?
+    } else {
+        return Err(XmlParseError::UnsafeConstruct);
+    };
+    if !matches!(
+        value,
+        0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF
+    ) {
+        return Err(XmlParseError::Malformed);
+    }
+    char::from_u32(value).ok_or(XmlParseError::Malformed)
 }

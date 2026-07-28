@@ -1,6 +1,6 @@
 use pop_documentation::{
     DocumentationAnalysis, PublicErrorDocumentationContract, TypedErrorDocumentationContract,
-    TypedReturnsDocumentationContract, XmlNode,
+    TypedReturnsDocumentationContract, XmlFragment, XmlNode, XmlParseError,
 };
 use pop_foundation::{DiagnosticCategory, DiagnosticSeverity, FileId};
 use pop_source::SourceFile;
@@ -165,6 +165,35 @@ fn canonical_lines_preserve_inline_spacing_and_literal_code_whitespace() {
     assert_eq!(
         code_children,
         &[XmlNode::Text("\n    local value = 1\n".to_owned())]
+    );
+}
+
+#[test]
+fn predefined_and_numeric_xml_entities_decode_before_documentation_consumption() {
+    let fragment = XmlFragment::parse(
+        "<code language=\"pop&lt;typed&gt;\">left &lt; right and right &#62; left \
+         and right &#x3E; left and &quot;Pop&quot; &amp; &apos;Lang&apos;</code>",
+    )
+    .expect("safe escaped XML");
+    let XmlNode::Element {
+        attributes,
+        children,
+        ..
+    } = &fragment.children()[0]
+    else {
+        panic!("code element");
+    };
+
+    assert_eq!(attributes[0].value(), "pop<typed>");
+    assert_eq!(
+        children,
+        &[XmlNode::Text(
+            "left < right and right > left and right > left and \"Pop\" & 'Lang'".to_owned()
+        )]
+    );
+    assert_eq!(
+        XmlFragment::parse("<summary>&#1114112;</summary>"),
+        Err(XmlParseError::Malformed)
     );
 }
 
