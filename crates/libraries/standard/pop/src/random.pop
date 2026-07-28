@@ -82,21 +82,144 @@ public function next(state: State): UInt32
     return state.value
 end
 
-private function nextIndex(state: State, upper: Int): Int
-    local range = GENERATOR_PERIOD
-    local candidate = Int(next(state)) - 1
-    if upper > GENERATOR_PERIOD then
-        range = DOUBLE_SAMPLE_RANGE
-        candidate = candidate * GENERATOR_PERIOD + Int(next(state)) - 1
+private function nextOffset(state: State, upper: UInt64): UInt64?
+    if upper == 0 then
+        return nil
+    end
+    if upper > UInt64(DOUBLE_SAMPLE_RANGE) then
+        return nil
+    end
+    local range = UInt64(GENERATOR_PERIOD)
+    local candidate = UInt64(next(state)) - 1
+    if upper > UInt64(GENERATOR_PERIOD) then
+        range = UInt64(DOUBLE_SAMPLE_RANGE)
+        candidate = candidate * UInt64(GENERATOR_PERIOD) + UInt64(next(state)) - 1
     end
     local limit = range - range % upper
     while candidate >= limit do
-        candidate = Int(next(state)) - 1
-        if upper > GENERATOR_PERIOD then
-            candidate = candidate * GENERATOR_PERIOD + Int(next(state)) - 1
+        candidate = UInt64(next(state)) - 1
+        if upper > UInt64(GENERATOR_PERIOD) then
+            candidate = candidate * UInt64(GENERATOR_PERIOD) + UInt64(next(state)) - 1
         end
     end
-    return candidate % upper + 1
+    return candidate % upper
+end
+
+private function nextIndex(state: State, upper: Int): Int
+    return Int(nextOffset(state, UInt64(upper)) ?? 0) + 1
+end
+
+private function intervalWidth(lowerInclusive: Int, upperExclusive: Int): UInt64
+    if lowerInclusive < 0 and upperExclusive >= 0 then
+        local negativeWidth = UInt64(-(lowerInclusive + 1)) + 1
+        return negativeWidth + UInt64(upperExclusive)
+    end
+    return UInt64(upperExclusive - lowerInclusive)
+end
+
+--- <summary>
+--- Returns an unbiased integer within a half-open interval.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate for a valid supported interval.
+--- </param>
+---
+--- <param name="lowerInclusive">
+--- The inclusive lower bound.
+--- </param>
+---
+--- <param name="upperExclusive">
+--- The exclusive upper bound.
+--- </param>
+---
+--- <returns>
+--- An unbiased value in the interval, or nil when the interval is empty,
+--- reversed, or wider than the exact two-sample range.
+--- </returns>
+---
+--- <remarks>
+--- Rejected intervals do not consume state. This function is deterministic
+--- and is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="expected O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function nextInt(state: State, lowerInclusive: Int, upperExclusive: Int): Int?
+    if lowerInclusive >= upperExclusive then
+        return nil
+    end
+    local width = intervalWidth(lowerInclusive, upperExclusive)
+    local offset = nextOffset(state, width)?
+    return lowerInclusive + Int(offset)
+end
+
+--- <summary>
+--- Returns a deterministic unit-interval floating-point sample.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate.
+--- </param>
+---
+--- <returns>
+--- A Float64 greater than or equal to zero and less than one.
+--- </returns>
+---
+--- <remarks>
+--- This function consumes one generator value. It is deterministic and is not
+--- cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function nextFloat(state: State): Float64
+    return Float64(Int(next(state)) - 1) / Float64(GENERATOR_PERIOD)
+end
+
+--- <summary>
+--- Samples a Boolean with the requested success probability.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate for an interior valid probability.
+--- </param>
+---
+--- <param name="probability">
+--- The success probability from zero through one.
+--- </param>
+---
+--- <returns>
+--- The sampled Boolean, or nil for NaN or an out-of-range probability.
+--- </returns>
+---
+--- <remarks>
+--- Exact zero and one do not consume state. This function is deterministic and
+--- is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function chance(state: State, probability: Float64): Boolean?
+    if not (probability >= 0.0 and probability <= 1.0) then
+        return nil
+    end
+    if probability <= 0.0 then
+        return false
+    end
+    if probability >= 1.0 then
+        return true
+    end
+    return nextFloat(state) < probability
 end
 
 --- <summary>

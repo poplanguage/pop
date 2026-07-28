@@ -236,6 +236,8 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0126 explicit deterministic random state, frozen next
   values, unbiased byte fill, and unbiased in-place generic shuffle in ordinary
   Pop with interpreter/LLVM agreement.
+- [x] Implement ADR 0127 unbiased bounded integer, deterministic unit-float,
+  and checked probability distributions with shared rejection sampling.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

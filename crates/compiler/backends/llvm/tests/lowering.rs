@@ -4821,6 +4821,51 @@ fn emitted_llvm_executes_deterministic_random_state() {
 }
 
 #[test]
+fn emitted_llvm_executes_deterministic_random_distributions() {
+    let module = native_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             private function main(): Int\n\
+                 if (nextInt(seed(1), 10, 20) ?? 0) ~= 16 then\n\
+                     return 1\n\
+                 end\n\
+                 if (nextInt(seed(1), 0, 3000000000) ?? -1) ~= 892629924 then\n\
+                     return 2\n\
+                 end\n\
+                 local floating = seed(1)\n\
+                 local unit = nextFloat(floating)\n\
+                 if unit < 0.0 or unit >= 1.0 or next(floating) ~= 282475249 then\n\
+                     return 3\n\
+                 end\n\
+                 local probability = seed(1)\n\
+                 if not (chance(probability, 0.5) ?? false) or next(probability) ~= 282475249 then\n\
+                     return 4\n\
+                 end\n\
+                 local nan = 0.0 / 0.0\n\
+                 if chance(probability, nan) ~= nil or chance(probability, -0.1) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-random-distributions");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic Random distributions: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

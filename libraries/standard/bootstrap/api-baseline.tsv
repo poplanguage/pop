@@ -190,3 +190,6 @@ api:130	Api	Pop.Standard	Pop.Random	seed	seed(UInt32)->Random.State	standard	imp
 api:131	Api	Pop.Standard	Pop.Random	next	next(Random.State)->UInt32	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
 api:132	Api	Pop.Standard	Pop.Random	fill	fill(Random.State,Bytes.Buffer,Int)->Boolean	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
 api:133	Api	Pop.Standard	Pop.Random	shuffle	shuffle<T>(Random.State,{T})->Boolean	standard	implemented	false	architecture/decisions/0126-deterministic-random-state.md
+api:134	Api	Pop.Standard	Pop.Random	nextInt	nextInt(Random.State,Int,Int)->Int?	standard	implemented	false	architecture/decisions/0127-deterministic-random-distributions.md
+api:135	Api	Pop.Standard	Pop.Random	nextFloat	nextFloat(Random.State)->Float64	standard	implemented	false	architecture/decisions/0127-deterministic-random-distributions.md
+api:136	Api	Pop.Standard	Pop.Random	chance	chance(Random.State,Float64)->Boolean?	standard	implemented	false	architecture/decisions/0127-deterministic-random-distributions.md

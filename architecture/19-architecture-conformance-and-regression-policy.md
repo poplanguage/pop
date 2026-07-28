@@ -345,6 +345,9 @@ Architecture CI should eventually verify:
 - ADR 0126's frozen explicit random stream, total UInt32 seed normalization,
   unbiased byte filling and shuffling, managed-array identity across calls, and
   interpreter/LLVM agreement without global state or native name recognition;
+- ADR 0127's unbiased one-/two-sample bounded integers, complete signed-width
+  rejection, deterministic unit floats, checked probability endpoints/NaN, and
+  no-consumption rejection paths across interpreter and LLVM;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

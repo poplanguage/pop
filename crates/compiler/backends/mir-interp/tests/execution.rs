@@ -2202,6 +2202,74 @@ fn deterministic_random_state_matches_the_frozen_stream() {
 }
 
 #[test]
+fn deterministic_random_distributions_are_bounded_and_unbiased() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             public function verify(): Int\n\
+                 local state = seed(1)\n\
+                 if (nextInt(state, 10, 20) ?? 0) ~= 16 then\n\
+                     return 1\n\
+                 end\n\
+                 if (nextInt(seed(1), -10, 10) ?? 0) ~= -4 or (nextInt(seed(1), 5, 6) ?? 0) ~= 5 then\n\
+                     return 9\n\
+                 end\n\
+                 local wide = seed(1)\n\
+                 if (nextInt(wide, 0, 3000000000) ?? -1) ~= 892629924 then\n\
+                     return 2\n\
+                 end\n\
+                 local invalid = seed(1)\n\
+                 if nextInt(invalid, 5, 5) ~= nil or nextInt(invalid, 7, 2) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if nextInt(invalid, -9223372036854775807 - 1, 9223372036854775807) ~= nil or next(invalid) ~= 16807 then\n\
+                     return 4\n\
+                 end\n\
+                 local floating = seed(1)\n\
+                 local unit = nextFloat(floating)\n\
+                 if unit < 0.0 or unit >= 1.0 or next(floating) ~= 282475249 then\n\
+                     return 5\n\
+                 end\n\
+                 local probability = seed(1)\n\
+                 if (chance(probability, 0.0) ?? true) or not (chance(probability, 1.0) ?? false) then\n\
+                     return 6\n\
+                 end\n\
+                 if not (chance(probability, 0.5) ?? false) or next(probability) ~= 282475249 then\n\
+                     return 7\n\
+                 end\n\
+                 if chance(probability, -0.1) ~= nil or chance(probability, 1.1) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nan = 0.0 / 0.0\n\
+                 if chance(probability, nan) ~= nil then\n\
+                     return 10\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("random distribution consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified random distribution MIR")
+            .call(entry, &[])
+            .expect("deterministic random distribution execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

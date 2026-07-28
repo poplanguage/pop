@@ -2054,14 +2054,15 @@ fn deterministic_random_state_follows_adr_0126_without_a_native_duplicate() {
 
     assert!(adr.contains("- Status: accepted"));
     assert_eq!(random.matches("public class State").count(), 1);
-    for function in ["seed", "next", "fill", "shuffle"] {
+    for function in ["seed", "next", "fill"] {
         assert_eq!(
             random
-                .matches(&format!("public function {function}"))
+                .matches(&format!("public function {function}("))
                 .count(),
             1
         );
     }
+    assert_eq!(random.matches("public function shuffle<T>(").count(), 1);
     assert!(!compiler.contains("Pop.Random"));
     assert!(!native.contains("Pop.Random"));
     assert!(!compiler.contains("\"shuffle\""));
@@ -2071,6 +2072,32 @@ fn deterministic_random_state_follows_adr_0126_without_a_native_duplicate() {
     }
     assert!(!random.contains("public function State.new"));
     assert!(tooling.contains("libraries/standard/pop/src/random.pop"));
+}
+
+#[test]
+fn deterministic_random_distributions_follow_adr_0127_without_modulo_bias() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0127-deterministic-random-distributions.md"),
+    );
+    let random = read_required(root.join("crates/libraries/standard/pop/src/random.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["nextInt", "nextFloat", "chance"] {
+        assert_eq!(
+            random
+                .matches(&format!("public function {function}"))
+                .count(),
+            1
+        );
+    }
+    assert!(random.contains("local limit = range - range % upper"));
+    assert!(random.contains("while candidate >= limit do"));
+    assert!(random.contains("lowerInclusive < 0 and upperExclusive >= 0"));
+    assert!(!compiler.contains("Pop.Random"));
+    assert!(!native.contains("Pop.Random"));
 }
 
 #[test]
