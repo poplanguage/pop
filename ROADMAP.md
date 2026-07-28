@@ -238,6 +238,8 @@ Post-baseline library work has begun without widening the release foundation:
   Pop with interpreter/LLVM agreement.
 - [x] Implement ADR 0127 unbiased bounded integer, deterministic unit-float,
   and checked probability distributions with shared rejection sampling.
+- [x] Implement ADR 0128 stable materializing Sequence sort/sortBy/reverse and
+  explicit contains/equality search with interpreter/LLVM agreement.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

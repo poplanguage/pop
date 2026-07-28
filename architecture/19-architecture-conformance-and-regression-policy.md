@@ -348,6 +348,9 @@ Architecture CI should eventually verify:
 - ADR 0127's unbiased one-/two-sample bounded integers, complete signed-width
   rejection, deterministic unit floats, checked probability endpoints/NaN, and
   no-consumption rejection paths across interpreter and LLVM;
+- ADR 0128's stable comparator/key ordering, once-per-item key selection,
+  independent reverse storage, explicit equality short-circuiting, documented
+  materialization, and interpreter/LLVM agreement;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

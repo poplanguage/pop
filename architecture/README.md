@@ -237,6 +237,8 @@ transplanted into a Luau-shaped file.
   stream, unbiased byte filling, and unbiased in-place array shuffling.
 - ADR 0127 adds unbiased bounded integers, deterministic unit floats, and
   checked probability sampling over that explicit state.
+- ADR 0128 adds stable materializing Sequence ordering/reversal and explicit
+  typed equality search without hidden hash or native requirements.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

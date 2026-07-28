@@ -14,6 +14,8 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
         ("indexLastOr", "predicate(value)"),
         ("minByOr", "select(value)"),
         ("maxByOr", "select(value)"),
+        ("sortBy", "select(value)"),
+        ("containsBy", "equal(item, value)"),
     ] {
         let marker = format!("public function {name}<");
         let function = source
@@ -37,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 193);
+    assert_eq!(baseline.entries().len(), 198);
 
     let prelude_names = baseline
         .entries()
@@ -214,6 +216,11 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Random", "nextInt"),
             ("Pop.Random", "nextFloat"),
             ("Pop.Random", "chance"),
+            ("Pop.Sequence", "reverse"),
+            ("Pop.Sequence", "sort"),
+            ("Pop.Sequence", "sortBy"),
+            ("Pop.Sequence", "containsBy"),
+            ("Pop.Sequence", "equalsBy"),
         ]
     );
 }

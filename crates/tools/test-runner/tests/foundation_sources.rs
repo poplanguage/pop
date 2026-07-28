@@ -348,7 +348,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        65,
+        102,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();
@@ -367,7 +367,19 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
                 function.name()
             );
         }
-        if ["map", "filter", "fold", "collect"].contains(&function.name()) {
+        if [
+            "map",
+            "filter",
+            "fold",
+            "collect",
+            "reverse",
+            "sort",
+            "sortBy",
+            "containsBy",
+            "equalsBy",
+        ]
+        .contains(&function.name())
+        {
             for required in [
                 "typeparam",
                 "param",
@@ -384,7 +396,43 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
             }
         }
     }
-    assert_eq!(examples.len(), 4, "baseline examples remain compiled");
+    assert_eq!(examples.len(), 9, "baseline examples remain compiled");
+
+    for (index, example) in examples.iter().enumerate() {
+        let raw = u32::try_from(index + 20).expect("documentation example identity");
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            format!("examples/sequence{index}.pop"),
+            format!("namespace StandardExample{index}\n{example}\n"),
+        )
+        .expect("individual documentation example source");
+        let compiled = analyze_bubble(
+            FrontEndBubbleInput::new(
+                BubbleId::from_raw(raw),
+                NamespaceId::from_raw(raw),
+                vec![STANDARD_BUBBLE],
+                vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+            )
+            .with_reference_metadata(vec![
+                standard
+                    .reference_metadata()
+                    .expect("portable Pop.Standard metadata")
+                    .clone(),
+            ]),
+        );
+        assert!(
+            compiled.diagnostics().is_empty(),
+            "documentation example {index} failed:\n{example}\n{}",
+            compiled.diagnostic_snapshot()
+        );
+        let hir = compiled
+            .hir()
+            .expect("individual documentation example HIR");
+        let dump = hir.dump(compiled.types());
+        pop_mir::lower_hir_bubble(hir, compiled.types()).unwrap_or_else(|error| {
+            panic!("documentation example {index} failed:\n{example}\n{error:?}\n{dump}")
+        });
+    }
 
     let example_source = SourceFile::new(
         FileId::from_raw(0),

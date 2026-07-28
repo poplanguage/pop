@@ -2102,6 +2102,98 @@ fn essential_text_ascii_casing_preserves_non_ascii_bytes() {
 }
 
 #[test]
+fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private record Candidate\n\
+                 id: Int\n\
+                 key: Int\n\
+             end\n\
+             public function verify(): Int\n\
+                 local first: Candidate = { id = 1, key = 2 }\n\
+                 local second: Candidate = { id = 2, key = 1 }\n\
+                 local third: Candidate = { id = 3, key = 2 }\n\
+                 local fourth: Candidate = { id = 4, key = 1 }\n\
+                 local values: {Candidate} = {first, second, third, fourth}\n\
+                 local ordered = sortBy<<Candidate, {Candidate}>>(values, function(value: Candidate): Int\n\
+                     return value.key\n\
+                 end)\n\
+                 local orderedFirst = List.get(ordered, 1)\n\
+                 local orderedSecond = List.get(ordered, 2)\n\
+                 local orderedThird = List.get(ordered, 3)\n\
+                 local orderedFourth = List.get(ordered, 4)\n\
+                 if orderedFirst.id ~= 2 or orderedSecond.id ~= 4 or orderedThird.id ~= 1 or orderedFourth.id ~= 3 then\n\
+                     return 1\n\
+                 end\n\
+                 local sourceFirst = Array.get(values, 1)\n\
+                 if sourceFirst.id ~= 1 then\n\
+                     return 2\n\
+                 end\n\
+                 local numbers: {Int} = {1, 2, 3}\n\
+                 local descending: {Int} = {3, 2, 1}\n\
+                 local orderedNumbers = sort<<Int, {Int}>>(descending, function(left: Int, right: Int): Int\n\
+                     if left < right then\n\
+                         return -1\n\
+                     end\n\
+                     if left > right then\n\
+                         return 1\n\
+                     end\n\
+                     return 0\n\
+                 end)\n\
+                 if List.get(orderedNumbers, 1) ~= 1 or List.get(orderedNumbers, 3) ~= 3 then\n\
+                     return 7\n\
+                 end\n\
+                 local reversed = reverse<<Int, {Int}>>(numbers)\n\
+                 if List.get(reversed, 1) ~= 3 or List.get(reversed, 3) ~= 1 then\n\
+                     return 3\n\
+                 end\n\
+                 local words: {String} = {\"a\", \"b\", \"c\"}\n\
+                 if not containsBy<<String, {String}>>(words, \"b\", function(left: String, right: String): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 4\n\
+                 end\n\
+                 local equalLeft: {Int} = {1, 2, 3}\n\
+                 local equalRight: {Int} = {1, 4, 3}\n\
+                 if equalsBy<<Int, {Int}, {Int}>>(equalLeft, equalRight, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 5\n\
+                 end\n\
+                 local shortLeft: {Int} = {1}\n\
+                 local shortRight: {Int} = {1, 2}\n\
+                 if equalsBy<<Int, {Int}, {Int}>>(shortLeft, shortRight, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("materializing Sequence consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified materializing Sequence MIR")
+            .call(entry, &[])
+            .expect("materializing Sequence execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn deterministic_random_state_matches_the_frozen_stream() {
     let (mir, types) = executable_modules(&[
         (

@@ -1538,3 +1538,350 @@ public function scan<T, TSource: Iterable<T>, TState>(
     local iterator = ScanningIterator.new(source:iterator(), initial, combine)
     return iterator
 end
+
+--- <summary>
+--- Materializes a sequence in reverse source order.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source and result element type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <returns>
+--- A new list whose order is the reverse of the source.
+--- </returns>
+---
+--- <remarks>
+--- The returned list owns independent storage; the source is unchanged.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates and grows one independent result list.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function reverseExample(): Int
+---     local values: {Int} = {1, 2, 3}
+---     local reversed: List&lt;Int> = Sequence.reverse(values)
+---     return List.get(reversed, 1)
+--- end
+--- </code>
+--- </example>
+public function reverse<T, TSource: Iterable<T>>(source: TSource): List<T>
+    local values = List.create<<T>>()
+    for value in source do
+        List.add(values, value)
+    end
+    local left = 1
+    local right = List.length(values)
+    while left < right do
+        local value = List.get(values, left)
+        values[left] = List.get(values, right)
+        values[right] = value
+        left += 1
+        right -= 1
+    end
+    return values
+end
+
+--- <summary>
+--- Materializes a sequence in stable comparator order.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source and result element type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <param name="compare">
+--- The deterministic comparator. Positive moves left after right, negative
+--- keeps left before right, and zero preserves source order.
+--- </param>
+---
+--- <returns>
+--- A new stable ordered list.
+--- </returns>
+---
+--- <remarks>
+--- Equal items preserve source order. The source is unchanged.
+--- </remarks>
+---
+--- <complexity time="O(n^2) worst, O(n) best" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates and grows one independent result list.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function sortExample(): Int
+---     local values: {Int} = {3, 1, 2}
+---     local ordered: List&lt;Int> = Sequence.sort(values, function(left: Int, right: Int): Int
+---         if left == right then
+---             return 0
+---         end
+---         if left > right then
+---             return 1
+---         end
+---         return -1
+---     end)
+---     return List.get(ordered, 1)
+--- end
+--- </code>
+--- </example>
+public function sort<T, TSource: Iterable<T>>(
+    source: TSource,
+    compare: function(left: T, right: T): Int
+): List<T>
+    local values = List.create<<T>>()
+    for value in source do
+        List.add(values, value)
+    end
+    local length = List.length(values)
+    local index = 2
+    while index <= length do
+        local item = List.get(values, index)
+        local position = index
+        while position > 1 and compare(List.get(values, position - 1), item) > 0 do
+            values[position] = List.get(values, position - 1)
+            position -= 1
+        end
+        values[position] = item
+        index += 1
+    end
+    return values
+end
+
+--- <summary>
+--- Materializes a sequence in stable selected integer-key order.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source and result element type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <param name="select">
+--- The closed pure integer-key selector called exactly once per item.
+--- </param>
+---
+--- <returns>
+--- A new stable ordered list.
+--- </returns>
+---
+--- <remarks>
+--- Each key is selected once, equal keys preserve source order, and the source
+--- is unchanged.
+--- </remarks>
+---
+--- <complexity time="O(n^2) worst, O(n) best" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one result list and one temporary integer-key list.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function sortByExample(): Int
+---     local values: {Int} = {30, 10, 20}
+---     local ordered: List&lt;Int> = Sequence.sortBy(values, function(value: Int): Int
+---         return value
+---     end)
+---     return List.get(ordered, 1)
+--- end
+--- </code>
+--- </example>
+public function sortBy<T, TSource: Iterable<T>>(
+    source: TSource,
+    select: function(value: T): Int
+): List<T>
+    local values = List.create<<T>>()
+    local keys = List.create<<Int>>()
+    for value in source do
+        List.add(values, value)
+        List.add(keys, select(value))
+    end
+    local length = List.length(values)
+    local index = 2
+    while index <= length do
+        local item = List.get(values, index)
+        local key = List.get(keys, index)
+        local position = index
+        while position > 1 and List.get(keys, position - 1) > key do
+            values[position] = List.get(values, position - 1)
+            keys[position] = List.get(keys, position - 1)
+            position -= 1
+        end
+        values[position] = item
+        keys[position] = key
+        index += 1
+    end
+    return values
+end
+
+--- <summary>
+--- Tests whether a sequence contains a value under explicit typed equality.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source and requested value type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <param name="value">
+--- The requested value.
+--- </param>
+---
+--- <param name="equal">
+--- The equality function called with a source item and the requested value.
+--- </param>
+---
+--- <returns>
+--- True at the first equal source item; otherwise false.
+--- </returns>
+---
+--- <remarks>
+--- Stops immediately after the first match.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate storage of its own.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function containsByExample(): Boolean
+---     local values: {String} = {"Pop", "Lang"}
+---     return Sequence.containsBy(values, "Lang", function(left: String, right: String): Boolean
+---         return left == right
+---     end)
+--- end
+--- </code>
+--- </example>
+public function containsBy<T, TSource: Iterable<T>>(
+    source: TSource,
+    value: T,
+    equal: function(left: T, right: T): Boolean
+): Boolean
+    for item in source do
+        if equal(item, value) then
+            return true
+        end
+    end
+    return false
+end
+
+--- <summary>
+--- Tests two sequences for ordered equality under explicit typed equality.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The common element type.
+--- </typeparam>
+---
+--- <typeparam name="TLeft">
+--- The exact statically iterable left source type.
+--- </typeparam>
+---
+--- <typeparam name="TRight">
+--- The exact statically iterable right source type.
+--- </typeparam>
+---
+--- <param name="left">
+--- The left source.
+--- </param>
+---
+--- <param name="right">
+--- The right source.
+--- </param>
+---
+--- <param name="equal">
+--- The equality function called with corresponding left and right items.
+--- </param>
+---
+--- <returns>
+--- True when lengths and every corresponding item are equal.
+--- </returns>
+---
+--- <remarks>
+--- Both sources are eagerly materialized. Length mismatch invokes no equality
+--- callback; item mismatch stops at the first unequal position.
+--- </remarks>
+---
+--- <complexity time="O(n + m)" space="O(n + m)"/>
+---
+--- <allocation>
+--- Allocates and grows two temporary lists.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function equalsByExample(): Boolean
+---     local left: {Int} = {1, 2, 3}
+---     local right: {Int} = {1, 2, 3}
+---     return Sequence.equalsBy(left, right, function(leftItem: Int, rightItem: Int): Boolean
+---         return leftItem == rightItem
+---     end)
+--- end
+--- </code>
+--- </example>
+public function equalsBy<T, TLeft: Iterable<T>, TRight: Iterable<T>>(
+    left: TLeft,
+    right: TRight,
+    equal: function(left: T, right: T): Boolean
+): Boolean
+    local leftValues = List.create<<T>>()
+    for value in left do
+        List.add(leftValues, value)
+    end
+    local rightValues = List.create<<T>>()
+    for value in right do
+        List.add(rightValues, value)
+    end
+    local length = List.length(leftValues)
+    if length ~= List.length(rightValues) then
+        return false
+    end
+    local index = 1
+    while index <= length do
+        if not equal(List.get(leftValues, index), List.get(rightValues, index)) then
+            return false
+        end
+        index += 1
+    end
+    return true
+end

@@ -4866,6 +4866,76 @@ fn emitted_llvm_executes_deterministic_random_distributions() {
 }
 
 #[test]
+fn emitted_llvm_executes_materializing_sequence_order_and_equality() {
+    let module = native_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private record Candidate\n\
+                 id: Int\n\
+                 key: Int\n\
+             end\n\
+             private function main(): Int\n\
+                 local values: {Int} = {3, 1, 2}\n\
+                 local ordered = sort<<Int, {Int}>>(values, function(left: Int, right: Int): Int\n\
+                     if left < right then\n\
+                         return -1\n\
+                     end\n\
+                     if left > right then\n\
+                         return 1\n\
+                     end\n\
+                     return 0\n\
+                 end)\n\
+                 if List.get(ordered, 1) ~= 1 or List.get(ordered, 3) ~= 3 then\n\
+                     return 1\n\
+                 end\n\
+                 local first: Candidate = { id = 1, key = 2 }\n\
+                 local second: Candidate = { id = 2, key = 1 }\n\
+                 local third: Candidate = { id = 3, key = 2 }\n\
+                 local candidates: {Candidate} = {first, second, third}\n\
+                 local selected = sortBy<<Candidate, {Candidate}>>(candidates, function(value: Candidate): Int\n\
+                     return value.key\n\
+                 end)\n\
+                 local selectedFirst = List.get(selected, 1)\n\
+                 local selectedSecond = List.get(selected, 2)\n\
+                 if selectedFirst.id ~= 2 or selectedSecond.id ~= 1 then\n\
+                     return 2\n\
+                 end\n\
+                 local reversed = reverse<<Int, {Int}>>(values)\n\
+                 if List.get(reversed, 1) ~= 2 or List.get(reversed, 3) ~= 3 then\n\
+                     return 3\n\
+                 end\n\
+                 if not containsBy<<Int, {Int}>>(values, 1, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 4\n\
+                 end\n\
+                 local equal: {Int} = {3, 1, 2}\n\
+                 if not equalsBy<<Int, {Int}, {Int}>>(values, equal, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "materializing-sequence-order-equality");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted materializing Sequence algorithms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

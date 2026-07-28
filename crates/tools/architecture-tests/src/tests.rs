@@ -2101,6 +2101,32 @@ fn deterministic_random_distributions_follow_adr_0127_without_modulo_bias() {
 }
 
 #[test]
+fn materializing_sequence_order_and_equality_follow_adr_0128() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0128-materializing-sequence-order-and-equality.md"),
+    );
+    let sequence = read_required(root.join("crates/libraries/standard/pop/src/sequence.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["reverse", "sort", "sortBy", "containsBy", "equalsBy"] {
+        assert_eq!(
+            sequence
+                .matches(&format!("public function {function}<"))
+                .count(),
+            1
+        );
+    }
+    assert!(sequence.contains("while position > 1 and"));
+    assert!(sequence.contains("List.add(keys, select(value))"));
+    assert!(sequence.contains("if length ~= List.length(rightValues) then"));
+    assert!(!compiler.contains("Pop.Sequence.sort"));
+    assert!(!native.contains("Pop.Sequence.sort"));
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");
