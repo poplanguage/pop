@@ -157,6 +157,10 @@ transplanted into a Luau-shaped file.
   with an exact local direct `Pop.Ffi` dependency and successful bounded
   `.popc` preflight; see
   [ADR 0106](./decisions/0106-bounded-foundation-and-generated-ffi-editor-analysis.md).
+- Reserved foundation source editing preserves the actual one-way graph:
+  `Pop.Internal` receives no Standard reference, while `Pop.Standard` receives
+  only `Pop.Internal` and never its own published metadata; see
+  [ADR 0115](./decisions/0115-foundation-source-editor-analysis.md).
 - Lua-shaped `---` XML documentation comments are parsed, signature-checked,
   emitted with library metadata, and available to editors/doc tools.
 - Non-empty XML documentation elements always use separate opening, body, and

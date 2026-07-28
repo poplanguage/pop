@@ -669,6 +669,11 @@ permits compiler-proven direct-call parameter inlay hints. For file documents,
 the nearest ancestor Package manifest selects conventional same-Bubble Modules
 when that Bubble has no unresolved dependency edge. Nested Packages remain
 distinct; an outer Workspace or editor folder never merges their visibility.
+ADR 0115 adds one exact foundation-source exception: the reserved
+`Pop.Internal` source Bubble is analyzed with no library dependency, and the
+reserved `Pop.Standard` source Bubble is analyzed with only `Pop.Internal`.
+Neither receives a published `Pop.Standard` reference while defining that
+foundation graph.
 
 The adapter is a private executable protocol boundary, not the public
 `Pop.Lsp` API and not a re-export of `Pop.Rpc`. Completion, signature help,

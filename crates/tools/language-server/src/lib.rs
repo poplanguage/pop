@@ -13,8 +13,9 @@ use pop_diagnostics::catalog as diagnostic_catalog;
 use pop_documentation::{XmlFragment, XmlNode};
 use pop_driver::{
     FfiGenerationError, FfiGenerationErrorKind, FrontEndBubbleInput, FrontEndModule,
-    TOOLING_STANDARD_BUBBLE, ToolingDeclarationKind, VerifiedFfiGeneratedBindings, analyze_bubble,
-    tooling_standard_reference_metadata, verify_ffi_generated_bindings,
+    TOOLING_INTERNAL_BUBBLE, TOOLING_STANDARD_BUBBLE, ToolingDeclarationKind,
+    VerifiedFfiGeneratedBindings, analyze_bubble, tooling_standard_reference_metadata,
+    verify_ffi_generated_bindings,
 };
 use pop_foundation::{
     BubbleId, Diagnostic, DiagnosticArgument, DiagnosticCategory, DiagnosticCode,
@@ -25,7 +26,7 @@ use pop_localization::{
     Argument, Language, LocalizationError, RenderContext, select_process_language,
 };
 use pop_projects::{
-    BubbleKind, DependencySource, DiscoveredBubble, discover_conventional_bubbles,
+    BubbleKind, DependencySource, DiscoveredBubble, PackageManifest, discover_conventional_bubbles,
     parse_package_manifest,
 };
 use pop_query::CancellationToken;
@@ -485,6 +486,13 @@ struct PackageAnalysisSelection {
     root: PathBuf,
     relative_active: String,
     bubble: DiscoveredBubble,
+    foundation: Option<FoundationSourceKind>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FoundationSourceKind {
+    Internal,
+    Standard,
 }
 
 struct AnalyzedDeclaration {
@@ -1064,13 +1072,26 @@ fn package_analysis_input(
         }
         modules.push(FrontEndModule::new(module, source));
     }
+    let (bubble, dependencies, reference_metadata) = match selection.foundation {
+        Some(FoundationSourceKind::Internal) => (TOOLING_INTERNAL_BUBBLE, Vec::new(), Vec::new()),
+        Some(FoundationSourceKind::Standard) => (
+            TOOLING_STANDARD_BUBBLE,
+            vec![TOOLING_INTERNAL_BUBBLE],
+            Vec::new(),
+        ),
+        None => (
+            BubbleId::from_raw(0),
+            vec![TOOLING_STANDARD_BUBBLE],
+            vec![tooling_standard_reference_metadata().clone()],
+        ),
+    };
     let input = FrontEndBubbleInput::new(
-        BubbleId::from_raw(0),
-        NamespaceId::from_raw(0),
-        vec![TOOLING_STANDARD_BUBBLE],
+        bubble,
+        NamespaceId::from_raw(bubble.raw()),
+        dependencies,
         modules,
     )
-    .with_reference_metadata(vec![tooling_standard_reference_metadata().clone()]);
+    .with_reference_metadata(reference_metadata);
     Some(if let Some(module) = implicit_main {
         input.with_implicit_main_entry(module)
     } else {
@@ -1278,10 +1299,12 @@ fn package_analysis_selection(active: &SourceFile) -> Option<PackageAnalysisSele
     let package_root = manifest_path.parent()?.to_owned();
     let manifest_text = fs::read_to_string(&manifest_path).ok()?;
     let manifest = parse_package_manifest(&manifest_text).ok()?;
-    if !manifest.dependencies().is_empty()
-        || !manifest.platform_dependencies().is_empty()
-        || !manifest.native_libraries().is_empty()
-        || !manifest.platform_native_libraries().is_empty()
+    let foundation = foundation_source_kind(&manifest);
+    if foundation.is_none()
+        && (!manifest.dependencies().is_empty()
+            || !manifest.platform_dependencies().is_empty()
+            || !manifest.native_libraries().is_empty()
+            || !manifest.platform_native_libraries().is_empty())
     {
         return None;
     }
@@ -1294,11 +1317,15 @@ fn package_analysis_selection(active: &SourceFile) -> Option<PackageAnalysisSele
             .iter()
             .any(|module| module == &relative_active)
     })?;
-    if bubble.depends_on_library()
-        || matches!(
-            bubble.kind(),
-            BubbleKind::Test | BubbleKind::Example | BubbleKind::Benchmark
-        ) && !manifest.development_dependencies().is_empty()
+    if foundation.is_some() && bubble.kind() != BubbleKind::Library {
+        return None;
+    }
+    if foundation.is_none()
+        && (bubble.depends_on_library()
+            || matches!(
+                bubble.kind(),
+                BubbleKind::Test | BubbleKind::Example | BubbleKind::Benchmark
+            ) && !manifest.development_dependencies().is_empty())
     {
         return None;
     }
@@ -1307,7 +1334,33 @@ fn package_analysis_selection(active: &SourceFile) -> Option<PackageAnalysisSele
         root: package_root,
         relative_active,
         bubble,
+        foundation,
     })
+}
+
+fn foundation_source_kind(manifest: &PackageManifest) -> Option<FoundationSourceKind> {
+    if manifest.version() != "0.1.0"
+        || manifest.edition() != "2026"
+        || !manifest.development_dependencies().is_empty()
+        || !manifest.platform_dependencies().is_empty()
+        || !manifest.native_libraries().is_empty()
+        || !manifest.platform_native_libraries().is_empty()
+    {
+        return None;
+    }
+    match (manifest.name(), manifest.dependencies()) {
+        ("Pop.Internal", []) => Some(FoundationSourceKind::Internal),
+        ("Pop.Standard", [dependency])
+            if dependency.alias() == "PopInternal"
+                && dependency.version_requirement() == Some("0.1.0")
+                && dependency.source() == &DependencySource::Registry
+                && dependency.bubble().is_none()
+                && !dependency.optional() =>
+        {
+            Some(FoundationSourceKind::Standard)
+        }
+        _ => None,
+    }
 }
 
 fn nearest_package_manifest(path: &Path) -> Option<PathBuf> {

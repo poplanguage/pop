@@ -237,7 +237,7 @@ Minimum traceability matrix:
 | Native classes | type checker, HIR/MIR, runtime | resolved field/method IDs; no table lookup |
 | Bubbles/Packages/Workspaces | project resolver, manifest, driver, loader | identity/init/lock/target-selection tests |
 | Lock and `.poplib` encoding | project resolver, artifact emitter/loader, reference metadata, linker | canonical-byte, SHA-256, malformed-input, source-free round-trip tests |
-| Unified `pop` tooling | CLI, language server, formatter, docs, package manager | command/JSON/selection/reproducibility tests; verified implicit Standard and exact generated-FFI preflight editor tests |
+| Unified `pop` tooling | CLI, language server, formatter, docs, package manager | command/JSON/selection/reproducibility tests; verified implicit Standard, exact foundation source graph, and exact generated-FFI preflight editor tests |
 | Ratatui terminal presentation | driver presentation/orchestration | explicit activation, plain/JSON equivalence, color-policy, accessibility, terminal restoration, and dependency-confinement tests |
 | Default internal visibility | parser, resolver, HIR, metadata | default/access/public-surface tests |
 | Complete public names | formatter, analyzers, libraries | naming baseline and truncation diagnostics |
