@@ -32,6 +32,16 @@ private function base64Value(value: UInt32): Int?
     return nil
 end
 
+private function base32Value(value: UInt32): Int?
+    if value >= 65 and value <= 90 then
+        return Int(value - 65)
+    end
+    if value >= 50 and value <= 55 then
+        return Int(value - 24)
+    end
+    return nil
+end
+
 --- <summary>
 --- Encodes bytes as canonical lowercase hexadecimal text.
 --- </summary>
@@ -278,6 +288,221 @@ public function base64Decode(value: String): Bytes?
                     finished = true
                 else
                     Bytes.write(buffer, Byte((third % 4) * 64 + fourth))
+                end
+            end
+            position = 0
+        end
+    end
+    if position ~= 0 then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Encodes bytes with the canonical padded base32 alphabet.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Uppercase standard-alphabet base32 text with required equals-sign padding.
+--- </returns>
+---
+--- <remarks>
+--- The output contains no whitespace or line breaks. Empty input produces the empty String.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function base32Encode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local remaining = length - index
+        local first = Int(Bytes.get(value, index) ?? 0)
+        local second = 0
+        local third = 0
+        local fourth = 0
+        local fifth = 0
+        if remaining >= 1 then
+            second = Int(Bytes.get(value, index + 1) ?? 0)
+        end
+        if remaining >= 2 then
+            third = Int(Bytes.get(value, index + 2) ?? 0)
+        end
+        if remaining >= 3 then
+            fourth = Int(Bytes.get(value, index + 3) ?? 0)
+        end
+        if remaining >= 4 then
+            fifth = Int(Bytes.get(value, index + 4) ?? 0)
+        end
+        local digitPosition = 1
+        while digitPosition <= 8 do
+            local digit = 0
+            local padding = false
+            if digitPosition == 1 then
+                digit = first / 8
+            elseif digitPosition == 2 then
+                digit = (first % 8) * 4 + second / 64
+            elseif digitPosition == 3 then
+                if remaining == 0 then
+                    padding = true
+                else
+                    digit = (second % 64) / 2
+                end
+            elseif digitPosition == 4 then
+                if remaining == 0 then
+                    padding = true
+                else
+                    digit = (second % 2) * 16 + third / 16
+                end
+            elseif digitPosition == 5 then
+                if remaining <= 1 then
+                    padding = true
+                else
+                    digit = (third % 16) * 2 + fourth / 128
+                end
+            elseif digitPosition == 6 then
+                if remaining <= 2 then
+                    padding = true
+                else
+                    digit = (fourth % 128) / 4
+                end
+            elseif digitPosition == 7 then
+                if remaining <= 2 then
+                    padding = true
+                else
+                    digit = (fourth % 4) * 8 + fifth / 32
+                end
+            else
+                if remaining <= 3 then
+                    padding = true
+                else
+                    digit = fifth % 32
+                end
+            end
+            if padding then
+                Bytes.write(buffer, 61)
+            elseif digit < 26 then
+                Bytes.write(buffer, Byte(digit + 65))
+            else
+                Bytes.write(buffer, Byte(digit + 24))
+            end
+            digitPosition = digitPosition + 1
+        end
+        index = index + 5
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete canonical padded base32 text.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing uppercase standard-alphabet base32 text.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not canonical base32.
+--- </returns>
+---
+--- <remarks>
+--- Lowercase or extended alphabets, whitespace, malformed padding, trailing data, and nonzero unused bits are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function base32Decode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local position = 0
+    local first = 0
+    local second = 0
+    local third = 0
+    local fourth = 0
+    local fifth = 0
+    local sixth = 0
+    local seventh = 0
+    local eighth = 0
+    local finished = false
+    for rune in value do
+        if finished then
+            return nil
+        end
+        local point = Unicode.codePoint(rune)
+        local digit = -1
+        if point ~= 61 then
+            digit = base32Value(point)?
+        end
+        if position == 0 then
+            first = digit
+        elseif position == 1 then
+            second = digit
+        elseif position == 2 then
+            third = digit
+        elseif position == 3 then
+            fourth = digit
+        elseif position == 4 then
+            fifth = digit
+        elseif position == 5 then
+            sixth = digit
+        elseif position == 6 then
+            seventh = digit
+        else
+            eighth = digit
+        end
+        position = position + 1
+        if position == 8 then
+            if first < 0 or second < 0 then
+                return nil
+            end
+            Bytes.write(buffer, Byte(first * 8 + second / 4))
+            if third < 0 then
+                if fourth ~= -1 or fifth ~= -1 or sixth ~= -1 or seventh ~= -1 or eighth ~= -1 or second % 4 ~= 0 then
+                    return nil
+                end
+                finished = true
+            else
+                if fourth < 0 then
+                    return nil
+                end
+                Bytes.write(buffer, Byte((second % 4) * 64 + third * 2 + fourth / 16))
+                if fifth < 0 then
+                    if sixth ~= -1 or seventh ~= -1 or eighth ~= -1 or fourth % 16 ~= 0 then
+                        return nil
+                    end
+                    finished = true
+                else
+                    Bytes.write(buffer, Byte((fourth % 16) * 16 + fifth / 2))
+                    if sixth < 0 then
+                        if seventh ~= -1 or eighth ~= -1 or fifth % 2 ~= 0 then
+                            return nil
+                        end
+                        finished = true
+                    else
+                        if seventh < 0 then
+                            return nil
+                        end
+                        Bytes.write(buffer, Byte((fifth % 2) * 128 + sixth * 4 + seventh / 8))
+                        if eighth < 0 then
+                            if seventh % 8 ~= 0 then
+                                return nil
+                            end
+                            finished = true
+                        else
+                            Bytes.write(buffer, Byte((seventh % 8) * 32 + eighth))
+                        end
+                    end
                 end
             end
             position = 0

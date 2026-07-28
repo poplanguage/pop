@@ -4557,6 +4557,48 @@ fn emitted_llvm_executes_portable_base64_codec() {
 }
 
 #[test]
+fn emitted_llvm_executes_portable_base32_codec() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local bytes = Text.encodeUtf8(\"foobar\")\n\
+                 local view = Bytes.view(bytes)\n\
+                 if base32Encode(view) ~= \"MZXW6YTBOI======\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = base32Decode(\"MZXW6YTBOI======\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if not equals(view, Bytes.view(decoded)) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if base32Decode(\"MY=====\") ~= nil or base32Decode(\"my======\") ~= nil or base32Decode(\"MZ======\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-base32");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted base32 codec: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (

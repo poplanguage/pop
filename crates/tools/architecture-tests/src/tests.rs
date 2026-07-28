@@ -1875,6 +1875,31 @@ fn portable_base64_codec_follows_adr_0120_without_a_native_duplicate() {
 }
 
 #[test]
+fn portable_base32_codec_follows_adr_0121_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0121-portable-base32-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("unused-bit form"));
+    assert_eq!(bytes.matches("public function base32Encode").count(), 1);
+    assert_eq!(bytes.matches("public function base32Decode").count(), 1);
+    assert!(bytes.contains("second % 4 ~= 0"));
+    assert!(bytes.contains("fourth % 16 ~= 0"));
+    assert!(bytes.contains("fifth % 2 ~= 0"));
+    assert!(bytes.contains("seventh % 8 ~= 0"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("base32Encode"));
+        assert!(!implementation.contains("base32Decode"));
+    }
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");

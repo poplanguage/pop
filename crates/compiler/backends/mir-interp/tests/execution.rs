@@ -1742,6 +1742,67 @@ fn portable_base64_codec_matches_canonical_vectors_and_rejects_malformed_text() 
 }
 
 #[test]
+fn portable_base32_codec_matches_canonical_vectors_and_rejects_malformed_text() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"\"))) ~= \"\" or base32Encode(Bytes.view(Text.encodeUtf8(\"f\"))) ~= \"MY======\" then\n\
+                     return 1\n\
+                 end\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"fo\"))) ~= \"MZXQ====\" or base32Encode(Bytes.view(Text.encodeUtf8(\"foo\"))) ~= \"MZXW6===\" then\n\
+                     return 2\n\
+                 end\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"foob\"))) ~= \"MZXW6YQ=\" or base32Encode(Bytes.view(Text.encodeUtf8(\"fooba\"))) ~= \"MZXW6YTB\" or base32Encode(Bytes.view(Text.encodeUtf8(\"foobar\"))) ~= \"MZXW6YTBOI======\" then\n\
+                     return 3\n\
+                 end\n\
+                 local binary = Bytes.create()\n\
+                 Bytes.write(binary, 0)\n\
+                 Bytes.write(binary, 16)\n\
+                 Bytes.write(binary, 131)\n\
+                 Bytes.write(binary, 255)\n\
+                 if base32Encode(Bytes.view(Bytes.toBytes(binary))) ~= \"AAIIH7Y=\" then\n\
+                     return 4\n\
+                 end\n\
+                 local decodedOptional = base32Decode(\"HY7UAQK2MF5A====\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if Bytes.length(Bytes.view(decoded)) ~= 7 or (Bytes.get(Bytes.view(decoded), 1) ?? 0) ~= 62 or (Bytes.get(Bytes.view(decoded), 7) ?? 0) ~= 122 then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if base32Decode(\"MY=====\") ~= nil or base32Decode(\"MY\") ~= nil or base32Decode(\"========\") ~= nil or base32Decode(\"MY=====A\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if base32Decode(\"my======\") ~= nil or base32Decode(\"M0======\") ~= nil or base32Decode(\"M1======\") ~= nil or base32Decode(\"M Y=====\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if base32Decode(\"MZ======\") ~= nil or base32Decode(\"MZXR====\") ~= nil or base32Decode(\"MZXW7===\") ~= nil or base32Decode(\"MZXW6YR=\") ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if base32Decode(\"MZXW6Y==\") ~= nil or base32Decode(\"MZXW6YQ=A\") ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("base32 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified base32 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("base32 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

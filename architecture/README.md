@@ -223,6 +223,8 @@ transplanted into a Luau-shaped file.
   case-insensitive decoding as ordinary portable Pop source.
 - ADR 0120 implements canonical padded standard-alphabet base64 encoding and
   strict decoding as ordinary portable Pop source.
+- ADR 0121 implements canonical padded uppercase standard-alphabet base32
+  encoding and strict decoding as ordinary portable Pop source.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across
