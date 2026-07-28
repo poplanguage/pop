@@ -61,6 +61,7 @@ fn is_view_instruction(kind: &MirInstructionKind) -> bool {
             | MirInstructionKind::ViewSlice { .. }
             | MirInstructionKind::ViewLength { .. }
             | MirInstructionKind::ViewGetByte { .. }
+            | MirInstructionKind::ViewGetRune { .. }
             | MirInstructionKind::ViewMaterialize { .. }
             | MirInstructionKind::ViewEnd { .. }
     )

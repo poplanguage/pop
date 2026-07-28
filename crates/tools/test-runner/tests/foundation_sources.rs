@@ -298,6 +298,23 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         assert!(function.type_parameters().is_empty());
     }
     for function_name in [
+        "isAscii",
+        "isAsciiLetter",
+        "isAsciiDigit",
+        "isAsciiAlphanumeric",
+        "isAsciiWhitespace",
+        "toAsciiLower",
+        "toAsciiUpper",
+    ] {
+        let function = standard_hir
+            .functions()
+            .iter()
+            .find(|function| function.name() == function_name)
+            .unwrap_or_else(|| panic!("ordinary Pop Unicode.{function_name} implementation"));
+        assert!(standard_hir.public_symbols().contains(&function.symbol()));
+        assert!(function.type_parameters().is_empty());
+    }
+    for function_name in [
         "equals",
         "compare",
         "startsWith",
@@ -331,7 +348,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        58,
+        65,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();

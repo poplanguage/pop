@@ -546,11 +546,14 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
             finalize_expression_captures(start, written);
             finalize_expression_captures(length, written);
         }
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             finalize_expression_captures(view, written);
             finalize_expression_captures(index, written);
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => {
             finalize_expression_captures(value, written);
         }
     }

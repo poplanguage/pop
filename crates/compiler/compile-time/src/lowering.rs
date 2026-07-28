@@ -560,7 +560,12 @@ fn unsupported_compile_time_construct(
         | TypedExpressionKind::ViewSlice { .. }
         | TypedExpressionKind::ViewLength { .. }
         | TypedExpressionKind::ViewGetByte { .. }
+        | TypedExpressionKind::ViewGetRune { .. }
         | TypedExpressionKind::ViewMaterialize { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
+        TypedExpressionKind::RuneFromCodePoint { .. }
+        | TypedExpressionKind::RuneCodePoint { .. } => {
             UnsupportedCompileTimeConstruct::ResultlessCall
         }
         TypedExpressionKind::EnumCase { .. } => UnsupportedCompileTimeConstruct::UnionCase,

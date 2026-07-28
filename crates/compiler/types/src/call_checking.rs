@@ -280,6 +280,27 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .check_view_invocation(path, arguments, span)
                     .map(CheckedInvocation::Value);
             }
+            if matches!(path.as_slice(), [namespace, operation]
+                if namespace == "Unicode"
+                    && matches!(operation.as_str(), "fromCodePoint" | "codePoint"))
+                && self.binding_by_name("Unicode").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_rune_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
             if path.as_slice() == ["String"] {
                 return self
                     .check_string_conversion(arguments, span)
@@ -610,6 +631,41 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     span,
                 })
             }
+            "get" if kind == crate::ViewKind::Text => {
+                self.require_view_arity(span, path, arguments, 2)?;
+                let supplied = self.check_expression(&arguments[0])?;
+                let view = if supplied.type_id() == owner_type {
+                    let provenance = self.lender_for_expression(&supplied);
+                    let borrow = self.fresh_view_borrow(provenance);
+                    TypedExpression {
+                        kind: TypedExpressionKind::ViewCreate {
+                            kind,
+                            lender: Box::new(supplied),
+                            borrow,
+                        },
+                        type_id: view_type,
+                        span: arguments[0].span(),
+                    }
+                } else {
+                    self.require_same_type(view_type, supplied.type_id(), supplied.span(), span);
+                    supplied
+                };
+                let index = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(integer, index.type_id(), index.span(), span);
+                let rune = self.resolver.arena().source_type("Rune")?;
+                let result = self.resolver.arena_mut().optional(rune).ok()?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewGetRune {
+                        view: Box::new(view),
+                        index: Box::new(index),
+                    },
+                    type_id: result,
+                    span,
+                })
+            }
             "toBytes" if kind == crate::ViewKind::Bytes => {
                 self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
             }
@@ -624,6 +680,49 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 ));
                 None
             }
+        }
+    }
+
+    fn check_rune_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        self.require_view_arity(span, path, arguments, 1)?;
+        let rune = self.resolver.arena().source_type("Rune")?;
+        let uint32 = self.resolver.arena().source_type("UInt32")?;
+        match path {
+            [namespace, operation] if namespace == "Unicode" && operation == "fromCodePoint" => {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(uint32)),
+                )?;
+                self.require_same_type(uint32, value.type_id(), value.span(), span);
+                let result = self.resolver.arena_mut().optional(rune).ok()?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::RuneFromCodePoint {
+                        value: Box::new(value),
+                    },
+                    type_id: result,
+                    span,
+                })
+            }
+            [namespace, operation] if namespace == "Unicode" && operation == "codePoint" => {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(rune)),
+                )?;
+                self.require_same_type(rune, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::RuneCodePoint {
+                        value: Box::new(value),
+                    },
+                    type_id: uint32,
+                    span,
+                })
+            }
+            _ => None,
         }
     }
 

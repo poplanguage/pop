@@ -935,7 +935,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 22)"),
+        (&native_abi, "NativeAbiVersion::new(1, 23)"),
+        (&native_abi, "NativeAbiVersion::new(2, 1)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1333,8 +1334,10 @@ fn foundation_libraries_are_partitioned_by_contributor_ownership() {
         "standard/pop/src/lib.pop",
         "standard/pop/src/math.pop",
         "standard/pop/src/bytes.pop",
+        "standard/pop/src/unicode.pop",
         "standard/pop/src/sequence.pop",
         "standard/tests/bytes.rs",
+        "standard/tests/unicode.rs",
         "internal/src/runtime.rs",
         "internal/tests/runtime.rs",
         "internal/pop/bubble.toml",
@@ -1667,6 +1670,72 @@ fn portable_bytes_inspection_has_one_pop_implementation() {
     assert!(
         tooling.contains("libraries/standard/pop/src/bytes.pop"),
         "editor tooling must analyze the public Bytes Module"
+    );
+}
+
+#[test]
+fn portable_unicode_ascii_helpers_have_one_pop_implementation() {
+    let root = repository_root();
+    let standard = fs::read_to_string(root.join("crates/libraries/standard/src/lib.rs"))
+        .expect("read Pop.Standard Rust module inventory");
+    let unicode_path = root.join("crates/libraries/standard/pop/src/unicode.pop");
+    let functions = [
+        "isAscii",
+        "isAsciiLetter",
+        "isAsciiDigit",
+        "isAsciiAlphanumeric",
+        "isAsciiWhitespace",
+        "toAsciiLower",
+        "toAsciiUpper",
+    ];
+
+    assert!(!standard.contains("pub mod unicode;"));
+    assert!(
+        !root
+            .join("crates/libraries/standard/src/unicode.rs")
+            .exists()
+    );
+    let unicode = fs::read_to_string(&unicode_path).expect("read Pop.Unicode source");
+    for function in functions {
+        assert_eq!(
+            unicode
+                .matches(&format!("public function {function}("))
+                .count(),
+            1,
+            "Pop.Unicode must own exactly one ordinary Pop implementation of `{function}`"
+        );
+    }
+    for forbidden in ["Dynamic", "Any", "@Ffi.", "extern ", "unsafe"] {
+        assert!(
+            !unicode.contains(forbidden),
+            "portable Pop.Unicode source contains forbidden `{forbidden}`"
+        );
+    }
+
+    for source in rust_sources_below(&root.join("crates/compiler"))
+        .into_iter()
+        .chain(rust_sources_below(&root.join("crates/runtime")))
+        .filter(|path| {
+            path.components()
+                .any(|component| component.as_os_str() == "src")
+        })
+    {
+        let text = fs::read_to_string(&source)
+            .unwrap_or_else(|error| panic!("read {}: {error}", source.display()));
+        for function in functions {
+            assert!(
+                !text.contains(&format!("\"{function}\"")),
+                "ordinary Pop.Unicode helper `{function}` is recognized in Rust source {}",
+                source.display()
+            );
+        }
+    }
+
+    let tooling = fs::read_to_string(root.join("crates/compiler/driver/src/tooling.rs"))
+        .expect("read tooling Standard source inventory");
+    assert!(
+        tooling.contains("libraries/standard/pop/src/unicode.pop"),
+        "editor tooling must analyze the public Unicode Module"
     );
 }
 

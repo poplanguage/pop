@@ -2855,6 +2855,7 @@ fn verify_view_lifetimes(
     }
 
     let mut materializations = BTreeSet::new();
+    let parameter_aliases = exact_parameter_aliases(function);
     for block in function.blocks() {
         for instruction in block.instructions() {
             match instruction.kind() {
@@ -2885,10 +2886,10 @@ fn verify_view_lifetimes(
                     }
                     verify_created_view_provenance(
                         function,
-                        entry,
                         instruction,
                         *lender,
                         *lender_provenance,
+                        &parameter_aliases,
                         errors,
                     );
                 }
@@ -3042,26 +3043,86 @@ fn verify_view_lifetimes(
 
 fn verify_created_view_provenance(
     function: &MirFunction,
-    entry: &MirBlock,
     instruction: &MirInstruction,
     lender: ValueId,
     provenance: MirViewLender,
+    parameter_aliases: &BTreeMap<ValueId, BTreeSet<u32>>,
     errors: &mut Vec<MirVerificationError>,
 ) {
     if let MirViewLender::Parameter { index } = provenance {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
         if function.parameters().get(index).is_none()
-            || entry
-                .arguments()
-                .get(index)
-                .map(|argument| argument.value())
-                != Some(lender)
+            || !parameter_aliases
+                .get(&lender)
+                .is_some_and(|aliases| aliases.contains(&u32::try_from(index).unwrap_or(u32::MAX)))
         {
             errors.push(MirVerificationError::InvalidViewOperation {
                 instruction: instruction.result(),
             });
         }
     }
+}
+
+fn exact_parameter_aliases(function: &MirFunction) -> BTreeMap<ValueId, BTreeSet<u32>> {
+    let Some(entry) = function.blocks().first() else {
+        return BTreeMap::new();
+    };
+    let all_parameters = (0..entry.arguments().len())
+        .filter_map(|index| u32::try_from(index).ok())
+        .collect::<BTreeSet<_>>();
+    let mut aliases = BTreeMap::new();
+    for (index, argument) in entry.arguments().iter().enumerate() {
+        aliases.insert(
+            argument.value(),
+            u32::try_from(index).ok().into_iter().collect(),
+        );
+    }
+    for block in function.blocks().iter().skip(1) {
+        for argument in block.arguments() {
+            aliases.insert(argument.value(), all_parameters.clone());
+        }
+    }
+
+    loop {
+        let previous = aliases.clone();
+        for target in function.blocks().iter().skip(1) {
+            for (argument_index, argument) in target.arguments().iter().enumerate() {
+                let mut found_predecessor = false;
+                let mut candidates = all_parameters.clone();
+                for predecessor in function.blocks() {
+                    let MirTerminator::Branch {
+                        target: edge_target,
+                        arguments,
+                    } = predecessor.terminator()
+                    else {
+                        continue;
+                    };
+                    if *edge_target != target.block() {
+                        continue;
+                    }
+                    found_predecessor = true;
+                    let incoming = arguments
+                        .get(argument_index)
+                        .and_then(|value| previous.get(value))
+                        .cloned()
+                        .unwrap_or_default();
+                    candidates = candidates
+                        .intersection(&incoming)
+                        .copied()
+                        .collect::<BTreeSet<_>>();
+                }
+                if !found_predecessor {
+                    candidates.clear();
+                }
+                aliases.insert(argument.value(), candidates);
+            }
+        }
+        if aliases == previous {
+            break;
+        }
+    }
+    aliases.retain(|_, candidates| !candidates.is_empty());
+    aliases
 }
 
 fn propagate_view_block_arguments(
@@ -3128,7 +3189,9 @@ fn verify_view_escapes(
                         if *view == operand
                 ) || matches!(
                     instruction.kind(),
-                    MirInstructionKind::ViewGetByte { view, .. } if *view == operand
+                    MirInstructionKind::ViewGetByte { view, .. }
+                        | MirInstructionKind::ViewGetRune { view, .. }
+                        if *view == operand
                 ) || view_call_argument_does_not_retain(
                     instruction.kind(),
                     operand,
@@ -3627,7 +3690,10 @@ fn verify_instruction_types(
             | MirInstructionKind::ViewSlice { .. }
             | MirInstructionKind::ViewLength { .. }
             | MirInstructionKind::ViewGetByte { .. }
+            | MirInstructionKind::ViewGetRune { .. }
             | MirInstructionKind::ViewMaterialize { .. }
+            | MirInstructionKind::RuneFromCodePoint { .. }
+            | MirInstructionKind::RuneCodePoint { .. }
     );
     if requires_value_form && !instruction.has_result() {
         let error = if matches!(
@@ -3636,6 +3702,7 @@ fn verify_instruction_types(
                 | MirInstructionKind::ViewSlice { .. }
                 | MirInstructionKind::ViewLength { .. }
                 | MirInstructionKind::ViewGetByte { .. }
+                | MirInstructionKind::ViewGetRune { .. }
                 | MirInstructionKind::ViewMaterialize { .. }
         ) {
             MirVerificationError::InvalidViewOperation {
@@ -3748,6 +3815,16 @@ fn verify_instruction_types(
                     .is_some_and(|byte| is_optional_of(arena, instruction.result_type(), byte));
             verify_view_operation(instruction, valid, errors);
         }
+        MirInstructionKind::ViewGetRune { view, index } => {
+            let valid = values
+                .get(view)
+                .is_some_and(|type_id| view_type_matches(arena, *type_id, MirViewKind::Text))
+                && value_has_type(values, *index, arena.source_type("Int"))
+                && arena
+                    .source_type("Rune")
+                    .is_some_and(|rune| is_optional_of(arena, instruction.result_type(), rune));
+            verify_view_operation(instruction, valid, errors);
+        }
         MirInstructionKind::ViewMaterialize { kind, view, .. } => {
             let valid = values
                 .get(view)
@@ -3756,6 +3833,28 @@ fn verify_instruction_types(
             verify_view_operation(instruction, valid, errors);
         }
         MirInstructionKind::ViewEnd { .. } => {}
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            let valid = value_has_type(values, *value, arena.source_type("UInt32"))
+                && arena
+                    .source_type("Rune")
+                    .is_some_and(|rune| is_optional_of(arena, instruction.result_type(), rune));
+            if !valid {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            let valid = value_has_type(values, *value, arena.source_type("Rune"))
+                && arena.source_type("UInt32") == Some(instruction.result_type());
+            if !valid {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
         MirInstructionKind::FfiHandleOpen { value } => {
             let valid = values.get(value).copied().is_some_and(|payload| {
                 is_managed_reference_type_id(payload, Some(arena))
@@ -5477,6 +5576,7 @@ fn mir_supports_default_equality(arena: &TypeArena, type_id: TypeId) -> bool {
                 pop_types::PrimitiveType::Nil
                 | pop_types::PrimitiveType::Boolean
                 | pop_types::PrimitiveType::Integer(_)
+                | pop_types::PrimitiveType::Rune
                 | pop_types::PrimitiveType::String,
             )
             | SemanticType::Class { .. }
@@ -7142,7 +7242,10 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
         } => vec![*view, *start, *length],
         MirInstructionKind::ViewLength { view, .. }
         | MirInstructionKind::ViewMaterialize { view, .. } => vec![*view],
-        MirInstructionKind::ViewGetByte { view, index } => vec![*view, *index],
+        MirInstructionKind::ViewGetByte { view, index }
+        | MirInstructionKind::ViewGetRune { view, index } => vec![*view, *index],
+        MirInstructionKind::RuneFromCodePoint { value }
+        | MirInstructionKind::RuneCodePoint { value } => vec![*value],
         MirInstructionKind::TupleGet { tuple, .. } => vec![*tuple],
         MirInstructionKind::IterationIsItem { iteration, .. }
         | MirInstructionKind::IterationGetItem { iteration, .. } => vec![*iteration],

@@ -100,6 +100,25 @@ fn experimental_c_backend_rejects_complete_view_mir_before_emission() {
 }
 
 #[test]
+fn experimental_c_backend_rejects_rune_and_text_scalar_mir_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function inspect(text: String): UInt32?\n\
+             local value = Text.get(text, 1)?\n\
+             return Unicode.codePoint(value)\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("viewGetRune"), "{dump}");
+    assert!(dump.contains("runeCodePoint"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn experimental_c_backend_rejects_generated_codec_operations_without_a_fallback() {
     let source = SourceFile::new(
         FileId::from_raw(0),

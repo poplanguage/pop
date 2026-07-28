@@ -20,6 +20,7 @@ pub enum MirValue {
     Boolean(bool),
     Integer(IntegerValue),
     Float(FloatValue),
+    Rune(u32),
     String(String),
     Tuple(Vec<Self>),
     Array(Vec<Self>),

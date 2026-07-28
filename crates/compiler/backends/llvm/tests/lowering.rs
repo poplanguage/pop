@@ -2844,7 +2844,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 0)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 1)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -5775,6 +5775,72 @@ fn emitted_llvm_executes_utf8_text_views_and_materialization() {
 }
 
 #[test]
+fn emitted_llvm_executes_validated_runes_text_access_and_ascii_helpers() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Unicode\n\
+             private function inspect(): Int?\n\
+                 local text = \"Aé中😀z\"\n\
+                 local ascii = Text.get(text, 1)?\n\
+                 local twoByte = Text.get(text, 2)?\n\
+                 local threeByte = Text.get(text, 3)?\n\
+                 local fourByte = Text.get(text, 4)?\n\
+                 local final = Text.get(Text.slice(text, 2, 4), 4)?\n\
+                 if Unicode.codePoint(ascii) ~= 65 or Unicode.codePoint(twoByte) ~= 233 or Unicode.codePoint(threeByte) ~= 20013 or Unicode.codePoint(fourByte) ~= 128512 or Unicode.codePoint(final) ~= 122 then\n\
+                     return 1\n\
+                 end\n\
+                 if Text.get(text, 0) ~= nil or Text.get(text, -1) ~= nil or Text.get(text, 6) ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local low = Unicode.fromCodePoint(0)?\n\
+                 local beforeSurrogate = Unicode.fromCodePoint(55295)?\n\
+                 local afterSurrogate = Unicode.fromCodePoint(57344)?\n\
+                 local maximum = Unicode.fromCodePoint(1114111)?\n\
+                 if Unicode.codePoint(low) ~= 0 or Unicode.codePoint(beforeSurrogate) ~= 55295 or Unicode.codePoint(afterSurrogate) ~= 57344 or Unicode.codePoint(maximum) ~= 1114111 then\n\
+                     return 3\n\
+                 end\n\
+                 if Unicode.fromCodePoint(55296) ~= nil or Unicode.fromCodePoint(57343) ~= nil or Unicode.fromCodePoint(1114112) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local upper = Unicode.fromCodePoint(65)?\n\
+                 local lower = Unicode.fromCodePoint(122)?\n\
+                 local digit = Unicode.fromCodePoint(57)?\n\
+                 local space = Unicode.fromCodePoint(32)?\n\
+                 if not isAscii(upper) or not isAsciiLetter(upper) or not isAsciiDigit(digit) or not isAsciiAlphanumeric(lower) or not isAsciiWhitespace(space) then\n\
+                     return 5\n\
+                 end\n\
+                 if Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiLower(fourByte) ~= fourByte then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return inspect() ?? 0\n\
+             end\n",
+        ),
+    ]);
+    let text = module.to_string();
+    assert!(
+        text.contains("@pop_rt_text_view_get_rune"),
+        "Rune text access must lower through the typed native view adapter:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "validated-runes");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted validated Unicode scalars: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        text
+    );
+}
+
+#[test]
 fn emitted_llvm_rebases_bytes_and_text_views_after_forced_relocation() {
     let mut types = TypeArena::new();
     let integer = types.source_type("Int").expect("Int");
@@ -6216,7 +6282,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && minor == 0;\n",
+            "  return major == 2 && (minor == 0 || minor == 1);\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -6338,7 +6404,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && minor == 0;\n",
+            "  return major == 2 && (minor == 0 || minor == 1);\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",

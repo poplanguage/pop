@@ -318,6 +318,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     PrimitiveType::Nil
                     | PrimitiveType::Boolean
                     | PrimitiveType::Integer(_)
+                    | PrimitiveType::Rune
                     | PrimitiveType::String,
                 )
                 | SemanticType::Class { .. }

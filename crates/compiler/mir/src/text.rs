@@ -2376,6 +2376,10 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
         let (view, index) = parse_two_values(rest, line)?;
         return Ok(MirInstructionKind::ViewGetByte { view, index });
     }
+    if let Some(rest) = text.strip_prefix("viewGetRune ") {
+        let (view, index) = parse_two_values(rest, line)?;
+        return Ok(MirInstructionKind::ViewGetRune { view, index });
+    }
     if let Some(rest) = text.strip_prefix("viewMaterialize ") {
         let parts = rest.split_whitespace().collect::<Vec<_>>();
         let [kind, view, allocation] = parts.as_slice() else {
@@ -2394,6 +2398,16 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
     if let Some(lifetime) = text.strip_prefix("viewEnd ") {
         return Ok(MirInstructionKind::ViewEnd {
             borrow_lifetime: LifetimeId::from_raw(parse_hash(lifetime, "lifetime#", line)?),
+        });
+    }
+    if let Some(value) = text.strip_prefix("runeFromCodePoint ") {
+        return Ok(MirInstructionKind::RuneFromCodePoint {
+            value: ValueId::from_raw(parse_prefixed(value, 'v', line)?),
+        });
+    }
+    if let Some(value) = text.strip_prefix("runeCodePoint ") {
+        return Ok(MirInstructionKind::RuneCodePoint {
+            value: ValueId::from_raw(parse_prefixed(value, 'v', line)?),
         });
     }
     if let Some(rest) = text.strip_prefix("gcSafePoint ") {

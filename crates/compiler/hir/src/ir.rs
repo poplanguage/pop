@@ -3628,9 +3628,14 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
             remap_aggregate_expression(start, instances);
             remap_aggregate_expression(length, instances);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             remap_aggregate_expression(view, instances);
             remap_aggregate_expression(index, instances);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            remap_aggregate_expression(value, instances);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -4201,9 +4206,14 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             collect_expression_calls(start, calls);
             collect_expression_calls(length, calls);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             collect_expression_calls(view, calls);
             collect_expression_calls(index, calls);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            collect_expression_calls(value, calls);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -4953,9 +4963,14 @@ fn specialize_expression(
             specialize_expression(start, substitutions, instances, arena)?;
             specialize_expression(length, substitutions, instances, arena)?;
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             specialize_expression(view, substitutions, instances, arena)?;
             specialize_expression(index, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            specialize_expression(value, substitutions, instances, arena)?;
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -5922,6 +5937,10 @@ pub enum HirExpressionKind {
         view: Box<HirExpression>,
         index: Box<HirExpression>,
     },
+    ViewGetRune {
+        view: Box<HirExpression>,
+        index: Box<HirExpression>,
+    },
     ViewMaterialize {
         kind: pop_types::ViewKind,
         view: Box<HirExpression>,
@@ -5930,6 +5949,12 @@ pub enum HirExpressionKind {
     NumericConvert {
         value: Box<HirExpression>,
         conversion: NumericConversionKind,
+    },
+    RuneFromCodePoint {
+        value: Box<HirExpression>,
+    },
+    RuneCodePoint {
+        value: Box<HirExpression>,
     },
 }
 

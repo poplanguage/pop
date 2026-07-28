@@ -129,6 +129,24 @@ pub(crate) fn lower_instruction(
                 optional.raw()
             )
         }
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            format!(
+                "{result}_within_maximum = icmp ule i32 %v{}, 1114111\n\
+                 {result}_before_surrogates = icmp ult i32 %v{}, 55296\n\
+                 {result}_after_surrogates = icmp ugt i32 %v{}, 57343\n\
+                 {result}_not_surrogate = or i1 {result}_before_surrogates, {result}_after_surrogates\n\
+                 {result}_valid = and i1 {result}_within_maximum, {result}_not_surrogate\n\
+                 {result}_with_presence = insertvalue {{ i1, i32 }} zeroinitializer, i1 {result}_valid, 0\n\
+                 {result} = insertvalue {{ i1, i32 }} {result}_with_presence, i32 %v{}, 1",
+                value.raw(),
+                value.raw(),
+                value.raw(),
+                value.raw(),
+            )
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            format!("{result} = add i32 0, %v{}", value.raw())
+        }
         MirInstructionKind::FfiPointerNone => {
             let ty = llvm_type(instruction.result_type(), types)?;
             format!("{result} = select i1 true, {ty} zeroinitializer, {ty} zeroinitializer")
@@ -1119,6 +1137,7 @@ pub(crate) fn lower_instruction(
         | MirInstructionKind::ViewSlice { .. }
         | MirInstructionKind::ViewLength { .. }
         | MirInstructionKind::ViewGetByte { .. }
+        | MirInstructionKind::ViewGetRune { .. }
         | MirInstructionKind::ViewMaterialize { .. }
         | MirInstructionKind::ViewEnd { .. } => crate::views::lower(instruction, view_lenders)
             .expect("closed view MIR lowering handles every view instruction"),
@@ -4054,6 +4073,7 @@ pub(crate) fn llvm_type(type_id: TypeId, types: &TypeArena) -> Result<String, Ll
         }
         SemanticType::Primitive(PrimitiveType::Float32) => Ok("float".to_owned()),
         SemanticType::Primitive(PrimitiveType::Float64) => Ok("double".to_owned()),
+        SemanticType::Primitive(PrimitiveType::Rune) => Ok("i32".to_owned()),
         SemanticType::Primitive(PrimitiveType::Never) => Ok("void".to_owned()),
         SemanticType::Enum { .. } => Ok("i32".to_owned()),
         SemanticType::Builtin {

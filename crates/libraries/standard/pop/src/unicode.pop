@@ -1,0 +1,159 @@
+namespace Pop.Unicode
+
+--- <summary>
+--- Tests whether a rune is in the ASCII range.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for U+0000 through U+007F; otherwise false.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAscii(value: Rune): Boolean
+    return Unicode.codePoint(value) <= 127
+end
+
+--- <summary>
+--- Tests whether a rune is an uppercase or lowercase ASCII letter.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for A through Z or a through z; otherwise false.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAsciiLetter(value: Rune): Boolean
+    local point = Unicode.codePoint(value)
+    return (point >= 65 and point <= 90) or (point >= 97 and point <= 122)
+end
+
+--- <summary>
+--- Tests whether a rune is an ASCII decimal digit.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for zero through nine; otherwise false.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAsciiDigit(value: Rune): Boolean
+    local point = Unicode.codePoint(value)
+    return point >= 48 and point <= 57
+end
+
+--- <summary>
+--- Tests whether a rune is an ASCII letter or decimal digit.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for an ASCII letter or decimal digit; otherwise false.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAsciiAlphanumeric(value: Rune): Boolean
+    return isAsciiLetter(value) or isAsciiDigit(value)
+end
+
+--- <summary>
+--- Tests whether a rune is ASCII whitespace.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to inspect.
+--- </param>
+---
+--- <returns>
+--- True for tab, line feed, vertical tab, form feed, carriage return, or space.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAsciiWhitespace(value: Rune): Boolean
+    local point = Unicode.codePoint(value)
+    return (point >= 9 and point <= 13) or point == 32
+end
+
+--- <summary>
+--- Converts an uppercase ASCII letter to lowercase.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to convert.
+--- </param>
+---
+--- <returns>
+--- The lowercase ASCII rune, or the original rune when no conversion applies.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function toAsciiLower(value: Rune): Rune
+    local point = Unicode.codePoint(value)
+    if point >= 65 and point <= 90 then
+        return Unicode.fromCodePoint(point + 32) ?? value
+    end
+    return value
+end
+
+--- <summary>
+--- Converts a lowercase ASCII letter to uppercase.
+--- </summary>
+---
+--- <param name="value">
+--- The rune to convert.
+--- </param>
+---
+--- <returns>
+--- The uppercase ASCII rune, or the original rune when no conversion applies.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function toAsciiUpper(value: Rune): Rune
+    local point = Unicode.codePoint(value)
+    if point >= 97 and point <= 122 then
+        return Unicode.fromCodePoint(point - 32) ?? value
+    end
+    return value
+end

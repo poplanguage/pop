@@ -2297,6 +2297,10 @@ pub enum MirInstructionKind {
         view: ValueId,
         index: ValueId,
     },
+    ViewGetRune {
+        view: ValueId,
+        index: ValueId,
+    },
     ViewMaterialize {
         kind: MirViewKind,
         view: ValueId,
@@ -2304,6 +2308,12 @@ pub enum MirInstructionKind {
     },
     ViewEnd {
         borrow_lifetime: LifetimeId,
+    },
+    RuneFromCodePoint {
+        value: ValueId,
+    },
+    RuneCodePoint {
+        value: ValueId,
     },
     CaptureCellAllocate {
         binding: BindingId,

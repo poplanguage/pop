@@ -18,7 +18,10 @@ pub const ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL: &str =
 /// ABI 1.22 closed atomic constructor for one native iterator step.
 pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.22.
+/// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
+pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
+
+/// Returns the native C symbol for an operation implemented through ABI 1.23.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.

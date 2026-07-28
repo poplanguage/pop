@@ -197,6 +197,10 @@ Post-baseline library work has begun without widening the release foundation:
   checked `UInt16`/`UInt32`/`UInt64` endian-read prototypes with
   interpreter/LLVM differential coverage; keep `Bytes` partial until reusable
   buffers, writes, bit operations, and codecs pass their separate gates.
+- [x] Add ADR 0114 validated nonnumeric `Rune`, checked code-point conversion,
+  optional scalar-indexed `Text.get`, allocation-free ASCII helpers, and
+  interpreter/LLVM/native ABI 1.23/2.1 coverage; keep `Unicode` and `Text`
+  partial until their remaining generated data and algorithm gates pass.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

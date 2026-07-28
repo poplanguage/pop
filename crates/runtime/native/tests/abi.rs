@@ -22,11 +22,13 @@ use pop_runtime_native::{
     pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat, pop_rt_string_equal,
     pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi, pop_rt_suspend,
     pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
-    pop_rt_task_cancellation_requested, pop_rt_unpin, request_abi_collection,
+    pop_rt_task_cancellation_requested, pop_rt_text_view_get_rune, pop_rt_unpin,
+    request_abi_collection,
 };
 use pop_runtime_native_abi::{
     AllocationSiteDescriptorAbi, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
     CodecWriteEventAbi, IterationCollectionKind, IterationStatus, StringFormatTag,
+    TextViewGetRuneAbi,
 };
 use std::ffi::CString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -42,7 +44,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 22);
+    assert_eq!(pop_rt_abi_minor(), 23);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -55,7 +57,15 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 19), 1);
     assert_eq!(pop_rt_supports_abi(1, 20), 1);
     assert_eq!(pop_rt_supports_abi(1, 21), 1);
+    assert_eq!(pop_rt_supports_abi(1, 22), 1);
+    assert_eq!(pop_rt_supports_abi(1, 23), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
+    assert_eq!(pop_rt_supports_abi(2, 1), 0);
+}
+
+#[test]
+fn native_unicode_scalar_adapter_has_the_exact_versioned_shape() {
+    let _: TextViewGetRuneAbi = pop_rt_text_view_get_rune;
 }
 
 #[test]

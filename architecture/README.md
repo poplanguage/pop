@@ -199,6 +199,10 @@ transplanted into a Luau-shaped file.
   values. Exact structured callable summaries permit direct non-retaining calls
   and parameter-alias results; storage, capture, suspension, ownership, FFI,
   and missing-metadata escapes fail statically under ADR 0097.
+- `Rune` is ADR 0114's validated nonnumeric Unicode-scalar primitive.
+  `Text.get` returns `Rune?` without allocation or partial UTF-8; checked
+  construction excludes surrogates and values above U+10FFFF. The typed native
+  adapter advances the additive descriptors to ABI 1.23 and 2.1.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

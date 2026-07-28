@@ -6,7 +6,7 @@ composition, UTF-8 and process-entry adaptation, and native trap/unwind
 termination. The default ABI 1 build remains non-moving while using
 incremental SATB mature marking and bounded sweeping. The explicit
 `production-generational` build selects ADR 0103's moving, mutator-overlapped
-collector and reports only ABI 2.0.
+collector and reports ABI 2.0 and ABI 2.1.
 
 ABI 1.11 adds atomic initialized-object allocation: the facade validates the
 complete precise map and every managed initializer before delegating one
@@ -47,6 +47,8 @@ ABI 1.22 adds failure-atomic self-recursive allocation at one immutable site
 and the closed native `Iteration<T>` constructor. Compiler-declared self slots
 and constant-size homogeneous/strided layout formulas remove cyclic and
 collection pointer-map rebuilds without introducing a dynamic layout facility.
+
+ABI 1.23 and ABI 2.1 add the exact validated Unicode-scalar Text-view read.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

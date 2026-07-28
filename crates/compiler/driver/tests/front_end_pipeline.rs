@@ -7,6 +7,83 @@ use pop_mir::{MirDeclarationKind, MirVerificationError, lower_hir_bubble};
 use pop_source::SourceFile;
 
 #[test]
+fn rune_validation_and_text_scalar_access_reach_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/runes.pop",
+        "namespace Main\n\
+         public function inspect(text: String): UInt32?\n\
+             local first: Rune = Text.get(text, 1)?\n\
+             local view = Text.slice(text, 2, 2)\n\
+             local final: Rune = Text.get(view, 2)?\n\
+             local roundTrip: Rune = Unicode.fromCodePoint(Unicode.codePoint(final))?\n\
+             if first == roundTrip then\n\
+                 return Unicode.codePoint(first)\n\
+             end\n\
+             return Unicode.codePoint(final)\n\
+         end\n",
+    )
+    .expect("Rune source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let rune = result.types().source_type("Rune").expect("Rune type");
+    assert!(
+        !pop_mir::is_managed_reference_type_id(rune, Some(result.types())),
+        "Rune must remain scalar in precise GC/reference maps"
+    );
+    let mir = lower_hir_bubble(result.hir().expect("Rune HIR"), result.types())
+        .expect("verified Rune MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("runeFromCodePoint"), "{dump}");
+    assert!(dump.contains("runeCodePoint"), "{dump}");
+    assert!(dump.contains("viewGetRune"), "{dump}");
+}
+
+#[test]
+fn rune_rejects_arithmetic_ordering_and_numeric_conversion() {
+    for source_text in [
+        "namespace Main\n\
+         public function invalid(value: Rune): Rune\n\
+             return value + value\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: Rune): Boolean\n\
+             return value < value\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: Rune): UInt32\n\
+             return UInt32(value)\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: UInt32): Rune\n\
+             return Rune(value)\n\
+         end\n",
+    ] {
+        let source = SourceFile::new(FileId::from_raw(0), "src/runes.pop", source_text)
+            .expect("Rune source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+
+        assert!(result.hir().is_none(), "{source_text}");
+        assert!(!result.diagnostics().is_empty(), "{source_text}");
+    }
+}
+
+#[test]
 fn explicit_generic_functions_records_and_unions_reach_concrete_mir() {
     let source = SourceFile::new(
         FileId::from_raw(0),

@@ -32,6 +32,19 @@ fn primitive_schema_contains_no_dynamic_fallback_type() {
 }
 
 #[test]
+fn rune_is_one_distinct_non_numeric_unicode_scalar_primitive() {
+    let names: Vec<_> = PrimitiveType::source_schema()
+        .iter()
+        .map(|entry| entry.source_name())
+        .collect();
+
+    assert_eq!(names.iter().filter(|name| **name == "Rune").count(), 1);
+    assert!(!names.contains(&"Char"));
+    assert!(!names.contains(&"Character"));
+    assert!(PrimitiveType::from_source_name("Rune").is_some());
+}
+
+#[test]
 fn class_contracts_are_sealed_single_base_and_nominal_by_default() {
     let contract = ClassContract::new(
         ClassId::from_raw(4),

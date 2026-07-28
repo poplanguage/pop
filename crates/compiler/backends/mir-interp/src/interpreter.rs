@@ -2619,6 +2619,25 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         .map_err(|_| ExecutionError::InvalidControlFlow)?,
                 )
             }
+            MirInstructionKind::ViewGetRune { view, index } => {
+                let MirValue::View(view) = &value(values, *view)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if view.kind != pop_mir::MirViewKind::Text {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let index = integer_i64(&value(values, *index)?.visible)?;
+                let Some(relative) = index
+                    .checked_sub(1)
+                    .and_then(|index| usize::try_from(index).ok())
+                else {
+                    return Ok(RuntimeValue::visible(MirValue::Nil));
+                };
+                view_text(view)?
+                    .chars()
+                    .nth(relative)
+                    .map_or(MirValue::Nil, |value| MirValue::Rune(u32::from(value)))
+            }
             MirInstructionKind::ViewMaterialize { kind, view, .. } => {
                 let MirValue::View(view) = &value(values, *view)?.visible else {
                     return Err(ExecutionError::TypeMismatch);
@@ -2646,6 +2665,28 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         MirValue::Bytes(reference)
                     }
                 }
+            }
+            MirInstructionKind::RuneFromCodePoint { value: code_point } => {
+                let MirValue::Integer(value) = value(values, *code_point)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if value.kind() != IntegerKind::UInt32 {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                value
+                    .unsigned()
+                    .and_then(|value| u32::try_from(value).ok())
+                    .and_then(char::from_u32)
+                    .map_or(MirValue::Nil, |value| MirValue::Rune(u32::from(value)))
+            }
+            MirInstructionKind::RuneCodePoint { value: rune } => {
+                let MirValue::Rune(value) = value(values, *rune)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                MirValue::Integer(
+                    IntegerValue::parse_decimal(&value.to_string(), IntegerKind::UInt32)
+                        .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                )
             }
             MirInstructionKind::StringFormat {
                 kind,

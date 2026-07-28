@@ -153,6 +153,7 @@ pub enum PrimitiveType {
     Integer(IntegerKind),
     Float32,
     Float64,
+    Rune,
     String,
     Never,
 }
@@ -201,7 +202,7 @@ impl PrimitiveSchemaEntry {
     }
 }
 
-const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 17] = [
+const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 18] = [
     primitive("nil", "nil", PrimitiveType::Nil),
     primitive("Boolean", "Boolean", PrimitiveType::Boolean),
     primitive("Int8", "Int8", PrimitiveType::Integer(IntegerKind::Int8)),
@@ -229,6 +230,7 @@ const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 17] = [
     primitive("Float64", "Float64", PrimitiveType::Float64),
     primitive("Float", "Float64", PrimitiveType::Float64),
     primitive("Byte", "UInt8", PrimitiveType::Integer(IntegerKind::UInt8)),
+    primitive("Rune", "Rune", PrimitiveType::Rune),
     primitive("String", "String", PrimitiveType::String),
     primitive("Never", "Never", PrimitiveType::Never),
 ];

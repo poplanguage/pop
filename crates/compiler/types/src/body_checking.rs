@@ -2257,6 +2257,7 @@ pub(crate) const fn primitive_name(primitive: PrimitiveType) -> &'static str {
         PrimitiveType::Integer(IntegerKind::UInt64) => "UInt64",
         PrimitiveType::Float32 => "Float32",
         PrimitiveType::Float64 => "Float64",
+        PrimitiveType::Rune => "Rune",
         PrimitiveType::String => "String",
         PrimitiveType::Never => "Never",
     }

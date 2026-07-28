@@ -600,6 +600,10 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
         "declare { i1, i64, i64, i64 } @pop_rt_bytes_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_text_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
         "declare { i1, i8 } @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind".to_owned(),
+        format!(
+            "declare i8 @{}(i64, i64, i64, i64, i64, ptr) nounwind",
+            pop_runtime_native_abi::TEXT_VIEW_GET_RUNE_SYMBOL
+        ),
         "declare i64 @pop_rt_bytes_view_materialize(i64, i64, i64) nounwind".to_owned(),
         "declare i64 @pop_rt_text_view_materialize(i64, i64, i64) nounwind".to_owned(),
         format!(

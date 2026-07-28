@@ -2782,9 +2782,14 @@ fn visit_expression_closures(
             visit_expression_closures(start, parameters, locals);
             visit_expression_closures(length, parameters, locals);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             visit_expression_closures(view, parameters, locals);
             visit_expression_closures(index, parameters, locals);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            visit_expression_closures(value, parameters, locals);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -5334,6 +5339,10 @@ impl<'hir> FunctionBuilder<'hir> {
                 view: self.lower_expression(view),
                 index: self.lower_expression(index),
             },
+            HirExpressionKind::ViewGetRune { view, index } => MirInstructionKind::ViewGetRune {
+                view: self.lower_expression(view),
+                index: self.lower_expression(index),
+            },
             HirExpressionKind::ViewMaterialize {
                 kind,
                 view,
@@ -5376,6 +5385,14 @@ impl<'hir> FunctionBuilder<'hir> {
                     }
                 }
             }
+            HirExpressionKind::RuneFromCodePoint { value } => {
+                MirInstructionKind::RuneFromCodePoint {
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::RuneCodePoint { value } => MirInstructionKind::RuneCodePoint {
+                value: self.lower_expression(value),
+            },
             HirExpressionKind::Field { base, field } => MirInstructionKind::FieldGet {
                 base: self.lower_expression(base),
                 field: *field,
@@ -7288,6 +7305,9 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ViewCreate { .. }
         | MirInstructionKind::ViewLength { .. }
         | MirInstructionKind::ViewGetByte { .. }
+        | MirInstructionKind::ViewGetRune { .. }
+        | MirInstructionKind::RuneFromCodePoint { .. }
+        | MirInstructionKind::RuneCodePoint { .. }
         | MirInstructionKind::ViewEnd { .. }
         | MirInstructionKind::CaptureCellLoad { .. }
         | MirInstructionKind::CaptureLoad { .. }

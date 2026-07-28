@@ -547,8 +547,17 @@ cyclic object, and one closed iteration entry atomically constructs a native
 `Iteration<T>` result. Homogeneous and strided object-map formulas describe
 runtime-sized arrays and interleaved tables without per-element pointer maps.
 
-ADR 0103 keeps ABI 2.0 exact and makes its complete native facade selectable as
-a separate static build composition. That archive rejects ABI 1, uses the
+ADR 0114 advances the additive stable-token descriptor to ABI 1.23 and the
+production descriptor to ABI 2.1 with one exact
+`pop_rt_text_view_get_rune` entry. It consumes a managed string token plus a
+compiler-proven Text-view range and returns a one-byte presence status while
+writing one validated Unicode scalar through an explicit output pointer only
+on success. ABI 1.11 through 1.22 and ABI 2.0 remain immutable.
+The default facade supports ABI 1.11 through 1.23; the production facade
+supports ABI 2.0 and 2.1.
+
+ADR 0103 establishes the ABI 2 production facade as a separate static build
+composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots
 before managed execution resumes. The default archive continues to reject ABI
 2 and cannot move native tokens.

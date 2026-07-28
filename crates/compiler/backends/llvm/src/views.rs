@@ -107,6 +107,30 @@ pub(crate) fn lower(
                 index.raw(),
             )
         }
+        MirInstructionKind::ViewGetRune { view, index } => {
+            let symbol = pop_runtime_native_abi::TEXT_VIEW_GET_RUNE_SYMBOL;
+            let lender_line = format!(
+                "{result}_lender = extractvalue {VIEW_TYPE} %v{}, 0",
+                view.raw()
+            );
+            format!(
+                "{lender_line}\n\
+                 {result}_offset = extractvalue {VIEW_TYPE} %v{}, 1\n\
+                 {result}_byte_length = extractvalue {VIEW_TYPE} %v{}, 2\n\
+                 {result}_scalar_length = extractvalue {VIEW_TYPE} %v{}, 3\n\
+                 {result}_output = alloca i32, align 4\n\
+                 store i32 0, ptr {result}_output, align 4\n\
+                 {result}_status = call i8 @{symbol}(i64 {result}_lender, i64 {result}_offset, i64 {result}_byte_length, i64 {result}_scalar_length, i64 %v{}, ptr {result}_output)\n\
+                 {result}_present = icmp eq i8 {result}_status, 1\n\
+                 {result}_value = load i32, ptr {result}_output, align 4\n\
+                 {result}_with_presence = insertvalue {{ i1, i32 }} poison, i1 {result}_present, 0\n\
+                 {result} = insertvalue {{ i1, i32 }} {result}_with_presence, i32 {result}_value, 1",
+                view.raw(),
+                view.raw(),
+                view.raw(),
+                index.raw(),
+            )
+        }
         MirInstructionKind::ViewMaterialize { kind, view, .. } => {
             let operation = match kind {
                 MirViewKind::Bytes => "pop_rt_bytes_view_materialize",

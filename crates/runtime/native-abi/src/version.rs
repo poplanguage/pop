@@ -21,13 +21,16 @@ impl NativeAbiVersion {
     }
 }
 
-pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 22);
-pub const NATIVE_ABI_2_VERSION: NativeAbiVersion = NativeAbiVersion::new(2, 0);
+pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 23);
+pub const NATIVE_ABI_2_VERSION: NativeAbiVersion = NativeAbiVersion::new(2, 1);
 pub const ABI_SUPPORT_SYMBOL: &str = "pop_rt_supports_abi";
 pub const GC_SAFE_POINT_V2_SYMBOL: &str = "pop_rt_gc_safe_point_v2";
 pub const INVALID_HANDLE: u64 = 0;
 
-/// Immutable compiler-emitted ABI 1.22 allocation-site layout.
+/// Exact ABI 1.23/2.1 compiler-proven Text-view scalar-read shape.
+pub type TextViewGetRuneAbi = unsafe extern "C" fn(u64, u64, u64, u64, i64, *mut u32) -> u8;
+
+/// Immutable compiler-emitted ABI 1.20 allocation-site layout.
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct AllocationSiteDescriptorAbi {

@@ -37,7 +37,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 127);
+    assert_eq!(baseline.entries().len(), 139);
 
     let prelude_names = baseline
         .entries()
@@ -49,6 +49,7 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     assert!(prelude_names.contains(&(ApiKind::Attribute, "RetainMetadata")));
     assert!(prelude_names.contains(&(ApiKind::Namespace, "Metadata")));
     assert!(prelude_names.contains(&(ApiKind::Namespace, "Codec")));
+    assert!(prelude_names.contains(&(ApiKind::Primitive, "Rune")));
     assert!(!prelude_names.contains(&(ApiKind::Namespace, "Math")));
     assert!(!prelude_names.iter().any(|(_, name)| *name == "Option"));
     assert!(!prelude_names.iter().any(|(_, name)| *name == "Actor"));
@@ -60,12 +61,12 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
         .filter(|entry| entry.status() == ApiStatus::Prototype)
         .map(|entry| entry.identity())
         .collect::<Vec<_>>();
-    assert_eq!(prototypes.len(), 62);
+    assert_eq!(prototypes.len(), 73);
     assert_eq!(
         &prototypes[..4],
         ["namespace:0", "namespace:1", "function:0", "function:1"]
     );
-    assert_eq!(prototypes.last(), Some(&"api:73"));
+    assert_eq!(prototypes.last(), Some(&"api:84"));
 
     let portable_names = baseline
         .entries()
@@ -150,6 +151,17 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Bytes", "readUInt32LittleEndian"),
             ("Pop.Bytes", "readUInt64BigEndian"),
             ("Pop.Bytes", "readUInt64LittleEndian"),
+            ("Pop.Unicode", "fromCodePoint"),
+            ("Pop.Unicode", "codePoint"),
+            ("Pop.Text", "get"),
+            ("Pop.Text", "get"),
+            ("Pop.Unicode", "isAscii"),
+            ("Pop.Unicode", "isAsciiLetter"),
+            ("Pop.Unicode", "isAsciiDigit"),
+            ("Pop.Unicode", "isAsciiAlphanumeric"),
+            ("Pop.Unicode", "isAsciiWhitespace"),
+            ("Pop.Unicode", "toAsciiLower"),
+            ("Pop.Unicode", "toAsciiUpper"),
         ]
     );
 }

@@ -307,6 +307,8 @@ Architecture CI should eventually verify:
 - ADR 0104's ABI 1.22 exact cyclic initialization, immutable self-slot
   constants, closed iteration constructor, and constant-size
   homogeneous/strided map proofs;
+- ADR 0114's ABI 1.23/2.1 exact Unicode-scalar Text-view adapter, immutable
+  prior descriptors, and default/production profile negotiation;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

@@ -238,6 +238,8 @@ semantics without C undefined behavior, and is invoked through `pop transpile
   bounded stress, and stale-token rejection;
 - ADR 0104 defines additive ABI 1.22 cyclic-site and native-iteration
   constructors plus closed constant-size layout families;
+- ADR 0114 defines additive ABI 1.23/2.1 validated Unicode-scalar Text-view
+  access while keeping prior descriptors immutable;
 - ADR 0106 supplies verified `Pop.Standard` to private editor analysis and
   permits exact local `Pop.Ffi` generated Modules to consume uniquely
   target-owned verified callback metadata without claiming complete Workspace

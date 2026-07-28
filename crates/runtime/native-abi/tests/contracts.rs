@@ -6,15 +6,16 @@ use pop_runtime_native_abi::{
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
     ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, AllocationSiteDescriptorAbi, CodecEventStatus,
     CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
-    ITERATION_MAKE_SYMBOL, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, symbol,
+    ITERATION_MAKE_SYMBOL, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TEXT_VIEW_GET_RUNE_SYMBOL,
+    TextViewGetRuneAbi, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 22);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 23);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
-    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 0);
+    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 1);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
     assert_eq!(ABI_SUPPORT_SYMBOL, "pop_rt_supports_abi");
     assert_eq!(GC_SAFE_POINT_V2_SYMBOL, "pop_rt_gc_safe_point_v2");
@@ -124,7 +125,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 22);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 23);
 }
 
 #[test]
@@ -163,6 +164,12 @@ fn abi_one_twenty_two_layout_symbols_are_exact_and_distinct() {
         ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
         ITERATION_MAKE_SYMBOL
     );
+}
+
+#[test]
+fn abi_one_twenty_three_unicode_scalar_symbol_is_exact() {
+    assert_eq!(TEXT_VIEW_GET_RUNE_SYMBOL, "pop_rt_text_view_get_rune");
+    assert!(std::mem::size_of::<TextViewGetRuneAbi>() > 0);
 }
 
 #[test]

@@ -768,6 +768,10 @@ pub enum TypedExpressionKind {
         view: Box<TypedExpression>,
         index: Box<TypedExpression>,
     },
+    ViewGetRune {
+        view: Box<TypedExpression>,
+        index: Box<TypedExpression>,
+    },
     ViewMaterialize {
         kind: ViewKind,
         view: Box<TypedExpression>,
@@ -776,6 +780,12 @@ pub enum TypedExpressionKind {
     NumericConvert {
         value: Box<TypedExpression>,
         conversion: NumericConversionKind,
+    },
+    RuneFromCodePoint {
+        value: Box<TypedExpression>,
+    },
+    RuneCodePoint {
+        value: Box<TypedExpression>,
     },
 }
 

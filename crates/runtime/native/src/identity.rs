@@ -20,10 +20,12 @@ pub extern "C" fn pop_rt_abi_minor() -> u16 {
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_supports_abi(major: u16, minor: u16) -> u8 {
     #[cfg(feature = "production-generational")]
-    let supported = major == NATIVE_ABI_2_VERSION.major() && minor == NATIVE_ABI_2_VERSION.minor();
+    let supported = major == NATIVE_ABI_2_VERSION.major()
+        && matches!(minor, 0..=1)
+        && minor <= NATIVE_ABI_2_VERSION.minor();
     #[cfg(not(feature = "production-generational"))]
     let supported = major == NATIVE_ABI_1_VERSION.major()
-        && matches!(minor, 11..=22)
+        && matches!(minor, 11..=23)
         && minor <= NATIVE_ABI_1_VERSION.minor();
     u8::from(supported)
 }

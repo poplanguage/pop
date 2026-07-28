@@ -3950,6 +3950,33 @@ impl Verifier<'_> {
                     });
                 }
             }
+            HirExpressionKind::ViewGetRune { view, index } => {
+                self.verify_expression(view, visible);
+                self.verify_expression(index, visible);
+                let valid_view = matches!(
+                    self.arena.get(view.type_id()),
+                    Some(SemanticType::Builtin { definition, arguments })
+                        if *definition == pop_types::TEXT_VIEW_TYPE_ID && arguments.is_empty()
+                );
+                let rune = self.arena.source_type("Rune");
+                let nil = self.arena.source_type("nil");
+                let valid_result = matches!(
+                    self.arena.get(expression.type_id()),
+                    Some(SemanticType::Union(members))
+                        if members.len() == 2
+                            && rune.is_some_and(|rune| members.contains(&rune))
+                            && nil.is_some_and(|nil| members.contains(&nil))
+                );
+                if !valid_view
+                    || self.arena.source_type("Int") != Some(index.type_id())
+                    || !valid_result
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
             HirExpressionKind::ViewMaterialize {
                 kind,
                 view,
@@ -3972,6 +3999,35 @@ impl Verifier<'_> {
                     }
                 };
                 if !valid_view || !expected {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::RuneFromCodePoint { value } => {
+                self.verify_expression(value, visible);
+                let rune = self.arena.source_type("Rune");
+                let nil = self.arena.source_type("nil");
+                let valid_result = matches!(
+                    self.arena.get(expression.type_id()),
+                    Some(SemanticType::Union(members))
+                        if members.len() == 2
+                            && rune.is_some_and(|rune| members.contains(&rune))
+                            && nil.is_some_and(|nil| members.contains(&nil))
+                );
+                if self.arena.source_type("UInt32") != Some(value.type_id()) || !valid_result {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::RuneCodePoint { value } => {
+                self.verify_expression(value, visible);
+                if self.arena.source_type("Rune") != Some(value.type_id())
+                    || self.arena.source_type("UInt32") != Some(expression.type_id())
+                {
                     self.errors.push(HirVerificationError::InvalidType {
                         type_id: expression.type_id(),
                         span: expression.span(),
@@ -5831,6 +5887,7 @@ fn hir_supports_default_equality(arena: &TypeArena, type_id: TypeId) -> bool {
                 PrimitiveType::Nil
                 | PrimitiveType::Boolean
                 | PrimitiveType::Integer(_)
+                | PrimitiveType::Rune
                 | PrimitiveType::String,
             )
             | SemanticType::Class { .. }
@@ -6509,7 +6566,9 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
         | HirExpressionKind::CheckedNominalCast { value, .. } => {
             collect_cell_captures(value, written);
         }
-        HirExpressionKind::NumericConvert { value, .. } => {
+        HirExpressionKind::NumericConvert { value, .. }
+        | HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
             collect_cell_captures(value, written);
         }
         HirExpressionKind::ViewCreate { lender: value, .. }
@@ -6527,7 +6586,8 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
             collect_cell_captures(start, written);
             collect_cell_captures(length, written);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             collect_cell_captures(view, written);
             collect_cell_captures(index, written);
         }

@@ -1440,6 +1440,133 @@ fn ordinary_pop_bytes_inspection_and_endian_reads_are_portable() {
 }
 
 #[test]
+fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("backend crate is under the repository root");
+    let unicode_source =
+        std::fs::read_to_string(root.join("crates/libraries/standard/pop/src/unicode.pop"))
+            .expect("read Pop.Unicode source");
+    let (mir, types) = executable_modules(&[
+        ("src/unicode.pop", unicode_source.as_str()),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Unicode\n\
+             public function inspect(text: String): Int?\n\
+                 local ascii = Text.get(text, 1)?\n\
+                 local twoByte = Text.get(text, 2)?\n\
+                 local threeByte = Text.get(text, 3)?\n\
+                 local fourByte = Text.get(text, 4)?\n\
+                 local final = Text.get(Text.slice(text, 2, 4), 4)?\n\
+                 if Unicode.codePoint(ascii) ~= 65 or Unicode.codePoint(twoByte) ~= 233 or Unicode.codePoint(threeByte) ~= 20013 or Unicode.codePoint(fourByte) ~= 128512 or Unicode.codePoint(final) ~= 122 then\n\
+                     return 1\n\
+                 end\n\
+                 local zeroIndex: Rune? = Text.get(text, 0)\n\
+                 local negativeIndex: Rune? = Text.get(text, -1)\n\
+                 local pastEnd: Rune? = Text.get(text, 6)\n\
+                 if zeroIndex ~= nil or negativeIndex ~= nil or pastEnd ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local low = Unicode.fromCodePoint(0)?\n\
+                 local beforeSurrogate = Unicode.fromCodePoint(55295)?\n\
+                 local afterSurrogate = Unicode.fromCodePoint(57344)?\n\
+                 local maximum = Unicode.fromCodePoint(1114111)?\n\
+                 if Unicode.codePoint(low) ~= 0 or Unicode.codePoint(beforeSurrogate) ~= 55295 or Unicode.codePoint(afterSurrogate) ~= 57344 or Unicode.codePoint(maximum) ~= 1114111 then\n\
+                     return 3\n\
+                 end\n\
+                 if Unicode.fromCodePoint(55296) ~= nil or Unicode.fromCodePoint(57343) ~= nil or Unicode.fromCodePoint(1114112) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local upper = Unicode.fromCodePoint(65)?\n\
+                 local lower = Unicode.fromCodePoint(122)?\n\
+                 local digit = Unicode.fromCodePoint(57)?\n\
+                 local space = Unicode.fromCodePoint(32)?\n\
+                 if not isAscii(upper) or not isAsciiLetter(upper) or not isAsciiDigit(digit) or not isAsciiAlphanumeric(lower) or not isAsciiWhitespace(space) then\n\
+                     return 5\n\
+                 end\n\
+                 if Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiLower(fourByte) ~= fourByte then\n\
+                     return 6\n\
+                 end\n\
+                 local asciiMaximum = Unicode.fromCodePoint(127)?\n\
+                 local beyondAscii = Unicode.fromCodePoint(128)?\n\
+                 if not isAscii(low) or not isAscii(asciiMaximum) or isAscii(beyondAscii) then\n\
+                     return 7\n\
+                 end\n\
+                 local beforeUpper = Unicode.fromCodePoint(64)?\n\
+                 local upperEnd = Unicode.fromCodePoint(90)?\n\
+                 local afterUpper = Unicode.fromCodePoint(91)?\n\
+                 local beforeLower = Unicode.fromCodePoint(96)?\n\
+                 local lowerStart = Unicode.fromCodePoint(97)?\n\
+                 local afterLower = Unicode.fromCodePoint(123)?\n\
+                 if isAsciiLetter(beforeUpper) or not isAsciiLetter(upper) or not isAsciiLetter(upperEnd) or isAsciiLetter(afterUpper) or isAsciiLetter(beforeLower) or not isAsciiLetter(lowerStart) or not isAsciiLetter(lower) or isAsciiLetter(afterLower) then\n\
+                     return 8\n\
+                 end\n\
+                 local beforeDigit = Unicode.fromCodePoint(47)?\n\
+                 local digitStart = Unicode.fromCodePoint(48)?\n\
+                 local afterDigit = Unicode.fromCodePoint(58)?\n\
+                 if isAsciiDigit(beforeDigit) or not isAsciiDigit(digitStart) or not isAsciiDigit(digit) or isAsciiDigit(afterDigit) then\n\
+                     return 9\n\
+                 end\n\
+                 if isAsciiAlphanumeric(beforeDigit) or not isAsciiAlphanumeric(digitStart) or not isAsciiAlphanumeric(digit) or isAsciiAlphanumeric(afterDigit) or isAsciiAlphanumeric(beforeUpper) or not isAsciiAlphanumeric(upper) or not isAsciiAlphanumeric(upperEnd) or isAsciiAlphanumeric(afterUpper) or isAsciiAlphanumeric(beforeLower) or not isAsciiAlphanumeric(lowerStart) or not isAsciiAlphanumeric(lower) or isAsciiAlphanumeric(afterLower) then\n\
+                     return 10\n\
+                 end\n\
+                 local beforeTab = Unicode.fromCodePoint(8)?\n\
+                 local tab = Unicode.fromCodePoint(9)?\n\
+                 local carriageReturn = Unicode.fromCodePoint(13)?\n\
+                 local afterCarriageReturn = Unicode.fromCodePoint(14)?\n\
+                 local unitSeparator = Unicode.fromCodePoint(31)?\n\
+                 local afterSpace = Unicode.fromCodePoint(33)?\n\
+                 if isAsciiWhitespace(beforeTab) or not isAsciiWhitespace(tab) or not isAsciiWhitespace(carriageReturn) or isAsciiWhitespace(afterCarriageReturn) or isAsciiWhitespace(unitSeparator) or not isAsciiWhitespace(space) or isAsciiWhitespace(afterSpace) then\n\
+                     return 11\n\
+                 end\n\
+                 if toAsciiLower(beforeUpper) ~= beforeUpper or Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiLower(upperEnd)) ~= 122 or toAsciiLower(afterUpper) ~= afterUpper or toAsciiLower(beyondAscii) ~= beyondAscii then\n\
+                     return 12\n\
+                 end\n\
+                 if toAsciiUpper(beforeLower) ~= beforeLower or Unicode.codePoint(toAsciiUpper(lowerStart)) ~= 65 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiUpper(afterLower) ~= afterLower or toAsciiUpper(beyondAscii) ~= beyondAscii then\n\
+                     return 13\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Unicode consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Unicode MIR");
+
+    assert_eq!(
+        interpreter
+            .call(entry, &[MirValue::String("Aé中😀z".to_owned())])
+            .expect("portable Unicode execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn rune_call_boundaries_reject_numeric_and_invalid_scalar_values() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function codePoint(value: Rune): UInt32\n\
+             return Unicode.codePoint(value)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Rune MIR");
+
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[MirValue::Rune(65)]),
+        Ok(vec![integer("65", IntegerKind::UInt32)])
+    );
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[integer("65", IntegerKind::UInt32)]),
+        Err(ExecutionError::TypeMismatch)
+    );
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[MirValue::Rune(0xD800)]),
+        Err(ExecutionError::TypeMismatch)
+    );
+}
+
+#[test]
 fn cleanup_resume_preserves_the_original_unwind_reason() {
     let mir = parse_mir_dump(concat!(
         "mir bubble b0 namespace n0\n",

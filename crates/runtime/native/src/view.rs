@@ -184,6 +184,61 @@ pub extern "C" fn pop_rt_bytes_view_get(
 }
 
 #[unsafe(no_mangle)]
+/// Reads one validated Unicode scalar from a compiler-proven Text view.
+///
+/// # Safety
+///
+/// When non-null, `output` must point to writable storage for one `u32`.
+pub unsafe extern "C" fn pop_rt_text_view_get_rune(
+    reference: u64,
+    offset: u64,
+    byte_length: u64,
+    scalar_length: u64,
+    index: i64,
+    output: *mut u32,
+) -> u8 {
+    if output.is_null() {
+        return 0;
+    }
+    let Some(relative) = index
+        .checked_sub(1)
+        .and_then(|index| u64::try_from(index).ok())
+        .filter(|index| *index < scalar_length)
+    else {
+        return 0;
+    };
+    let Some(bytes) = lock_abi_runtime()
+        .ok()
+        .and_then(|runtime| utf8_string_bytes(&runtime, ManagedReference::new(reference)))
+    else {
+        return 0;
+    };
+    let Some(end) = offset
+        .checked_add(byte_length)
+        .and_then(|end| usize::try_from(end).ok())
+        .filter(|end| *end <= bytes.len())
+    else {
+        return 0;
+    };
+    let Some(start) = usize::try_from(offset).ok().filter(|start| *start <= end) else {
+        return 0;
+    };
+    let Some(value) = std::str::from_utf8(&bytes[start..end])
+        .ok()
+        .and_then(|text| {
+            usize::try_from(relative)
+                .ok()
+                .and_then(|index| text.chars().nth(index))
+        })
+    else {
+        return 0;
+    };
+    // SAFETY: the function contract requires writable storage for one `u32`.
+    unsafe { output.write(u32::from(value)) };
+    1
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_bytes_view_materialize(reference: u64, offset: u64, length: u64) -> u64 {
     let Ok(length) = usize::try_from(length) else {
         return 0;
@@ -250,27 +305,4 @@ const fn invalid_range() -> ViewRange {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{checked_range, scalar_byte_offset};
-
-    #[test]
-    fn checked_ranges_are_one_based_and_overflow_safe() {
-        assert_eq!(checked_range(4, 1, 4), Some((0, 4)));
-        assert_eq!(checked_range(4, 5, 0), Some((4, 0)));
-        assert_eq!(checked_range(4, 0, 0), None);
-        assert_eq!(checked_range(4, 6, 0), None);
-        assert_eq!(checked_range(4, 4, 2), None);
-        assert_eq!(checked_range(4, 1, -1), None);
-        assert_eq!(checked_range(4, 2, i64::MAX), None);
-    }
-
-    #[test]
-    fn scalar_offsets_never_split_utf8() {
-        let text = "AéZ";
-        assert_eq!(scalar_byte_offset(text, 0), Some(0));
-        assert_eq!(scalar_byte_offset(text, 1), Some(1));
-        assert_eq!(scalar_byte_offset(text, 2), Some(3));
-        assert_eq!(scalar_byte_offset(text, 3), Some(4));
-        assert_eq!(scalar_byte_offset(text, 4), None);
-    }
-}
+mod tests;

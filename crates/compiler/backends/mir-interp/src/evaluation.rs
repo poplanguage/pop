@@ -164,6 +164,9 @@ pub(crate) fn require_runtime_numeric_types(
             Some(SemanticType::Primitive(PrimitiveType::Float64)) => {
                 matches!(&value.visible, MirValue::Float(float) if float.kind() == FloatKind::Float64)
             }
+            Some(SemanticType::Primitive(PrimitiveType::Rune)) => {
+                matches!(&value.visible, MirValue::Rune(code_point) if char::from_u32(*code_point).is_some())
+            }
             _ => true,
         };
         if !matches {
@@ -309,6 +312,7 @@ pub(crate) fn pop_value_equal(left: &MirValue, right: &MirValue) -> bool {
         (MirValue::Nil, MirValue::Nil) => true,
         (MirValue::Boolean(left), MirValue::Boolean(right)) => left == right,
         (MirValue::Integer(left), MirValue::Integer(right)) => left == right,
+        (MirValue::Rune(left), MirValue::Rune(right)) => left == right,
         (
             MirValue::Enum {
                 definition: left_definition,

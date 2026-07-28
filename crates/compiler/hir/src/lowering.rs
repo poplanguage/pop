@@ -1611,6 +1611,10 @@ fn lower_expression(
             view: Box::new(lower_expression(view, interface_slots)),
             index: Box::new(lower_expression(index, interface_slots)),
         },
+        TypedExpressionKind::ViewGetRune { view, index } => HirExpressionKind::ViewGetRune {
+            view: Box::new(lower_expression(view, interface_slots)),
+            index: Box::new(lower_expression(index, interface_slots)),
+        },
         TypedExpressionKind::ViewMaterialize {
             kind,
             view,
@@ -1626,6 +1630,12 @@ fn lower_expression(
                 conversion: *conversion,
             }
         }
+        TypedExpressionKind::RuneFromCodePoint { value } => HirExpressionKind::RuneFromCodePoint {
+            value: Box::new(lower_expression(value, interface_slots)),
+        },
+        TypedExpressionKind::RuneCodePoint { value } => HirExpressionKind::RuneCodePoint {
+            value: Box::new(lower_expression(value, interface_slots)),
+        },
     };
     HirExpression {
         kind,
@@ -2295,7 +2305,9 @@ fn first_unknown_interface_expression(
         | TypedExpressionKind::CheckedNominalCast { value, .. } => {
             first_unknown_interface_expression(value, slots)
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => {
             first_unknown_interface_expression(value, slots)
         }
         TypedExpressionKind::ViewCreate { lender, .. }
@@ -2311,7 +2323,8 @@ fn first_unknown_interface_expression(
         } => first_unknown_interface_expression(view, slots)
             .or_else(|| first_unknown_interface_expression(start, slots))
             .or_else(|| first_unknown_interface_expression(length, slots)),
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             first_unknown_interface_expression(view, slots)
                 .or_else(|| first_unknown_interface_expression(index, slots))
         }
@@ -2722,9 +2735,9 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         | TypedExpressionKind::CheckedNominalCast { value, .. } => {
             first_compile_time_only_expression(value)
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
-            first_compile_time_only_expression(value)
-        }
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => first_compile_time_only_expression(value),
         TypedExpressionKind::ViewCreate { lender, .. }
         | TypedExpressionKind::ViewLength { view: lender, .. }
         | TypedExpressionKind::ViewMaterialize { view: lender, .. } => {
@@ -2738,7 +2751,8 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         } => first_compile_time_only_expression(view)
             .or_else(|| first_compile_time_only_expression(start))
             .or_else(|| first_compile_time_only_expression(length)),
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             first_compile_time_only_expression(view)
                 .or_else(|| first_compile_time_only_expression(index))
         }

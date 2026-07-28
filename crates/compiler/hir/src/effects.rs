@@ -1284,6 +1284,8 @@ fn visit_expression_children_mut(
         | HirExpressionKind::InterfaceUpcast { value: base, .. }
         | HirExpressionKind::CheckedNominalCast { value: base, .. }
         | HirExpressionKind::NumericConvert { value: base, .. }
+        | HirExpressionKind::RuneFromCodePoint { value: base }
+        | HirExpressionKind::RuneCodePoint { value: base }
         | HirExpressionKind::StringFormat { value: base, .. }
         | HirExpressionKind::Unary { operand: base, .. }
         | HirExpressionKind::OptionalPropagate { optional: base, .. }
@@ -1297,6 +1299,7 @@ fn visit_expression_children_mut(
         | HirExpressionKind::ListGet { list: array, index }
         | HirExpressionKind::ListGetChecked { list: array, index }
         | HirExpressionKind::ViewGetByte { view: array, index }
+        | HirExpressionKind::ViewGetRune { view: array, index }
         | HirExpressionKind::TableGet {
             table: array,
             key: index,

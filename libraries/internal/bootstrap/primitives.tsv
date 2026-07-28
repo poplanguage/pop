@@ -15,5 +15,6 @@ Float32	Float32	Ieee754Binary32
 Float64	Float64	Ieee754Binary64
 Float	Float64	Ieee754Binary64
 Byte	UInt8	UnsignedInteger8
+Rune	Rune	UnicodeScalar
 String	String	Utf8String
 Never	Never	Uninhabited

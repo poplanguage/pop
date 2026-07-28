@@ -1460,6 +1460,13 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             dump_expression(output, index, arena);
             output.push(')');
         }
+        HirExpressionKind::ViewGetRune { view, index } => {
+            output.push_str("view.get-rune(");
+            dump_expression(output, view, arena);
+            output.push_str(", ");
+            dump_expression(output, index, arena);
+            output.push(')');
+        }
         HirExpressionKind::ViewMaterialize {
             kind,
             view,
@@ -1476,6 +1483,16 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
         }
         HirExpressionKind::NumericConvert { value, conversion } => {
             let _ = write!(output, "convert.{}(", conversion_text(*conversion));
+            dump_expression(output, value, arena);
+            output.push(')');
+        }
+        HirExpressionKind::RuneFromCodePoint { value } => {
+            output.push_str("rune.from-code-point(");
+            dump_expression(output, value, arena);
+            output.push(')');
+        }
+        HirExpressionKind::RuneCodePoint { value } => {
+            output.push_str("rune.code-point(");
             dump_expression(output, value, arena);
             output.push(')');
         }

@@ -1862,6 +1862,9 @@ fn dump_callable_or_schema_instruction(
         MirInstructionKind::ViewGetByte { view, index } => {
             let _ = write!(output, "viewGetByte v{} v{}", view.raw(), index.raw());
         }
+        MirInstructionKind::ViewGetRune { view, index } => {
+            let _ = write!(output, "viewGetRune v{} v{}", view.raw(), index.raw());
+        }
         MirInstructionKind::ViewMaterialize {
             kind,
             view,
@@ -1877,6 +1880,12 @@ fn dump_callable_or_schema_instruction(
         }
         MirInstructionKind::ViewEnd { borrow_lifetime } => {
             let _ = write!(output, "viewEnd lifetime#{}", borrow_lifetime.raw());
+        }
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            let _ = write!(output, "runeFromCodePoint v{}", value.raw());
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            let _ = write!(output, "runeCodePoint v{}", value.raw());
         }
         MirInstructionKind::CaptureCellAllocate {
             binding,
