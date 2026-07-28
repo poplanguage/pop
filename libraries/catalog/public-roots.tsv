@@ -6,7 +6,7 @@ Archive	official	core/portable	planned
 Atomic	standard/platform	system/network/security	planned
 Audio	official/platform	application/media/science	planned
 Benchmark	tooling	data/observability/tooling	planned
-Bytes	standard	core/portable	prototype
+Bytes	standard	core/portable	implemented
 Channel	standard	system/network/security	planned
 Cli	official/tooling	data/observability/tooling	bootstrap
 Cluster	official/platform	system/network/security	planned

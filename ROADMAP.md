@@ -221,6 +221,9 @@ Post-baseline library work has begun without widening the release foundation:
   complete optional decoding, including padding/unused-bit rejection, in
   ordinary Pop with interpreter/LLVM execution and no compiler/native name
   recognition.
+- [x] Implement ADR 0122 checked equal-length bytewise AND, OR, and XOR plus
+  complete bytewise NOT as ordinary Pop with interpreter/LLVM execution and no
+  compiler/native name recognition.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

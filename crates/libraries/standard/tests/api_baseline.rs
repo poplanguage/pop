@@ -37,7 +37,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 165);
+    assert_eq!(baseline.entries().len(), 169);
 
     let prelude_names = baseline
         .entries()
@@ -61,7 +61,7 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
         .filter(|entry| entry.status() == ApiStatus::Prototype)
         .map(|entry| entry.identity())
         .collect::<Vec<_>>();
-    assert_eq!(prototypes.len(), 73);
+    assert_eq!(prototypes.len(), 61);
     assert_eq!(
         &prototypes[..4],
         ["namespace:0", "namespace:1", "function:0", "function:1"]
@@ -187,6 +187,10 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Bytes", "base64Decode"),
             ("Pop.Bytes", "base32Encode"),
             ("Pop.Bytes", "base32Decode"),
+            ("Pop.Bytes", "bitwiseAnd"),
+            ("Pop.Bytes", "bitwiseOr"),
+            ("Pop.Bytes", "bitwiseXor"),
+            ("Pop.Bytes", "bitwiseNot"),
         ]
     );
 }

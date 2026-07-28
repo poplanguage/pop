@@ -2,7 +2,7 @@ schemaVersion	1
 publicRoot	package	deliveryGroup	status	authority
 Actor	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-security-catalog.md
 Atomic	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-security-catalog.md
-Bytes	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
+Bytes	Pop.Standard	core	implemented	architecture/22.1-core-and-portable-library-catalog.md
 Channel	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-security-catalog.md
 Codec	Pop.Standard	formats	partial	architecture/22.1-core-and-portable-library-catalog.md
 Crypto	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-security-catalog.md

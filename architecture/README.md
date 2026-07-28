@@ -225,6 +225,8 @@ transplanted into a Luau-shaped file.
   strict decoding as ordinary portable Pop source.
 - ADR 0121 implements canonical padded uppercase standard-alphabet base32
   encoding and strict decoding as ordinary portable Pop source.
+- ADR 0122 completes the portable Bytes foundation with checked equal-length
+  bitwise AND, OR, XOR, and bytewise NOT transforms in ordinary Pop source.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

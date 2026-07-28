@@ -1803,6 +1803,122 @@ fn portable_base32_codec_matches_canonical_vectors_and_rejects_malformed_text() 
 }
 
 #[test]
+fn portable_bytes_bitwise_transforms_cover_complete_bytes_and_checked_lengths() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local leftBuffer = Bytes.create()\n\
+                 Bytes.write(leftBuffer, 0)\n\
+                 Bytes.write(leftBuffer, 170)\n\
+                 Bytes.write(leftBuffer, 240)\n\
+                 local rightBuffer = Bytes.create()\n\
+                 Bytes.write(rightBuffer, 255)\n\
+                 Bytes.write(rightBuffer, 204)\n\
+                 Bytes.write(rightBuffer, 15)\n\
+                 local leftBytes = Bytes.toBytes(leftBuffer)\n\
+                 local rightBytes = Bytes.toBytes(rightBuffer)\n\
+                 local left = Bytes.view(leftBytes)\n\
+                 local right = Bytes.view(rightBytes)\n\
+                 if local value = bitwiseAnd(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 1) ~= 0 or (Bytes.get(view, 2) ?? 0) ~= 136 or (Bytes.get(view, 3) ?? 1) ~= 0 then\n\
+                         return 1\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local value = bitwiseOr(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 255 or (Bytes.get(view, 2) ?? 0) ~= 238 or (Bytes.get(view, 3) ?? 0) ~= 255 then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if local value = bitwiseXor(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 255 or (Bytes.get(view, 2) ?? 0) ~= 102 or (Bytes.get(view, 3) ?? 0) ~= 255 then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 local inverted = bitwiseNot(left)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if (Bytes.get(invertedView, 1) ?? 0) ~= 255 or (Bytes.get(invertedView, 2) ?? 0) ~= 85 or (Bytes.get(invertedView, 3) ?? 0) ~= 15 then\n\
+                     return 4\n\
+                 end\n\
+                 local shortBytes = Text.encodeUtf8(\"x\")\n\
+                 if bitwiseAnd(left, Bytes.view(shortBytes)) ~= nil or bitwiseOr(left, Bytes.view(shortBytes)) ~= nil or bitwiseXor(left, Bytes.view(shortBytes)) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("bitwise consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified bitwise MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("bitwise execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_bytes_bitwise_transforms_preserve_empty_length() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local firstBytes = Text.encodeUtf8(\"\")\n\
+                 local secondBytes = Text.encodeUtf8(\"\")\n\
+                 local first = Bytes.view(firstBytes)\n\
+                 local second = Bytes.view(secondBytes)\n\
+                 local inverted = bitwiseNot(first)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if Bytes.length(invertedView) ~= 0 then\n\
+                     return 1\n\
+                 end\n\
+                 if local combined = bitwiseXor(first, second) then\n\
+                     local combinedView = Bytes.view(combined)\n\
+                     if Bytes.length(combinedView) ~= 0 then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("empty bitwise consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified empty bitwise MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("empty bitwise execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

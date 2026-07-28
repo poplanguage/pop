@@ -1900,6 +1900,53 @@ fn portable_base32_codec_follows_adr_0121_without_a_native_duplicate() {
 }
 
 #[test]
+fn portable_bytes_bitwise_transforms_follow_adr_0122_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0122-portable-bytes-bitwise-transforms.md"),
+    );
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let implementations = [
+        call_checking.as_str(),
+        hir.as_str(),
+        mir.as_str(),
+        native.as_str(),
+        native_symbols.as_str(),
+    ];
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["bitwiseAnd", "bitwiseOr", "bitwiseXor", "bitwiseNot"] {
+        assert_eq!(
+            bytes
+                .matches(&format!("public function {function}"))
+                .count(),
+            1
+        );
+        for implementation in implementations {
+            assert!(!implementation.contains(function));
+        }
+    }
+    assert!(bytes.contains("if length ~= Bytes.length(right) then"));
+    assert!(bytes.contains("Byte(255 - byte)"));
+    let public_roots = read_required(root.join("libraries/catalog/public-roots.tsv"));
+    let essential = read_required(root.join("libraries/catalog/essential-libraries.tsv"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    assert!(public_roots.contains("Bytes\tstandard\tcore/portable\timplemented"));
+    assert!(essential.contains("Bytes\tPop.Standard\tcore\timplemented\t"));
+    assert!(
+        baseline
+            .lines()
+            .filter(|line| line.contains("\tPop.Bytes\t"))
+            .all(|line| line.contains("\timplemented\t"))
+    );
+}
+
+#[test]
 fn standard_bootstrap_preserves_the_adr_0058_prelude() {
     let path = repository_root().join("libraries/standard/bootstrap/prelude-types.tsv");
     let metadata = fs::read_to_string(&path).expect("read Standard prelude metadata");
@@ -2164,7 +2211,9 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
     .into_iter()
     .collect();
     for public_root in PUBLIC_LIBRARY_ROOTS {
-        let expected = if ["Bytes", "Math", "Sequence", "Text"].contains(public_root) {
+        let expected = if *public_root == "Bytes" {
+            "implemented"
+        } else if ["Math", "Sequence", "Text"].contains(public_root) {
             "prototype"
         } else if bootstrap.contains(public_root) {
             "bootstrap"

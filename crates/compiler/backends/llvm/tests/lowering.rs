@@ -4599,6 +4599,58 @@ fn emitted_llvm_executes_portable_base32_codec() {
 }
 
 #[test]
+fn emitted_llvm_executes_portable_bytes_bitwise_transforms() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local leftBuffer = Bytes.create()\n\
+                 Bytes.write(leftBuffer, 170)\n\
+                 Bytes.write(leftBuffer, 240)\n\
+                 local rightBuffer = Bytes.create()\n\
+                 Bytes.write(rightBuffer, 204)\n\
+                 Bytes.write(rightBuffer, 15)\n\
+                 local leftBytes = Bytes.toBytes(leftBuffer)\n\
+                 local rightBytes = Bytes.toBytes(rightBuffer)\n\
+                 local left = Bytes.view(leftBytes)\n\
+                 local right = Bytes.view(rightBytes)\n\
+                 if local combined = bitwiseXor(left, right) then\n\
+                     local view = Bytes.view(combined)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 102 or (Bytes.get(view, 2) ?? 0) ~= 255 then\n\
+                         return 1\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 local inverted = bitwiseNot(left)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if (Bytes.get(invertedView, 1) ?? 0) ~= 85 or (Bytes.get(invertedView, 2) ?? 0) ~= 15 then\n\
+                     return 2\n\
+                 end\n\
+                 if bitwiseAnd(left, invertedView) == nil or bitwiseOr(left, invertedView) == nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-bytes-bitwise");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Bytes bitwise transforms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_preserves_portable_power_overflow() {
     let module = native_modules(&[
         (
