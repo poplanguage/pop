@@ -21,11 +21,15 @@ pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 /// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
 pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.23.
+/// Returns the native C symbol for an operation implemented through ABI 1.25.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
 #[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the exhaustive operation-to-symbol contract is clearest as one closed match"
+)]
 pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
     match operation {
         RuntimeOperation::AllocateObject => Some("pop_rt_allocate_object"),
@@ -50,6 +54,15 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ListGetChecked => Some("pop_rt_list_get_checked"),
         RuntimeOperation::ListSet => Some("pop_rt_list_set"),
         RuntimeOperation::ListAdd => Some("pop_rt_list_add"),
+        RuntimeOperation::ByteBufferCreate => Some("pop_rt_byte_buffer_create"),
+        RuntimeOperation::ByteBufferLength => Some("pop_rt_byte_buffer_length"),
+        RuntimeOperation::ByteBufferReserve => Some("pop_rt_byte_buffer_reserve"),
+        RuntimeOperation::ByteBufferClear => Some("pop_rt_byte_buffer_clear"),
+        RuntimeOperation::ByteBufferWriteByte => Some("pop_rt_byte_buffer_write_byte"),
+        RuntimeOperation::ByteBufferWriteBytes => Some("pop_rt_byte_buffer_write_bytes"),
+        RuntimeOperation::ByteBufferWriteView => Some("pop_rt_byte_buffer_write_view"),
+        RuntimeOperation::ByteBufferWriteInteger => Some("pop_rt_byte_buffer_write_integer"),
+        RuntimeOperation::ByteBufferMaterialize => Some("pop_rt_byte_buffer_materialize"),
         RuntimeOperation::RangeCreate => Some("pop_rt_range_create"),
         RuntimeOperation::IterationAcquire => Some("pop_rt_iteration_acquire"),
         RuntimeOperation::IterationNext => Some("pop_rt_iteration_next"),

@@ -22,7 +22,7 @@ pub struct ViewRange {
 
 #[repr(C)]
 pub struct OptionalByte {
-    present: bool,
+    present: u8,
     value: u8,
 }
 
@@ -157,13 +157,13 @@ pub extern "C" fn pop_rt_bytes_view_get(
         .and_then(|index| u64::try_from(index).ok())
     else {
         return OptionalByte {
-            present: false,
+            present: 0,
             value: 0,
         };
     };
     if relative >= length {
         return OptionalByte {
-            present: false,
+            present: 0,
             value: 0,
         };
     }
@@ -178,7 +178,7 @@ pub extern "C" fn pop_rt_bytes_view_get(
             .is_ok()
     });
     OptionalByte {
-        present,
+        present: u8::from(present),
         value: value[0],
     }
 }

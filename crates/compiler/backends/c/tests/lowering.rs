@@ -100,6 +100,27 @@ fn experimental_c_backend_rejects_complete_view_mir_before_emission() {
 }
 
 #[test]
+fn experimental_c_backend_rejects_reusable_byte_buffers_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function build(): Bytes\n\
+             local buffer = Bytes.withCapacity(8)\n\
+             Bytes.writeUInt32BigEndian(buffer, 16909060)\n\
+             return Bytes.toBytes(buffer)\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("byteBufferCreate"), "{dump}");
+    assert!(dump.contains("byteBufferWriteInteger"), "{dump}");
+    assert!(dump.contains("byteBufferMaterialize"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn experimental_c_backend_rejects_rune_and_text_scalar_mir_without_a_fallback() {
     let (mir, types) = lower(
         "namespace Main\n\

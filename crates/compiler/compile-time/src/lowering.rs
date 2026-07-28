@@ -564,6 +564,17 @@ fn unsupported_compile_time_construct(
         | TypedExpressionKind::ViewMaterialize { .. } => {
             UnsupportedCompileTimeConstruct::ResultlessCall
         }
+        TypedExpressionKind::ByteBufferCreate { .. }
+        | TypedExpressionKind::ByteBufferLength { .. }
+        | TypedExpressionKind::ByteBufferReserve { .. }
+        | TypedExpressionKind::ByteBufferClear { .. }
+        | TypedExpressionKind::ByteBufferWriteByte { .. }
+        | TypedExpressionKind::ByteBufferWriteBytes { .. }
+        | TypedExpressionKind::ByteBufferWriteView { .. }
+        | TypedExpressionKind::ByteBufferWriteInteger { .. }
+        | TypedExpressionKind::ByteBufferMaterialize { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
         TypedExpressionKind::RuneFromCodePoint { .. }
         | TypedExpressionKind::RuneCodePoint { .. } => {
             UnsupportedCompileTimeConstruct::ResultlessCall

@@ -16,11 +16,11 @@ use pop_foundation::{
 };
 use pop_resolve::Visibility;
 use pop_types::{
-    AttributeConstant, AttributeDefinition, ClassDefinition, ClassFieldDefault,
+    AttributeConstant, AttributeDefinition, ByteOrder, ClassDefinition, ClassFieldDefault,
     ClassMethodDefinition, ClassMethodDispatch, EffectSummary, EnumDefinition, ErrorDefinition,
-    FfiCallbackBindingContract, FfiCallbackThreadPolicy, FieldDefault, FloatValue, IntegerValue,
-    InterfaceDefinition, NumericConversionKind, RecordDefinition, StringFormatKind, TypeArena,
-    TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator, UnionDefinition,
+    FfiCallbackBindingContract, FfiCallbackThreadPolicy, FieldDefault, FloatValue, IntegerKind,
+    IntegerValue, InterfaceDefinition, NumericConversionKind, RecordDefinition, StringFormatKind,
+    TypeArena, TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator, UnionDefinition,
 };
 use serde::{Deserialize, Serialize};
 
@@ -3458,8 +3458,29 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
                 remap_aggregate_expression(capacity, instances);
             }
         }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                remap_aggregate_expression(capacity, instances);
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             remap_aggregate_expression(list, instances);
+            remap_aggregate_expression(value, instances);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            remap_aggregate_expression(buffer, instances);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            remap_aggregate_expression(buffer, instances);
             remap_aggregate_expression(value, instances);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -4087,8 +4108,29 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
                 collect_expression_calls(capacity, calls);
             }
         }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                collect_expression_calls(capacity, calls);
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             collect_expression_calls(list, calls);
+            collect_expression_calls(value, calls);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            collect_expression_calls(buffer, calls);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            collect_expression_calls(buffer, calls);
             collect_expression_calls(value, calls);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -4845,8 +4887,29 @@ fn specialize_expression(
                 specialize_expression(capacity, substitutions, instances, arena)?;
             }
         }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                specialize_expression(capacity, substitutions, instances, arena)?;
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             specialize_expression(list, substitutions, instances, arena)?;
+            specialize_expression(value, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            specialize_expression(buffer, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            specialize_expression(buffer, substitutions, instances, arena)?;
             specialize_expression(value, substitutions, instances, arena)?;
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -5666,6 +5729,42 @@ pub enum HirExpressionKind {
     ListAdd {
         list: Box<HirExpression>,
         value: Box<HirExpression>,
+    },
+    ByteBufferCreate {
+        capacity: Option<Box<HirExpression>>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: Box<HirExpression>,
+    },
+    ByteBufferReserve {
+        buffer: Box<HirExpression>,
+        additional_capacity: Box<HirExpression>,
+    },
+    ByteBufferClear {
+        buffer: Box<HirExpression>,
+    },
+    ByteBufferWriteByte {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteBytes {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteView {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteInteger {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+        kind: IntegerKind,
+        order: ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
     },
     RangeCreate {
         first: Box<HirExpression>,

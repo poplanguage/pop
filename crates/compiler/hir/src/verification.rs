@@ -1809,6 +1809,39 @@ impl Verifier<'_> {
             })
     }
 
+    fn verify_byte_buffer_write(
+        &mut self,
+        buffer: &HirExpression,
+        value: &HirExpression,
+        expected_value: &str,
+        expression: &HirExpression,
+        visible: &BTreeSet<LocalId>,
+    ) {
+        self.verify_expression(buffer, visible);
+        self.verify_expression(value, visible);
+        let expected_value_type = match expected_value {
+            "Bytes" => self.arena.find(&SemanticType::Builtin {
+                definition: pop_types::BYTES_TYPE_ID,
+                arguments: Vec::new(),
+            }),
+            "Bytes.View" => self.arena.find(&SemanticType::Builtin {
+                definition: pop_types::BYTES_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            }),
+            _ => self.arena.source_type(expected_value),
+        };
+        if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+            || expected_value.is_empty()
+            || expected_value_type != Some(value.type_id())
+            || self.arena.source_type("nil") != Some(expression.type_id())
+        {
+            self.errors.push(HirVerificationError::InvalidType {
+                type_id: expression.type_id(),
+                span: expression.span(),
+            });
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn verify_statements(&mut self, statements: &[HirStatement], visible: &BTreeSet<LocalId>) {
         let mut visible = visible.clone();
@@ -2908,6 +2941,92 @@ impl Verifier<'_> {
                 }
                 if let Some(nil) = self.arena.source_type("nil") {
                     self.verify_expression_type(nil, expression);
+                }
+            }
+            HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+                if let Some(capacity) = capacity {
+                    self.verify_expression(capacity, visible);
+                    if let Some(integer) = self.arena.source_type("Int") {
+                        self.verify_expression_type(integer, capacity);
+                    }
+                }
+                if !self.is_builtin_type(expression.type_id(), "Bytes.Buffer", &[]) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferLength { buffer } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("Int") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferReserve {
+                buffer,
+                additional_capacity,
+            } => {
+                self.verify_expression(buffer, visible);
+                self.verify_expression(additional_capacity, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("Int") != Some(additional_capacity.type_id())
+                    || self.arena.source_type("nil") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferClear { buffer } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("nil") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Byte", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Bytes", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Bytes.View", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteInteger {
+                buffer,
+                value,
+                kind,
+                ..
+            } => {
+                let expected = match kind {
+                    pop_types::IntegerKind::UInt16 => "UInt16",
+                    pop_types::IntegerKind::UInt32 => "UInt32",
+                    pop_types::IntegerKind::UInt64 => "UInt64",
+                    _ => "",
+                };
+                self.verify_byte_buffer_write(buffer, value, expected, expression, visible);
+            }
+            HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || !self.is_builtin_type(expression.type_id(), "Bytes", &[])
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
                 }
             }
             HirExpressionKind::RangeCreate { first, last, step } => {
@@ -6412,14 +6531,31 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
             collect_cell_captures(initial_value, written);
         }
         HirExpressionKind::ArrayLength { array } => collect_cell_captures(array, written),
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 collect_cell_captures(capacity, written);
             }
         }
         HirExpressionKind::ListLength { list } => collect_cell_captures(list, written),
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            collect_cell_captures(buffer, written);
+        }
         HirExpressionKind::ListAdd { list, value } => {
             collect_cell_captures(list, written);
+            collect_cell_captures(value, written);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            collect_cell_captures(buffer, written);
             collect_cell_captures(value, written);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {

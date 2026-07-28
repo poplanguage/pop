@@ -66,6 +66,7 @@ pub struct ReferenceRuntimeAdapter {
     pins: BTreeMap<PinHandle, ManagedReference>,
     ffi_buffers: BTreeMap<ManagedReference, ReferenceFfiBuffer>,
     immutable_bytes: BTreeMap<ManagedReference, Vec<u8>>,
+    byte_buffers: BTreeMap<ManagedReference, Vec<u8>>,
     ffi_callbacks: BTreeMap<FfiCallbackRegistrationId, ReferenceFfiCallback>,
     ffi_callback_transitions: BTreeMap<FfiCallbackTransitionId, FfiCallbackRegistrationId>,
     next_reference: u64,
@@ -268,6 +269,106 @@ impl RuntimeAdapter for ReferenceRuntimeAdapter {
             .ok_or_else(RuntimeFailure::runtime_invariant)?;
         target.copy_from_slice(&payload[start..end]);
         Ok(())
+    }
+
+    fn allocate_byte_buffer(
+        &mut self,
+        type_id: RuntimeTypeId,
+        capacity: u64,
+    ) -> Result<ManagedReference, RuntimeFailure> {
+        let capacity =
+            usize::try_from(capacity).map_err(|_| RuntimeFailure::runtime_invariant())?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve(capacity)
+            .map_err(|_| RuntimeFailure::runtime_invariant())?;
+        let object_map = ObjectMap::scalar(0);
+        self.events.push(ReferenceRuntimeEvent::AllocateObject {
+            type_id,
+            object_map: object_map.clone(),
+        });
+        let reference = self.allocate_map(object_map);
+        self.byte_buffers.insert(reference, bytes);
+        Ok(reference)
+    }
+
+    fn byte_buffer_length(&self, buffer: ManagedReference) -> Result<u64, RuntimeFailure> {
+        self.byte_buffers
+            .get(&buffer)
+            .and_then(|buffer| u64::try_from(buffer.len()).ok())
+            .ok_or_else(RuntimeFailure::runtime_invariant)
+    }
+
+    fn byte_buffer_reserve(
+        &mut self,
+        buffer: ManagedReference,
+        additional: u64,
+    ) -> Result<(), RuntimeFailure> {
+        let additional =
+            usize::try_from(additional).map_err(|_| RuntimeFailure::runtime_invariant())?;
+        self.byte_buffers
+            .get_mut(&buffer)
+            .ok_or_else(RuntimeFailure::runtime_invariant)?
+            .try_reserve(additional)
+            .map_err(|_| RuntimeFailure::runtime_invariant())
+    }
+
+    fn byte_buffer_clear(&mut self, buffer: ManagedReference) -> Result<(), RuntimeFailure> {
+        self.byte_buffers
+            .get_mut(&buffer)
+            .ok_or_else(RuntimeFailure::runtime_invariant)?
+            .clear();
+        Ok(())
+    }
+
+    fn byte_buffer_append(
+        &mut self,
+        buffer: ManagedReference,
+        bytes: &[u8],
+    ) -> Result<(), RuntimeFailure> {
+        let target = self
+            .byte_buffers
+            .get_mut(&buffer)
+            .ok_or_else(RuntimeFailure::runtime_invariant)?;
+        target
+            .try_reserve(bytes.len())
+            .map_err(|_| RuntimeFailure::runtime_invariant())?;
+        target.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn byte_buffer_append_immutable_range(
+        &mut self,
+        buffer: ManagedReference,
+        bytes: ManagedReference,
+        offset: u64,
+        length: u64,
+    ) -> Result<(), RuntimeFailure> {
+        let offset = usize::try_from(offset).map_err(|_| RuntimeFailure::runtime_invariant())?;
+        let length = usize::try_from(length).map_err(|_| RuntimeFailure::runtime_invariant())?;
+        let source = self
+            .immutable_bytes
+            .get(&bytes)
+            .and_then(|bytes| {
+                offset
+                    .checked_add(length)
+                    .and_then(|end| bytes.get(offset..end))
+            })
+            .ok_or_else(RuntimeFailure::runtime_invariant)?
+            .to_vec();
+        self.byte_buffer_append(buffer, &source)
+    }
+
+    fn materialize_byte_buffer(
+        &mut self,
+        buffer: ManagedReference,
+    ) -> Result<ManagedReference, RuntimeFailure> {
+        let bytes = self
+            .byte_buffers
+            .get(&buffer)
+            .ok_or_else(RuntimeFailure::runtime_invariant)?
+            .clone();
+        self.allocate_immutable_bytes(&bytes)
     }
 
     fn ffi_buffer_open(

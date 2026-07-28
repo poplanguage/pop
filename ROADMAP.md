@@ -204,6 +204,10 @@ Post-baseline library work has begun without widening the release foundation:
 - [x] Implement ADR 0116 exact `String: Iterable<Rune>` specialization with
   linear scalar decoding, generic Sequence consumption, interpreter/LLVM
   agreement, fail-closed C behavior, and native ABI 1.24/2.2 coverage.
+- [x] Implement ADR 0117 distinct reusable `Bytes.Buffer` construction,
+  byte/owned/view appends, fixed-width endian writes, independent snapshots,
+  interpreter/LLVM execution, fail-closed C behavior, and native ABI 1.25/2.3
+  coverage; keep `Bytes` partial until bit operations and codecs pass.
 - Make reserved `Iteration<T>` exhaustively matchable in ordinary source
   before adding no-fallback sequence inspection.
 - Complete LLVM aggregate representation for collections whose element is

@@ -1491,6 +1491,86 @@ fn ordinary_pop_bytes_inspection_and_endian_reads_are_portable() {
 }
 
 #[test]
+fn reusable_byte_buffers_preserve_order_endianness_and_snapshot_independence() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function verify(): Int\n\
+             local buffer = Bytes.withCapacity(2)\n\
+             Bytes.reserve(buffer, 32)\n\
+             Bytes.write(buffer, 170)\n\
+             Bytes.writeUInt16BigEndian(buffer, 258)\n\
+             Bytes.writeUInt16LittleEndian(buffer, 772)\n\
+             Bytes.writeUInt32BigEndian(buffer, 84281096)\n\
+             Bytes.writeUInt64LittleEndian(buffer, 72623859790382856)\n\
+             if Bytes.length(buffer) ~= 17 then\n\
+                 return 1\n\
+             end\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             Bytes.write(buffer, 9)\n\
+             local current = Bytes.toBytes(buffer)\n\
+             if Bytes.length(Bytes.view(snapshot)) ~= 17 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 170 then\n\
+                 return 2\n\
+             end\n\
+             if Bytes.length(Bytes.view(current)) ~= 1 or (Bytes.get(Bytes.view(current), 1) ?? 0) ~= 9 then\n\
+                 return 3\n\
+             end\n\
+             local combined = Bytes.create()\n\
+             Bytes.write(combined, snapshot)\n\
+             Bytes.write(combined, Bytes.slice(snapshot, 2, 2))\n\
+             local result = Bytes.toBytes(combined)\n\
+             if Bytes.length(Bytes.view(result)) ~= 19 then\n\
+                 return 4\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 2) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 3) ?? 0) ~= 2 then\n\
+                 return 5\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 4) ?? 0) ~= 4 or (Bytes.get(Bytes.view(result), 5) ?? 0) ~= 3 then\n\
+                 return 6\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 6) ?? 0) ~= 5 or (Bytes.get(Bytes.view(result), 9) ?? 0) ~= 8 then\n\
+                 return 7\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 10) ?? 0) ~= 8 or (Bytes.get(Bytes.view(result), 17) ?? 0) ~= 1 then\n\
+                 return 8\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 18) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 19) ?? 0) ~= 2 then\n\
+                 return 9\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let entry = mir
+        .functions()
+        .last()
+        .expect("byte-buffer function")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified byte-buffer MIR");
+
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("byte-buffer execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn reusable_byte_buffers_trap_before_negative_capacity_mutation() {
+    for source in [
+        "namespace Main\npublic function fail(): Int\nlocal buffer = Bytes.withCapacity(-1)\nreturn 0\nend\n",
+        "namespace Main\npublic function fail(): Int\nlocal buffer = Bytes.create()\nBytes.reserve(buffer, -1)\nreturn 0\nend\n",
+    ] {
+        let (mir, types) = executable_source(source);
+        let function = mir.functions()[0].symbol();
+        assert_eq!(
+            MirInterpreter::new(&mir, &types)
+                .expect("verified byte-buffer MIR")
+                .call(function, &[]),
+            Err(trap(TrapKind::BoundsViolation))
+        );
+    }
+}
+
+#[test]
 fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

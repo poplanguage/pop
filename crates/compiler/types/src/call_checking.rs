@@ -258,6 +258,40 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .map(CheckedInvocation::Value);
             }
             if matches!(path.as_slice(), [namespace, operation]
+            if namespace == "Bytes"
+                && matches!(
+                    operation.as_str(),
+                    "create"
+                        | "withCapacity"
+                        | "reserve"
+                        | "clear"
+                        | "write"
+                        | "writeUInt16BigEndian"
+                        | "writeUInt16LittleEndian"
+                        | "writeUInt32BigEndian"
+                        | "writeUInt32LittleEndian"
+                        | "writeUInt64BigEndian"
+                        | "writeUInt64LittleEndian"
+                ))
+                && self.binding_by_name("Bytes").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_byte_buffer_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [namespace, operation]
                 if matches!(namespace.as_str(), "Bytes" | "Text")
                     && matches!(operation.as_str(), "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
                 && path
@@ -594,10 +628,16 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             }
             "length" => {
                 self.require_view_arity(span, path, arguments, 1)?;
-                let view = self.check_expression_expected(
-                    &arguments[0],
-                    Some(ExpectedExpressionType::plain(view_type)),
-                )?;
+                let view = self.check_expression(&arguments[0])?;
+                if kind == crate::ViewKind::Bytes && view.type_id() == self.byte_buffer_type()? {
+                    return Some(TypedExpression {
+                        kind: TypedExpressionKind::ByteBufferLength {
+                            buffer: Box::new(view),
+                        },
+                        type_id: integer,
+                        span,
+                    });
+                }
                 self.require_same_type(view_type, view.type_id(), view.span(), span);
                 Some(TypedExpression {
                     kind: TypedExpressionKind::ViewLength {
@@ -667,7 +707,28 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 })
             }
             "toBytes" if kind == crate::ViewKind::Bytes => {
-                self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
+                self.require_view_arity(span, path, arguments, 1)?;
+                let value = self.check_expression(&arguments[0])?;
+                if value.type_id() == self.byte_buffer_type()? {
+                    return Some(TypedExpression {
+                        kind: TypedExpressionKind::ByteBufferMaterialize {
+                            buffer: Box::new(value),
+                            allocation_site: self.fresh_allocation_site(),
+                        },
+                        type_id: owner_type,
+                        span,
+                    });
+                }
+                self.require_same_type(view_type, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewMaterialize {
+                        kind,
+                        view: Box::new(value),
+                        allocation_site: self.fresh_allocation_site(),
+                    },
+                    type_id: owner_type,
+                    span,
+                })
             }
             "toString" if kind == crate::ViewKind::Text => {
                 self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
@@ -680,6 +741,181 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 ));
                 None
             }
+        }
+    }
+
+    fn byte_buffer_type(&mut self) -> Option<TypeId> {
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::BYTES_BUFFER_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()
+    }
+
+    fn check_byte_buffer_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let [_, operation] = path else {
+            return None;
+        };
+        let buffer_type = self.byte_buffer_type()?;
+        let integer = self.resolver.arena().source_type("Int")?;
+        let nil = self.resolver.arena().source_type("nil")?;
+        if matches!(operation.as_str(), "create" | "withCapacity") {
+            let expected = usize::from(operation == "withCapacity");
+            self.require_view_arity(span, path, arguments, expected)?;
+            let capacity = if operation == "withCapacity" {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(integer, value.type_id(), value.span(), span);
+                Some(Box::new(value))
+            } else {
+                None
+            };
+            return Some(TypedExpression {
+                kind: TypedExpressionKind::ByteBufferCreate {
+                    capacity,
+                    allocation_site: self.fresh_allocation_site(),
+                },
+                type_id: buffer_type,
+                span,
+            });
+        }
+
+        self.require_view_arity(
+            span,
+            path,
+            arguments,
+            2_usize.saturating_sub(usize::from(operation == "clear")),
+        )?;
+        let buffer = self.check_expression_expected(
+            &arguments[0],
+            Some(ExpectedExpressionType::plain(buffer_type)),
+        )?;
+        self.require_same_type(buffer_type, buffer.type_id(), buffer.span(), span);
+        match operation.as_str() {
+            "clear" => Some(TypedExpression {
+                kind: TypedExpressionKind::ByteBufferClear {
+                    buffer: Box::new(buffer),
+                },
+                type_id: nil,
+                span,
+            }),
+            "reserve" => {
+                let additional_capacity = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(
+                    integer,
+                    additional_capacity.type_id(),
+                    additional_capacity.span(),
+                    span,
+                );
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ByteBufferReserve {
+                        buffer: Box::new(buffer),
+                        additional_capacity: Box::new(additional_capacity),
+                    },
+                    type_id: nil,
+                    span,
+                })
+            }
+            "write" => {
+                let byte = self.resolver.arena().source_type("Byte")?;
+                let value = if matches!(arguments[1].kind(), ExpressionSyntaxKind::Integer(_)) {
+                    self.check_expression_expected(
+                        &arguments[1],
+                        Some(ExpectedExpressionType::plain(byte)),
+                    )?
+                } else {
+                    self.check_expression(&arguments[1])?
+                };
+                let bytes = self.ffi_builtin_type("Bytes", Vec::new())?;
+                let view = self
+                    .resolver
+                    .arena_mut()
+                    .intern(SemanticType::Builtin {
+                        definition: crate::BYTES_VIEW_TYPE_ID,
+                        arguments: Vec::new(),
+                    })
+                    .ok()?;
+                let kind = if value.type_id() == byte {
+                    TypedExpressionKind::ByteBufferWriteByte {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                } else if value.type_id() == bytes {
+                    TypedExpressionKind::ByteBufferWriteBytes {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                } else {
+                    self.require_same_type(view, value.type_id(), value.span(), span);
+                    TypedExpressionKind::ByteBufferWriteView {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                };
+                Some(TypedExpression {
+                    kind,
+                    type_id: nil,
+                    span,
+                })
+            }
+            name if name.starts_with("writeUInt") => {
+                let (kind, order) = match name {
+                    "writeUInt16BigEndian" => {
+                        (crate::IntegerKind::UInt16, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt16LittleEndian" => {
+                        (crate::IntegerKind::UInt16, crate::ByteOrder::LittleEndian)
+                    }
+                    "writeUInt32BigEndian" => {
+                        (crate::IntegerKind::UInt32, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt32LittleEndian" => {
+                        (crate::IntegerKind::UInt32, crate::ByteOrder::LittleEndian)
+                    }
+                    "writeUInt64BigEndian" => {
+                        (crate::IntegerKind::UInt64, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt64LittleEndian" => {
+                        (crate::IntegerKind::UInt64, crate::ByteOrder::LittleEndian)
+                    }
+                    _ => return None,
+                };
+                let source_name = match kind {
+                    crate::IntegerKind::UInt16 => "UInt16",
+                    crate::IntegerKind::UInt32 => "UInt32",
+                    crate::IntegerKind::UInt64 => "UInt64",
+                    _ => return None,
+                };
+                let value_type = self.resolver.arena().source_type(source_name)?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(value_type)),
+                )?;
+                self.require_same_type(value_type, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ByteBufferWriteInteger {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                        kind,
+                        order,
+                    },
+                    type_id: nil,
+                    span,
+                })
+            }
+            _ => None,
         }
     }
 

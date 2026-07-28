@@ -3192,6 +3192,10 @@ fn verify_view_escapes(
                     MirInstructionKind::ViewGetByte { view, .. }
                         | MirInstructionKind::ViewGetRune { view, .. }
                         if *view == operand
+                ) || matches!(
+                    instruction.kind(),
+                    MirInstructionKind::ByteBufferWriteView { value, .. }
+                        if *value == operand
                 ) || view_call_argument_does_not_retain(
                     instruction.kind(),
                     operand,
@@ -4893,6 +4897,102 @@ fn verify_instruction_types(
                 errors,
             );
         }
+        MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            if byte_buffer_type(arena) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+            if let (Some(capacity), Some(integer)) = (capacity, arena.source_type("Int")) {
+                verify_operand_type(instruction.result(), *capacity, integer, values, errors);
+            }
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if arena.source_type("Int") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if let Some(integer) = arena.source_type("Int") {
+                verify_operand_type(
+                    instruction.result(),
+                    *additional_capacity,
+                    integer,
+                    values,
+                    errors,
+                );
+            }
+            verify_nil_result(instruction, arena, errors);
+        }
+        MirInstructionKind::ByteBufferClear { buffer } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            verify_nil_result(instruction, arena, errors);
+        }
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => {
+            verify_byte_buffer_write(instruction, *buffer, *value, "Byte", arena, values, errors);
+        }
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => {
+            verify_byte_buffer_write(instruction, *buffer, *value, "Bytes", arena, values, errors);
+        }
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            verify_byte_buffer_write(
+                instruction,
+                *buffer,
+                *value,
+                "Bytes.View",
+                arena,
+                values,
+                errors,
+            );
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            ..
+        } => {
+            let expected = match kind {
+                pop_types::IntegerKind::UInt16 => "UInt16",
+                pop_types::IntegerKind::UInt32 => "UInt32",
+                pop_types::IntegerKind::UInt64 => "UInt64",
+                _ => "",
+            };
+            verify_byte_buffer_write(
+                instruction,
+                *buffer,
+                *value,
+                expected,
+                arena,
+                values,
+                errors,
+            );
+        }
+        MirInstructionKind::ByteBufferMaterialize { buffer, .. } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if builtin_type(arena, pop_types::BYTES_TYPE_ID) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
         MirInstructionKind::RangeCreate { first, last, step } => {
             let Some(first_type) = values.get(first).copied() else {
                 return;
@@ -5129,6 +5229,59 @@ fn range_element_type(arena: &TypeArena, type_id: TypeId) -> Option<TypeId> {
         } if *definition == range && arguments.len() == 1 => Some(arguments[0]),
         _ => None,
     }
+}
+
+fn builtin_type(arena: &TypeArena, definition: BuiltinTypeId) -> Option<TypeId> {
+    arena.find(&SemanticType::Builtin {
+        definition,
+        arguments: Vec::new(),
+    })
+}
+
+fn byte_buffer_type(arena: &TypeArena) -> Option<TypeId> {
+    builtin_type(arena, pop_types::BYTES_BUFFER_TYPE_ID)
+}
+
+fn verify_nil_result(
+    instruction: &MirInstruction,
+    arena: &TypeArena,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    if arena.source_type("nil") != Some(instruction.result_type()) {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_byte_buffer_write(
+    instruction: &MirInstruction,
+    buffer: ValueId,
+    value: ValueId,
+    expected_value: &str,
+    arena: &TypeArena,
+    values: &BTreeMap<ValueId, TypeId>,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    if let Some(buffer_type) = byte_buffer_type(arena) {
+        verify_operand_type(instruction.result(), buffer, buffer_type, values, errors);
+    }
+    let value_type = match expected_value {
+        "Bytes" => builtin_type(arena, pop_types::BYTES_TYPE_ID),
+        "Bytes.View" => builtin_type(arena, pop_types::BYTES_VIEW_TYPE_ID),
+        _ => arena.source_type(expected_value),
+    };
+    if let Some(value_type) = value_type {
+        verify_operand_type(instruction.result(), value, value_type, values, errors);
+    } else {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+    verify_nil_result(instruction, arena, errors);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7257,7 +7410,23 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
             initial_value,
             ..
         } => vec![*length, *initial_value],
-        MirInstructionKind::ListCreate { capacity, .. } => capacity.iter().copied().collect(),
+        MirInstructionKind::ListCreate { capacity, .. }
+        | MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            capacity.iter().copied().collect()
+        }
+        MirInstructionKind::ByteBufferLength { buffer }
+        | MirInstructionKind::ByteBufferClear { buffer }
+        | MirInstructionKind::ByteBufferMaterialize { buffer, .. } => vec![*buffer],
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => vec![*buffer, *additional_capacity],
+        MirInstructionKind::ByteBufferWriteByte { buffer, value }
+        | MirInstructionKind::ByteBufferWriteBytes { buffer, value }
+        | MirInstructionKind::ByteBufferWriteView { buffer, value }
+        | MirInstructionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            vec![*buffer, *value]
+        }
         MirInstructionKind::RangeCreate { first, last, step } => vec![*first, *last, *step],
         MirInstructionKind::CallIndirect {
             callee, arguments, ..

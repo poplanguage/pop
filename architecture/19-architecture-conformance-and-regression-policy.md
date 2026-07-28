@@ -313,6 +313,10 @@ Architecture CI should eventually verify:
   traversal, non-iterable `Text.View` boundary, backend-neutral reserved
   protocol lowering, fail-closed C behavior, and immutable ABI 1.24/2.2
   descriptors;
+- ADR 0117's exact `Bytes.Buffer` identity and overloads, atomic append/endian
+  writes, independent snapshots, lender/root proofs, interpreter/LLVM
+  differential execution, fail-closed C behavior, and immutable ABI 1.25/2.3
+  descriptors;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

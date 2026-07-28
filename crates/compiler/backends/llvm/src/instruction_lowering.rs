@@ -1041,6 +1041,121 @@ pub(crate) fn lower_instruction(
             value_types,
             types,
         )?,
+        MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            lower_byte_buffer_create(&result, *capacity)
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => lower_array_output_call(
+            &result,
+            instruction.result_type(),
+            RuntimeOperation::ByteBufferLength,
+            &[*buffer],
+            value_types,
+            types,
+        )?,
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferReserve,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i64 %v{}", additional_capacity.raw()),
+            ],
+            Some(format!("%v{}", additional_capacity.raw())),
+        ),
+        MirInstructionKind::ByteBufferClear { buffer } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferClear,
+            &[format!("i64 %v{}", buffer.raw())],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferWriteByte,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i8 %v{}", value.raw()),
+            ],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferWriteBytes,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i64 %v{}", value.raw()),
+            ],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::ByteBufferWriteView);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result}_status = call i8 @{symbol}(i64 %v{}, i64 {result}_lender, i64 {result}_offset, i64 {result}_length)\n\
+                 {result}_success = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_success, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result} = add i64 0, 0",
+                value.raw(),
+                value.raw(),
+                value.raw(),
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let bits = kind.bit_width();
+            let mut lines = Vec::new();
+            let stored = if bits == 64 {
+                format!("%v{}", value.raw())
+            } else {
+                let widened = format!("{result}_value");
+                lines.push(format!("{widened} = zext i{bits} %v{} to i64", value.raw()));
+                widened
+            };
+            lines.push(lower_byte_buffer_status(
+                &result,
+                RuntimeOperation::ByteBufferWriteInteger,
+                &[
+                    format!("i64 %v{}", buffer.raw()),
+                    format!("i64 {stored}"),
+                    format!("i8 {}", bits / 8),
+                    format!(
+                        "i8 {}",
+                        u8::from(*order == pop_types::ByteOrder::LittleEndian)
+                    ),
+                ],
+                None,
+            ));
+            lines.join("\n")
+        }
+        MirInstructionKind::ByteBufferMaterialize { buffer, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::ByteBufferMaterialize);
+            format!(
+                "{result} = call i64 @{symbol}(i64 %v{})\n\
+                 {result}_allocated = icmp ne i64 {result}, 0\n\
+                 br i1 {result}_allocated, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:",
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
         MirInstructionKind::RangeCreate { first, last, step } => lower_range_create(
             &result,
             instruction.result_type(),
@@ -2816,6 +2931,71 @@ pub(crate) fn lower_list_create(
         ),
         "  unreachable".to_owned(),
         format!("{label}_create:"),
+    ]);
+    lines.join("\n")
+}
+
+fn lower_byte_buffer_create(result: &str, capacity: Option<ValueId>) -> String {
+    let label = result.trim_start_matches('%');
+    let capacity_value =
+        capacity.map_or_else(|| "0".to_owned(), |value| format!("%v{}", value.raw()));
+    let mut lines = Vec::new();
+    if capacity.is_some() {
+        lines.extend([
+            format!("{result}_nonnegative = icmp sge i64 {capacity_value}, 0"),
+            format!("br i1 {result}_nonnegative, label %{label}_allocate, label %{label}_trap"),
+            format!("{label}_allocate:"),
+        ]);
+    }
+    lines.extend([
+        format!(
+            "{result} = call i64 @{}(i64 {capacity_value})",
+            native_runtime_symbol(RuntimeOperation::ByteBufferCreate)
+        ),
+        format!("{result}_allocated = icmp ne i64 {result}, 0"),
+        format!("br i1 {result}_allocated, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "  call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "  unreachable".to_owned(),
+        format!("{label}_continue:"),
+    ]);
+    lines.join("\n")
+}
+
+fn lower_byte_buffer_status(
+    result: &str,
+    operation: RuntimeOperation,
+    arguments: &[String],
+    nonnegative: Option<String>,
+) -> String {
+    let label = result.trim_start_matches('%');
+    let mut lines = Vec::new();
+    if let Some(value) = nonnegative {
+        lines.extend([
+            format!("{result}_nonnegative = icmp sge i64 {value}, 0"),
+            format!("br i1 {result}_nonnegative, label %{label}_call, label %{label}_trap"),
+            format!("{label}_call:"),
+        ]);
+    }
+    lines.extend([
+        format!(
+            "{result}_status = call i8 @{}({})",
+            native_runtime_symbol(operation),
+            arguments.join(", ")
+        ),
+        format!("{result}_success = icmp ne i8 {result}_status, 0"),
+        format!("br i1 {result}_success, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "  call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "  unreachable".to_owned(),
+        format!("{label}_continue:"),
+        format!("  {result} = add i64 0, 0"),
     ]);
     lines.join("\n")
 }

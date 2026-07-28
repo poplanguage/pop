@@ -2124,6 +2124,77 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
             element_map: parse_array_element_map(element_map, line)?,
         });
     }
+    if let Some(rest) = text.strip_prefix("byteBufferCreate ") {
+        let (site, capacity) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "byte buffer creation"))?;
+        let capacity = if capacity == "none" {
+            None
+        } else {
+            Some(ValueId::from_raw(parse_prefixed(capacity, 'v', line)?))
+        };
+        return Ok(MirInstructionKind::ByteBufferCreate {
+            capacity,
+            allocation_site: AllocationSiteId::from_raw(parse_hash(site, "site#", line)?),
+        });
+    }
+    if let Some(buffer) = text.strip_prefix("byteBufferLength ") {
+        return Ok(MirInstructionKind::ByteBufferLength {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+        });
+    }
+    if let Some(operands) = text.strip_prefix("byteBufferReserve ") {
+        let (buffer, additional_capacity) = parse_two_values(operands, line)?;
+        return Ok(MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        });
+    }
+    if let Some(buffer) = text.strip_prefix("byteBufferClear ") {
+        return Ok(MirInstructionKind::ByteBufferClear {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+        });
+    }
+    for (prefix, operation) in [
+        ("byteBufferWriteByte ", 0_u8),
+        ("byteBufferWriteBytes ", 1),
+        ("byteBufferWriteView ", 2),
+    ] {
+        if let Some(operands) = text.strip_prefix(prefix) {
+            let (buffer, value) = parse_two_values(operands, line)?;
+            return Ok(match operation {
+                0 => MirInstructionKind::ByteBufferWriteByte { buffer, value },
+                1 => MirInstructionKind::ByteBufferWriteBytes { buffer, value },
+                _ => MirInstructionKind::ByteBufferWriteView { buffer, value },
+            });
+        }
+    }
+    if let Some(rest) = text.strip_prefix("byteBufferWriteInteger ") {
+        let parts = rest.split_ascii_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "byte buffer integer write"));
+        }
+        let order = match parts[1] {
+            "BigEndian" => pop_types::ByteOrder::BigEndian,
+            "LittleEndian" => pop_types::ByteOrder::LittleEndian,
+            _ => return Err(error(line, "byte buffer integer byte order")),
+        };
+        return Ok(MirInstructionKind::ByteBufferWriteInteger {
+            kind: parse_integer_kind(parts[0], line)?,
+            order,
+            buffer: ValueId::from_raw(parse_prefixed(parts[2], 'v', line)?),
+            value: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("byteBufferMaterialize ") {
+        let (site, buffer) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "byte buffer materialization"))?;
+        return Ok(MirInstructionKind::ByteBufferMaterialize {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+            allocation_site: AllocationSiteId::from_raw(parse_hash(site, "site#", line)?),
+        });
+    }
     if let Some(operands) = text.strip_prefix("rangeCreate ") {
         let (first, last, step) = parse_three_values(operands, line)?;
         return Ok(MirInstructionKind::RangeCreate { first, last, step });

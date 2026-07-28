@@ -32,15 +32,19 @@ ABI 1.23 adds the typed `pop_rt_text_view_get_rune` adapter from
 [ADR 0114](../../../architecture/decisions/0114-unicode-scalar-value-and-text-access.md).
 ABI 1.24 appends the closed `String = 4` native iteration kind from
 [ADR 0116](../../../architecture/decisions/0116-linear-string-rune-iteration.md).
+ABI 1.25 appends the distinct reusable byte-buffer construction, mutation,
+endian-write, and immutable-snapshot operations from
+[ADR 0117](../../../architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md).
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the
 compatible ABI 2.1 descriptor for the same typed scalar-read adapter. ADR 0116
-adds the compatible ABI 2.2 closed String-iteration descriptor. ABI 2 owns the
+adds the compatible ABI 2.2 closed String-iteration descriptor. ABI 2.3 adds
+the same reusable byte-buffer operations. ABI 2 owns the
 separate `pop_rt_gc_safe_point_v2` writable-root spelling and the fixed
 `pop_rt_supports_abi` negotiation spelling; their presence never makes an
 incomplete facade advertise ABI 2 support. ADR 0103's separately built
-production facade is the complete ABI 2.2 composition; the default facade
+production facade is the complete ABI 2.3 composition; the default facade
 continues to reject it.
 
 It owns no heap, collector, exported function implementation, process-global

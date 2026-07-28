@@ -101,7 +101,13 @@ pub(crate) fn lower(
                 "{lender_line}\n\
              {result}_offset = extractvalue {VIEW_TYPE} %v{}, 1\n\
              {result}_length = extractvalue {VIEW_TYPE} %v{}, 2\n\
-             {result} = call {{ i1, i8 }} @pop_rt_bytes_view_get(i64 {result}_lender, i64 {result}_offset, i64 {result}_length, i64 %v{})",
+             {result}_abi = call i16 @pop_rt_bytes_view_get(i64 {result}_lender, i64 {result}_offset, i64 {result}_length, i64 %v{})\n\
+             {result}_present_raw = trunc i16 {result}_abi to i8\n\
+             {result}_present = icmp eq i8 {result}_present_raw, 1\n\
+             {result}_value_word = lshr i16 {result}_abi, 8\n\
+             {result}_value = trunc i16 {result}_value_word to i8\n\
+             {result}_with_presence = insertvalue {{ i1, i8 }} poison, i1 {result}_present, 0\n\
+             {result} = insertvalue {{ i1, i8 }} {result}_with_presence, i8 {result}_value, 1",
                 view.raw(),
                 view.raw(),
                 index.raw(),

@@ -3244,6 +3244,178 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 }
                 MirValue::Nil
             }
+            MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+                let capacity = capacity
+                    .map(|capacity| {
+                        let MirValue::Integer(capacity) = value(values, capacity)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        capacity
+                            .signed()
+                            .filter(|capacity| *capacity >= 0)
+                            .and_then(|capacity| u64::try_from(capacity).ok())
+                            .ok_or_else(|| self.bounds_violation())
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                let reference = self
+                    .runtime
+                    .allocate_byte_buffer(
+                        RuntimeTypeId::new(instruction.result_type().raw()),
+                        capacity,
+                    )
+                    .map_err(ExecutionError::Runtime)?;
+                return Ok(RuntimeValue::managed(
+                    MirValue::ByteBuffer(reference),
+                    reference,
+                ));
+            }
+            MirInstructionKind::ByteBufferLength { buffer } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .byte_buffer_length(buffer)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Integer(
+                    IntegerValue::parse_decimal(&length.to_string(), IntegerKind::Int64)
+                        .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                )
+            }
+            MirInstructionKind::ByteBufferReserve {
+                buffer,
+                additional_capacity,
+            } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Integer(additional) = value(values, *additional_capacity)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let additional = additional
+                    .signed()
+                    .filter(|additional| *additional >= 0)
+                    .and_then(|additional| u64::try_from(additional).ok())
+                    .ok_or_else(|| self.bounds_violation())?;
+                self.runtime
+                    .byte_buffer_reserve(buffer, additional)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferClear { buffer } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                self.runtime
+                    .byte_buffer_clear(buffer)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferWriteByte {
+                buffer,
+                value: written,
+            } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let written = u8::try_from(integer_u64(&value(values, *written)?.visible)?)
+                    .map_err(|_| ExecutionError::TypeMismatch)?;
+                self.runtime
+                    .byte_buffer_append(buffer, &[written])
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferWriteBytes {
+                buffer,
+                value: written,
+            } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Bytes(written) = value(values, *written)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .immutable_bytes_length(written)
+                    .map_err(ExecutionError::Runtime)?;
+                self.runtime
+                    .byte_buffer_append_immutable_range(buffer, written, 0, length)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferWriteView {
+                buffer,
+                value: written,
+            } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::View(written) = &value(values, *written)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if written.kind != pop_mir::MirViewKind::Bytes {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                self.runtime
+                    .byte_buffer_append_immutable_range(
+                        buffer,
+                        view_bytes_reference(written)?,
+                        u64::try_from(written.byte_offset)
+                            .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                        u64::try_from(written.byte_length)
+                            .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                    )
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferWriteInteger {
+                buffer,
+                value: written,
+                kind,
+                order,
+            } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Integer(written) = value(values, *written)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if written.kind() != *kind {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let width = match kind {
+                    IntegerKind::UInt16 => 2,
+                    IntegerKind::UInt32 => 4,
+                    IntegerKind::UInt64 => 8,
+                    _ => return Err(ExecutionError::TypeMismatch),
+                };
+                let bits = written.unsigned().ok_or(ExecutionError::TypeMismatch)?;
+                let bytes = match order {
+                    pop_types::ByteOrder::BigEndian => bits.to_be_bytes(),
+                    pop_types::ByteOrder::LittleEndian => bits.to_le_bytes(),
+                };
+                let written = match order {
+                    pop_types::ByteOrder::BigEndian => &bytes[bytes.len() - width..],
+                    pop_types::ByteOrder::LittleEndian => &bytes[..width],
+                };
+                self.runtime
+                    .byte_buffer_append(buffer, written)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Nil
+            }
+            MirInstructionKind::ByteBufferMaterialize { buffer, .. } => {
+                let MirValue::ByteBuffer(buffer) = value(values, *buffer)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let reference = self
+                    .runtime
+                    .materialize_byte_buffer(buffer)
+                    .map_err(ExecutionError::Runtime)?;
+                MirValue::Bytes(reference)
+            }
             MirInstructionKind::ListCreate {
                 capacity,
                 element_map,

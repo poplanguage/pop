@@ -20,8 +20,8 @@ use pop_runtime_interface::{
     PanicPayload, SafePointId, StackMap, Trap, UnwindReason,
 };
 use pop_types::{
-    CallableLifetimeSummary, FloatKind, FloatValue, IntegerKind, IntegerValue, SemanticType,
-    TypeArena,
+    ByteOrder, CallableLifetimeSummary, FloatKind, FloatValue, IntegerKind, IntegerValue,
+    SemanticType, TypeArena,
 };
 
 use crate::render::{
@@ -1966,6 +1966,42 @@ pub enum MirInstructionKind {
         list: ValueId,
         value: ValueId,
         element_map: ArrayElementMap,
+    },
+    ByteBufferCreate {
+        capacity: Option<ValueId>,
+        allocation_site: AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: ValueId,
+    },
+    ByteBufferReserve {
+        buffer: ValueId,
+        additional_capacity: ValueId,
+    },
+    ByteBufferClear {
+        buffer: ValueId,
+    },
+    ByteBufferWriteByte {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteBytes {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteView {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteInteger {
+        buffer: ValueId,
+        value: ValueId,
+        kind: IntegerKind,
+        order: ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: ValueId,
+        allocation_site: AllocationSiteId,
     },
     RangeCreate {
         first: ValueId,

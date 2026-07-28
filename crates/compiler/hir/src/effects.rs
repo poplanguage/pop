@@ -667,6 +667,7 @@ fn infer_expression(
         }
         HirExpressionKind::ArrayCreate { .. }
         | HirExpressionKind::ListCreate { .. }
+        | HirExpressionKind::ByteBufferCreate { .. }
         | HirExpressionKind::RangeCreate { .. } => {
             infer_expression_children(expression, context, environment)
                 .union(allocating_effects())
@@ -676,6 +677,25 @@ fn infer_expression(
             .union(infer_expression(value, context, environment))
             .union(allocating_effects())
             .union(managed_write_effect(value.type_id, context.arena)),
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(infer_expression(value, context, environment))
+                .with(Effect::Allocates)
+                .with(Effect::MayUnwind)
+                .with(Effect::MayTrap)
+        }
+        HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
         HirExpressionKind::ArrayGetChecked { .. }
         | HirExpressionKind::ListGetChecked { .. }
         | HirExpressionKind::FfiBufferLength { .. }
@@ -1265,6 +1285,9 @@ fn visit_expression_children_mut(
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::ArrayLength { array: base }
         | HirExpressionKind::ListLength { list: base }
+        | HirExpressionKind::ByteBufferLength { buffer: base }
+        | HirExpressionKind::ByteBufferClear { buffer: base }
+        | HirExpressionKind::ByteBufferMaterialize { buffer: base, .. }
         | HirExpressionKind::OptionalNarrow { optional: base }
         | HirExpressionKind::Await { task: base }
         | HirExpressionKind::TaskCancelToken { source: base }
@@ -1344,6 +1367,27 @@ fn visit_expression_children_mut(
             list: length,
             value: initial_value,
         }
+        | HirExpressionKind::ByteBufferReserve {
+            buffer: length,
+            additional_capacity: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteBytes {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteView {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteInteger {
+            buffer: length,
+            value: initial_value,
+            ..
+        }
         | HirExpressionKind::TaskGroup {
             cancel: length,
             body: initial_value,
@@ -1355,7 +1399,8 @@ fn visit_expression_children_mut(
             visit(length);
             visit(initial_value);
         }
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 visit(capacity);
             }

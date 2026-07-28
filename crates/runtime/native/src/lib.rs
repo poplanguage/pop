@@ -2,6 +2,7 @@
 
 mod allocation;
 mod binding;
+mod byte_buffer;
 mod codec;
 mod failure;
 mod ffi_buffer;
@@ -22,6 +23,7 @@ mod view;
 
 pub use allocation::*;
 pub use binding::*;
+pub use byte_buffer::*;
 pub use codec::*;
 pub use failure::*;
 pub use ffi_buffer::*;

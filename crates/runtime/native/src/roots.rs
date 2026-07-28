@@ -139,13 +139,14 @@ pub(crate) fn service_root_publication(
     binding: Option<NativeExecutionBinding>,
     publication: &mut RootPublication,
 ) -> bool {
-    if let Some(binding) = binding {
+    let serviced = if let Some(binding) = binding {
         runtime
             .scheduler_mutator_safe_point(binding.mutator(), binding.scheduler(), publication)
             .is_ok()
     } else {
         runtime.safe_point(publication).is_ok()
-    }
+    };
+    serviced && crate::state::prune_collected_byte_buffers(runtime).is_ok()
 }
 
 fn abi_safe_point_v2(safe_point: u32, roots: &mut [u64]) -> u8 {

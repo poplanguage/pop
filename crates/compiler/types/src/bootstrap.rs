@@ -461,6 +461,8 @@ pub const BYTES_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(0);
 pub const BYTES_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(122);
 /// Stable compiler-known identity of the non-owning `Text.View` value kind.
 pub const TEXT_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(123);
+/// Stable compiler-known identity of the reusable mutable `Bytes.Buffer`.
+pub const BYTES_BUFFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(124);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1136,6 +1138,28 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
                 "invalid trusted view type contract",
             ));
         }
+    }
+    let Some(buffer) = entries
+        .iter()
+        .find(|entry| entry.source_name == "Bytes.Buffer")
+    else {
+        return Err(error(
+            "standard type",
+            2,
+            "missing required byte buffer type",
+        ));
+    };
+    if buffer.id != BYTES_BUFFER_TYPE_ID
+        || buffer.owner_bubble != "Pop.Standard"
+        || buffer.arity != 0
+        || buffer.role != BootstrapTypeRole::Nominal
+        || buffer.prelude
+    {
+        return Err(error(
+            "standard type",
+            2,
+            "invalid trusted byte buffer type contract",
+        ));
     }
     Ok(())
 }

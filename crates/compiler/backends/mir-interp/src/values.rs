@@ -43,6 +43,7 @@ pub enum MirValue {
     FfiHandle(u64),
     FfiBuffer(ManagedReference),
     Bytes(ManagedReference),
+    ByteBuffer(ManagedReference),
     View(MirViewValue),
     FfiPointer(ForeignAddress),
     FfiFunction(u64),
@@ -234,6 +235,7 @@ impl RuntimeValue {
             MirValue::Class(class) => Some(class.reference),
             MirValue::FfiBuffer(reference)
             | MirValue::Bytes(reference)
+            | MirValue::ByteBuffer(reference)
             | MirValue::FfiRegisteredCallback { reference, .. } => Some(*reference),
             MirValue::View(MirViewValue {
                 lender: MirViewLenderValue::Bytes(reference),
@@ -262,7 +264,9 @@ impl RuntimeValue {
         if let Some(reference) = relocated {
             match &mut self.visible {
                 MirValue::Class(class) => class.reference = reference,
-                MirValue::FfiBuffer(found) | MirValue::Bytes(found) => *found = reference,
+                MirValue::FfiBuffer(found)
+                | MirValue::Bytes(found)
+                | MirValue::ByteBuffer(found) => *found = reference,
                 MirValue::FfiRegisteredCallback {
                     reference: found, ..
                 } => *found = reference,

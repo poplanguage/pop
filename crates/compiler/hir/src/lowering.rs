@@ -1139,6 +1139,64 @@ fn lower_expression(
             list: Box::new(lower_expression(list, interface_slots)),
             value: Box::new(lower_expression(value, interface_slots)),
         },
+        TypedExpressionKind::ByteBufferCreate {
+            capacity,
+            allocation_site,
+        } => HirExpressionKind::ByteBufferCreate {
+            capacity: capacity
+                .as_ref()
+                .map(|capacity| Box::new(lower_expression(capacity, interface_slots))),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::ByteBufferLength { buffer } => HirExpressionKind::ByteBufferLength {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => HirExpressionKind::ByteBufferReserve {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            additional_capacity: Box::new(lower_expression(additional_capacity, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferClear { buffer } => HirExpressionKind::ByteBufferClear {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferWriteByte { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteByte {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteBytes {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteView { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteView {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => HirExpressionKind::ByteBufferWriteInteger {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            value: Box::new(lower_expression(value, interface_slots)),
+            kind: *kind,
+            order: *order,
+        },
+        TypedExpressionKind::ByteBufferMaterialize {
+            buffer,
+            allocation_site,
+        } => HirExpressionKind::ByteBufferMaterialize {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            allocation_site: *allocation_site,
+        },
         TypedExpressionKind::RangeCreate { first, last, step } => HirExpressionKind::RangeCreate {
             first: Box::new(lower_expression(first, interface_slots)),
             last: Box::new(lower_expression(last, interface_slots)),
@@ -2157,9 +2215,28 @@ fn first_unknown_interface_expression(
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
+            .as_deref()
+            .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
         TypedExpressionKind::ListLength { list } => first_unknown_interface_expression(list, slots),
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            first_unknown_interface_expression(buffer, slots)
+        }
         TypedExpressionKind::ListAdd { list, value } => {
             first_unknown_interface_expression(list, slots)
+                .or_else(|| first_unknown_interface_expression(value, slots))
+        }
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            first_unknown_interface_expression(buffer, slots)
                 .or_else(|| first_unknown_interface_expression(value, slots))
         }
         TypedExpressionKind::RangeCreate { first, last, step } => {
@@ -2579,9 +2656,28 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(first_compile_time_only_expression),
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
+            .as_deref()
+            .and_then(first_compile_time_only_expression),
         TypedExpressionKind::ListLength { list } => first_compile_time_only_expression(list),
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            first_compile_time_only_expression(buffer)
+        }
         TypedExpressionKind::ListAdd { list, value } => first_compile_time_only_expression(list)
             .or_else(|| first_compile_time_only_expression(value)),
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            first_compile_time_only_expression(buffer)
+                .or_else(|| first_compile_time_only_expression(value))
+        }
         TypedExpressionKind::RangeCreate { first, last, step } => {
             first_compile_time_only_expression(first)
                 .or_else(|| first_compile_time_only_expression(last))

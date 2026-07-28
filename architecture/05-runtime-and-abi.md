@@ -565,6 +565,15 @@ earlier-byte scan. ABI 1.11 through 1.23 and ABI 2.0 through 2.1 remain
 immutable. The default facade supports ABI 1.11 through 1.24; the production
 facade supports ABI 2.0 through 2.2.
 
+ADR 0117 advances the additive stable-token descriptor to ABI 1.25 and the
+production descriptor to ABI 2.3. It appends exact reusable byte-buffer
+construction, length/reserve/clear, byte/owned/view append, fixed-width endian
+write, and immutable-snapshot operations. Storage identity and metadata remain
+distinct from List and FFI buffers; invalid tokens, ranges, widths, or byte
+orders fail before partial mutation. ABI 1.11 through 1.24 and ABI 2.0 through
+2.2 remain immutable. The default facade supports ABI 1.11 through 1.25; the
+production facade supports ABI 2.0 through 2.3.
+
 ADR 0103 establishes the ABI 2 production facade as a separate static build
 composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots

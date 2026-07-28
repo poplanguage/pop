@@ -24,3 +24,4 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 121	Codec.Error	Pop.Standard	0	Nominal	false
 122	Bytes.View	Pop.Standard	0	View	false
 123	Text.View	Pop.Standard	0	View	false
+124	Bytes.Buffer	Pop.Standard	0	Nominal	false

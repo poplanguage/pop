@@ -599,7 +599,7 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
         "declare { i64, i64 } @pop_rt_text_view_lengths(i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_bytes_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_text_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
-        "declare { i1, i8 } @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind".to_owned(),
+        "declare i16 @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind".to_owned(),
         format!(
             "declare i8 @{}(i64, i64, i64, i64, i64, ptr) nounwind",
             pop_runtime_native_abi::TEXT_VIEW_GET_RUNE_SYMBOL
@@ -669,6 +669,42 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
         format!(
             "declare i8 @{}(i64, i64, i1) nounwind",
             native_runtime_symbol(RuntimeOperation::ListAdd)
+        ),
+        format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferCreate)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferLength)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferReserve)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferClear)
+        ),
+        format!(
+            "declare i8 @{}(i64, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteByte)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteBytes)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteView)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i8, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteInteger)
+        ),
+        format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferMaterialize)
         ),
         format!(
             "declare i64 @{}(i64, i64, i64, i1, i8) nounwind",

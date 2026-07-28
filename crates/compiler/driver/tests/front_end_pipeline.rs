@@ -7,6 +7,120 @@ use pop_mir::{MirDeclarationKind, MirVerificationError, lower_hir_bubble};
 use pop_source::SourceFile;
 
 #[test]
+fn reusable_byte_buffer_operations_reach_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/byteBuffer.pop",
+        "namespace Main\n\
+         public function build(source: Bytes, small: UInt16, medium: UInt32, large: UInt64): Bytes\n\
+             local buffer = Bytes.withCapacity(32)\n\
+             Bytes.reserve(buffer, 16)\n\
+             Bytes.write(buffer, 255)\n\
+             Bytes.write(buffer, source)\n\
+             Bytes.write(buffer, Bytes.slice(source, 1, 0))\n\
+             Bytes.writeUInt16BigEndian(buffer, small)\n\
+             Bytes.writeUInt16LittleEndian(buffer, small)\n\
+             Bytes.writeUInt32BigEndian(buffer, medium)\n\
+             Bytes.writeUInt32LittleEndian(buffer, medium)\n\
+             Bytes.writeUInt64BigEndian(buffer, large)\n\
+             Bytes.writeUInt64LittleEndian(buffer, large)\n\
+             local length = Bytes.length(buffer)\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             if length > 0 then\n\
+                 return snapshot\n\
+             end\n\
+             return Bytes.toBytes(Bytes.create())\n\
+         end\n",
+    )
+    .expect("byte-buffer source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let buffer = result
+        .types()
+        .find(&pop_types::SemanticType::Builtin {
+            definition: pop_types::BYTES_BUFFER_TYPE_ID,
+            arguments: Vec::new(),
+        })
+        .expect("Bytes.Buffer type");
+    assert!(
+        pop_mir::is_managed_reference_type_id(buffer, Some(result.types())),
+        "Bytes.Buffer must be a precise managed reference"
+    );
+    let mir = lower_hir_bubble(result.hir().expect("byte-buffer HIR"), result.types())
+        .expect("verified byte-buffer MIR");
+    let dump = mir.dump();
+    for operation in [
+        "byteBufferCreate",
+        "byteBufferReserve",
+        "byteBufferWriteByte",
+        "byteBufferWriteBytes",
+        "byteBufferWriteView",
+        "byteBufferWriteInteger",
+        "byteBufferLength",
+        "byteBufferMaterialize",
+        "byteBufferClear",
+    ] {
+        assert!(dump.contains(operation), "missing {operation} in:\n{dump}");
+    }
+}
+
+#[test]
+fn reusable_byte_buffer_overloads_reject_wrong_static_argument_types() {
+    for (statement, diagnostic) in [
+        ("local buffer = Bytes.withCapacity(true)", "POP2003"),
+        (
+            "local buffer = Bytes.create()\nBytes.reserve(buffer, true)",
+            "POP2003",
+        ),
+        (
+            "local buffer = Bytes.create()\nBytes.write(buffer, true)",
+            "POP2003",
+        ),
+        (
+            "local buffer = Bytes.create()\nlocal value: UInt32 = 1\nBytes.writeUInt16BigEndian(buffer, value)",
+            "POP2003",
+        ),
+    ] {
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            "src/invalidByteBuffer.pop",
+            format!(
+                "namespace Main\n\
+                 public function invalid(): Int\n\
+                     {statement}\n\
+                     return 0\n\
+                 end\n"
+            ),
+        )
+        .expect("invalid byte-buffer source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+
+        assert!(result.hir().is_none(), "{statement}");
+        assert!(
+            result.diagnostic_snapshot().contains(diagnostic),
+            "{}",
+            result.diagnostic_snapshot()
+        );
+    }
+}
+
+#[test]
 fn rune_validation_and_text_scalar_access_reach_verified_mir() {
     let source = SourceFile::new(
         FileId::from_raw(0),

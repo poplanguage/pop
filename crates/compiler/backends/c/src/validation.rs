@@ -20,6 +20,7 @@ pub(crate) fn validate_bubble(
                         | MirInstructionKind::CodecEncode { .. }
                         | MirInstructionKind::CodecDecode { .. }
                 ) || is_view_instruction(instruction.kind())
+                    || is_byte_buffer_instruction(instruction.kind())
             }) {
                 return Err(CBackendError::UnsupportedInstruction {
                     function: function.function(),
@@ -65,6 +66,21 @@ pub(crate) fn validate_bubble(
         }
     }
     Ok(())
+}
+
+fn is_byte_buffer_instruction(kind: &MirInstructionKind) -> bool {
+    matches!(
+        kind,
+        MirInstructionKind::ByteBufferCreate { .. }
+            | MirInstructionKind::ByteBufferLength { .. }
+            | MirInstructionKind::ByteBufferReserve { .. }
+            | MirInstructionKind::ByteBufferClear { .. }
+            | MirInstructionKind::ByteBufferWriteByte { .. }
+            | MirInstructionKind::ByteBufferWriteBytes { .. }
+            | MirInstructionKind::ByteBufferWriteView { .. }
+            | MirInstructionKind::ByteBufferWriteInteger { .. }
+            | MirInstructionKind::ByteBufferMaterialize { .. }
+    )
 }
 
 fn is_iteration_instruction(kind: &MirInstructionKind) -> bool {

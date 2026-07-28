@@ -935,8 +935,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 24)"),
-        (&native_abi, "NativeAbiVersion::new(2, 2)"),
+        (&native_abi, "NativeAbiVersion::new(1, 25)"),
+        (&native_abi, "NativeAbiVersion::new(2, 3)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1757,8 +1757,8 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(adr.contains("- Status: accepted"));
     assert!(typed.contains("String,"));
     assert!(hir.contains("HirIterationSource::String"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 24)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 2)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 25)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 3)"));
     assert!(native_abi.contains("String = 4"));
     assert!(native_iteration.contains("scalar_array_values"));
     assert!(!native_iteration.contains("utf8_string_bytes"));
@@ -1766,6 +1766,35 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(!native_string_step.contains("Vec<"));
     assert!(llvm.contains("IterationCollectionKind::String"));
     assert!(c.contains("is_iteration_instruction"));
+}
+
+#[test]
+fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md"),
+    );
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter = read_required(root.join("crates/compiler/backends/mir-interp/src/values.rs"));
+    let native_state = read_required(root.join("crates/runtime/native/src/state.rs"));
+    let native_buffer = read_required(root.join("crates/runtime/native/src/byte_buffer.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(typed.contains("ByteBufferWriteInteger"));
+    assert!(mir.contains("ByteBufferMaterialize"));
+    assert!(interpreter.contains("ByteBuffer(ManagedReference)"));
+    assert!(native_state.contains("ABI_BYTE_BUFFERS"));
+    assert!(!native_buffer.contains("abi_lists"));
+    assert!(!native_buffer.contains("FfiBuffer"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 25)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 3)"));
+    assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
+    assert!(c.contains("is_byte_buffer_instruction"));
 }
 
 #[test]
@@ -1799,7 +1828,8 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "115\tTask.Group\tPop.Standard\t0\tNominal\tfalse",
             "116\tTask.CancelSource\tPop.Standard\t0\tNominal\tfalse",
             // ADR 0092 appends the closed retained-codec contract; ADR 0093
-            // appends the two compiler-proven borrowed-view identities.
+            // appends the two compiler-proven borrowed-view identities. ADR
+            // 0117 appends the non-prelude reusable byte-buffer identity.
             "117\tMetadata.Use\tPop.Standard\t0\tNominal\tfalse",
             "118\tCodec.Schema\tPop.Standard\t1\tNominal\tfalse",
             "119\tCodec.Writer\tPop.Standard\t0\tNominal\tfalse",
@@ -1807,6 +1837,7 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "121\tCodec.Error\tPop.Standard\t0\tNominal\tfalse",
             "122\tBytes.View\tPop.Standard\t0\tView\tfalse",
             "123\tText.View\tPop.Standard\t0\tView\tfalse",
+            "124\tBytes.Buffer\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );
@@ -2031,7 +2062,7 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
     .into_iter()
     .collect();
     for public_root in PUBLIC_LIBRARY_ROOTS {
-        let expected = if ["Math", "Sequence", "Text"].contains(public_root) {
+        let expected = if ["Bytes", "Math", "Sequence", "Text"].contains(public_root) {
             "prototype"
         } else if bootstrap.contains(public_root) {
             "bootstrap"

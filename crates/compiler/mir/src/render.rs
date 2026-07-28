@@ -1037,6 +1037,61 @@ fn dump_instruction(output: &mut String, instruction: &MirInstructionKind) {
             let map = array_element_map_name(*element_map);
             let _ = write!(output, "listAdd {map} v{} v{}", list.raw(), value.raw());
         }
+        MirInstructionKind::ByteBufferCreate {
+            capacity,
+            allocation_site,
+        } => {
+            let capacity =
+                capacity.map_or_else(|| "none".to_owned(), |value| format!("v{}", value.raw()));
+            let _ = write!(
+                output,
+                "byteBufferCreate site#{} {capacity}",
+                allocation_site.raw()
+            );
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => {
+            let _ = write!(output, "byteBufferLength v{}", buffer.raw());
+        }
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => dump_binary(output, "byteBufferReserve", *buffer, *additional_capacity),
+        MirInstructionKind::ByteBufferClear { buffer } => {
+            let _ = write!(output, "byteBufferClear v{}", buffer.raw());
+        }
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => {
+            dump_binary(output, "byteBufferWriteByte", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => {
+            dump_binary(output, "byteBufferWriteBytes", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            dump_binary(output, "byteBufferWriteView", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let _ = write!(
+                output,
+                "byteBufferWriteInteger {kind:?} {order:?} v{} v{}",
+                buffer.raw(),
+                value.raw()
+            );
+        }
+        MirInstructionKind::ByteBufferMaterialize {
+            buffer,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "byteBufferMaterialize site#{} v{}",
+                allocation_site.raw(),
+                buffer.raw()
+            );
+        }
         MirInstructionKind::RangeCreate { first, last, step } => {
             let _ = write!(
                 output,

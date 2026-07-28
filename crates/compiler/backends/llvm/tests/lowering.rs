@@ -2844,7 +2844,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 2)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 3)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -4278,7 +4278,7 @@ const PORTABLE_BYTES_EXACT_VIEW_FIXTURE: &str = "\n\
         %result = insertvalue { i64, i64 } %with_bytes, i64 %length, 1\n\
         ret { i64, i64 } %result\n\
     }\n\
-    define { i1, i8 } @pop_rt_bytes_view_get(i64 %token, i64 %offset, i64 %length, i64 %index) nounwind {\n\
+    define i16 @pop_rt_bytes_view_get(i64 %token, i64 %offset, i64 %length, i64 %index) nounwind {\n\
     entry:\n\
         %after_start = icmp sge i64 %index, 1\n\
         %before_end = icmp sle i64 %index, %length\n\
@@ -4292,11 +4292,12 @@ const PORTABLE_BYTES_EXACT_VIEW_FIXTURE: &str = "\n\
         %payload_index = add i64 %view_offset, %zero_index\n\
         %pointer = getelementptr [48 x i8], ptr @pop_test_bytes_payloads, i64 0, i64 %payload_index\n\
         %value = load i8, ptr %pointer\n\
-        %with_presence = insertvalue { i1, i8 } undef, i1 true, 0\n\
-        %result = insertvalue { i1, i8 } %with_presence, i8 %value, 1\n\
-        ret { i1, i8 } %result\n\
+        %wide_value = zext i8 %value to i16\n\
+        %shifted_value = shl i16 %wide_value, 8\n\
+        %result = or i16 %shifted_value, 1\n\
+        ret i16 %result\n\
     absent:\n\
-        ret { i1, i8 } zeroinitializer\n\
+        ret i16 0\n\
     }\n";
 
 #[test]
@@ -4354,7 +4355,7 @@ fn emitted_llvm_executes_portable_bytes_inspection_and_endian_reads() {
             "",
         )
         .replace(
-            "declare { i1, i8 } @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind\n",
+            "declare i16 @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind\n",
             "",
         );
     llvm.push_str(PORTABLE_BYTES_EXACT_VIEW_FIXTURE);
@@ -4374,6 +4375,57 @@ fn emitted_llvm_executes_portable_bytes_inspection_and_endian_reads() {
         result.status.code() == Some(42),
         "LLVM Bytes fixture failed with {:?}:\n{llvm}",
         result.status.code()
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_reusable_byte_buffer_writes_and_snapshots() {
+    let module = native_module(
+        "namespace Main\n\
+         private function main(): Int\n\
+             local buffer = Bytes.withCapacity(1)\n\
+             Bytes.reserve(buffer, 24)\n\
+             Bytes.write(buffer, 170)\n\
+             Bytes.writeUInt16BigEndian(buffer, 258)\n\
+             Bytes.writeUInt16LittleEndian(buffer, 772)\n\
+             Bytes.writeUInt32BigEndian(buffer, 84281096)\n\
+             Bytes.writeUInt64LittleEndian(buffer, 72623859790382856)\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             Bytes.write(buffer, snapshot)\n\
+             Bytes.write(buffer, Bytes.slice(snapshot, 2, 2))\n\
+             local result = Bytes.toBytes(buffer)\n\
+             if Bytes.length(buffer) ~= 19 or Bytes.length(Bytes.view(snapshot)) ~= 17 then\n\
+                 return 1\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 1) ?? 0) ~= 170 then\n\
+                 return 2\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 2) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 3) ?? 0) ~= 2 then\n\
+                 return 3\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 4) ?? 0) ~= 4 or (Bytes.get(Bytes.view(result), 5) ?? 0) ~= 3 then\n\
+                 return 4\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 6) ?? 0) ~= 5 or (Bytes.get(Bytes.view(result), 9) ?? 0) ~= 8 then\n\
+                 return 5\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 10) ?? 0) ~= 8 or (Bytes.get(Bytes.view(result), 17) ?? 0) ~= 1 then\n\
+                 return 6\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 18) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 19) ?? 0) ~= 2 then\n\
+                 return 7\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "reusable-byte-buffer");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted reusable Bytes.Buffer: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
     );
 }
 
@@ -6369,7 +6421,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && minor <= 2;\n",
+            "  return major == 2 && minor <= 3;\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -6491,7 +6543,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && minor <= 2;\n",
+            "  return major == 2 && minor <= 3;\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",

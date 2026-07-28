@@ -469,6 +469,42 @@ pub enum TypedExpressionKind {
         list: Box<TypedExpression>,
         value: Box<TypedExpression>,
     },
+    ByteBufferCreate {
+        capacity: Option<Box<TypedExpression>>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: Box<TypedExpression>,
+    },
+    ByteBufferReserve {
+        buffer: Box<TypedExpression>,
+        additional_capacity: Box<TypedExpression>,
+    },
+    ByteBufferClear {
+        buffer: Box<TypedExpression>,
+    },
+    ByteBufferWriteByte {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteBytes {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteView {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteInteger {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+        kind: IntegerKind,
+        order: crate::ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
     RangeCreate {
         first: Box<TypedExpression>,
         last: Box<TypedExpression>,

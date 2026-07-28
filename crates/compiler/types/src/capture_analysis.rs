@@ -288,6 +288,11 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
                 finalize_expression_captures(capacity, written);
             }
         }
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                finalize_expression_captures(capacity, written);
+            }
+        }
         TypedExpressionKind::RangeCreate { first, last, step } => {
             finalize_expression_captures(first, written);
             finalize_expression_captures(last, written);
@@ -296,8 +301,24 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         TypedExpressionKind::ListLength { list } => {
             finalize_expression_captures(list, written);
         }
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            finalize_expression_captures(buffer, written);
+        }
         TypedExpressionKind::ListAdd { list, value } => {
             finalize_expression_captures(list, written);
+            finalize_expression_captures(value, written);
+        }
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            finalize_expression_captures(buffer, written);
             finalize_expression_captures(value, written);
         }
         TypedExpressionKind::ArrayFill { array, value } => {

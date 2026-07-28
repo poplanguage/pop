@@ -212,6 +212,10 @@ transplanted into a Luau-shaped file.
   UTF-8 bytes with allocation-free steps; `Text.View` remains non-iterable.
   The closed native iteration kind advances the descriptors to ABI 1.24 and
   2.2.
+- `Bytes.Buffer` is ADR 0117's distinct reusable mutable byte accumulator.
+  Exact byte, owned/view, and fixed-width endian writes append atomically;
+  `toBytes` returns an independent immutable snapshot. It is neither a List
+  nor FFI storage and advances the native descriptors to ABI 1.25 and 2.3.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

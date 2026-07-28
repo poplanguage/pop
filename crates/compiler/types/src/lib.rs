@@ -57,11 +57,11 @@ pub use attributes::{
 };
 pub use body_checking::{BodyChecker, RuntimeConstant};
 pub use bootstrap::{
-    AttributeIdentity, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID, BootstrapCodecErrorProtocol,
-    BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry, BootstrapIterationProtocol,
-    BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError, BootstrapStandardFunctionEntry,
-    BootstrapTypeEntry, BootstrapTypeRole, CODEC_ERROR_TYPE_ID, CodecErrorReason,
-    CompilerAttributeId, CompilerAttributeRole, CompilerAttributeTarget,
+    AttributeIdentity, BYTES_BUFFER_TYPE_ID, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID,
+    BootstrapCodecErrorProtocol, BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry,
+    BootstrapIterationProtocol, BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError,
+    BootstrapStandardFunctionEntry, BootstrapTypeEntry, BootstrapTypeRole, CODEC_ERROR_TYPE_ID,
+    CodecErrorReason, CompilerAttributeId, CompilerAttributeRole, CompilerAttributeTarget,
     FFI_ALLOCATION_ERROR_TYPE_ID, FFI_BUFFER_TYPE_ID, FFI_CALLBACK_CLOSED_ERROR_TYPE_ID,
     FFI_CALLBACK_CONTEXT_TYPE_ID, FFI_CALLBACK_IN_USE_ERROR_TYPE_ID,
     FFI_CALLBACK_OPEN_ERROR_TYPE_ID, FFI_CALLBACK_THREAD_TYPE_ID, FFI_FUNCTION_TYPE_ID,
@@ -104,6 +104,12 @@ pub use typed_body::{
 
 pub type ClassFieldDefault = FieldDefault;
 pub type RecordFieldDefault = FieldDefault;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ByteOrder {
+    BigEndian,
+    LittleEndian,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum IntegerKind {

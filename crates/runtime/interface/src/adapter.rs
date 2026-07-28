@@ -5,8 +5,8 @@ use crate::{
     FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId, FfiCallbackTransitionId,
     ForeignAddress, ForeignCallMode, ForeignTransitionId, GarbageCollectorContract,
     ManagedReference, ManagedThreadBindingId, ObjectAllocationRequest, PanicPayload, PinHandle,
-    RootHandle, RootPublication, RuntimeFailure, SchedulerId, TableAllocationRequest, Trap,
-    WriteBarrier,
+    RootHandle, RootPublication, RuntimeFailure, RuntimeTypeId, SchedulerId,
+    TableAllocationRequest, Trap, WriteBarrier,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -199,6 +199,97 @@ pub trait RuntimeAdapter {
     ///
     /// Returns an invariant failure for invalid storage or an active borrow.
     fn ffi_buffer_close(&mut self, buffer: ManagedReference) -> Result<(), RuntimeFailure> {
+        let _ = buffer;
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Allocates a distinct reusable byte accumulator with the requested capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an allocation or invariant failure.
+    fn allocate_byte_buffer(
+        &mut self,
+        type_id: RuntimeTypeId,
+        capacity: u64,
+    ) -> Result<ManagedReference, RuntimeFailure> {
+        let _ = (type_id, capacity);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Returns the current byte count of a verified reusable accumulator.
+    ///
+    /// # Errors
+    ///
+    /// Rejects forged or non-buffer managed references.
+    fn byte_buffer_length(&self, buffer: ManagedReference) -> Result<u64, RuntimeFailure> {
+        let _ = buffer;
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Reserves room for at least `additional` more bytes without changing length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an allocation or invariant failure without partially mutating bytes.
+    fn byte_buffer_reserve(
+        &mut self,
+        buffer: ManagedReference,
+        additional: u64,
+    ) -> Result<(), RuntimeFailure> {
+        let _ = (buffer, additional);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Removes every accumulated byte while retaining reusable storage.
+    ///
+    /// # Errors
+    ///
+    /// Rejects forged or non-buffer managed references.
+    fn byte_buffer_clear(&mut self, buffer: ManagedReference) -> Result<(), RuntimeFailure> {
+        let _ = buffer;
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Atomically appends one exact byte slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an allocation or invariant failure without a partial append.
+    fn byte_buffer_append(
+        &mut self,
+        buffer: ManagedReference,
+        bytes: &[u8],
+    ) -> Result<(), RuntimeFailure> {
+        let _ = (buffer, bytes);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Atomically appends one checked range from immutable `Bytes`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid references or ranges and never performs a partial append.
+    fn byte_buffer_append_immutable_range(
+        &mut self,
+        buffer: ManagedReference,
+        bytes: ManagedReference,
+        offset: u64,
+        length: u64,
+    ) -> Result<(), RuntimeFailure> {
+        let _ = (buffer, bytes, offset, length);
+        Err(RuntimeFailure::runtime_invariant())
+    }
+
+    /// Creates an independent immutable `Bytes` snapshot of a reusable buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an allocation or invariant failure.
+    fn materialize_byte_buffer(
+        &mut self,
+        buffer: ManagedReference,
+    ) -> Result<ManagedReference, RuntimeFailure> {
         let _ = buffer;
         Err(RuntimeFailure::runtime_invariant())
     }

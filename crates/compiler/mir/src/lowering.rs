@@ -2613,7 +2613,8 @@ fn visit_expression_closures(
         HirExpressionKind::ArrayLength { array } => {
             visit_expression_closures(array, parameters, locals);
         }
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 visit_expression_closures(capacity, parameters, locals);
             }
@@ -2621,8 +2622,24 @@ fn visit_expression_closures(
         HirExpressionKind::ListLength { list } => {
             visit_expression_closures(list, parameters, locals);
         }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            visit_expression_closures(buffer, parameters, locals);
+        }
         HirExpressionKind::ListAdd { list, value } => {
             visit_expression_closures(list, parameters, locals);
+            visit_expression_closures(value, parameters, locals);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            visit_expression_closures(buffer, parameters, locals);
             visit_expression_closures(value, parameters, locals);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -5444,6 +5461,66 @@ impl<'hir> FunctionBuilder<'hir> {
                 value: self.lower_expression(value),
                 element_map: list_element_map(self.arena, list.type_id()),
             },
+            HirExpressionKind::ByteBufferCreate {
+                capacity,
+                allocation_site,
+            } => MirInstructionKind::ByteBufferCreate {
+                capacity: capacity
+                    .as_deref()
+                    .map(|value| self.lower_expression(value)),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::ByteBufferLength { buffer } => {
+                MirInstructionKind::ByteBufferLength {
+                    buffer: self.lower_expression(buffer),
+                }
+            }
+            HirExpressionKind::ByteBufferReserve {
+                buffer,
+                additional_capacity,
+            } => MirInstructionKind::ByteBufferReserve {
+                buffer: self.lower_expression(buffer),
+                additional_capacity: self.lower_expression(additional_capacity),
+            },
+            HirExpressionKind::ByteBufferClear { buffer } => MirInstructionKind::ByteBufferClear {
+                buffer: self.lower_expression(buffer),
+            },
+            HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteByte {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteBytes {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteView {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteInteger {
+                buffer,
+                value,
+                kind,
+                order,
+            } => MirInstructionKind::ByteBufferWriteInteger {
+                buffer: self.lower_expression(buffer),
+                value: self.lower_expression(value),
+                kind: *kind,
+                order: *order,
+            },
+            HirExpressionKind::ByteBufferMaterialize {
+                buffer,
+                allocation_site,
+            } => MirInstructionKind::ByteBufferMaterialize {
+                buffer: self.lower_expression(buffer),
+                allocation_site: *allocation_site,
+            },
             HirExpressionKind::RangeCreate { first, last, step } => {
                 MirInstructionKind::RangeCreate {
                     first: self.lower_expression(first),
@@ -7131,14 +7208,14 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
             MirEffect::MayUnwind,
             MirEffect::GcSafePoint,
         ]),
-        MirInstructionKind::ListCreate { .. } | MirInstructionKind::RangeCreate { .. } => {
-            MirEffectSummary::from_effects([
-                MirEffect::Allocates,
-                MirEffect::MayTrap,
-                MirEffect::MayUnwind,
-                MirEffect::GcSafePoint,
-            ])
-        }
+        MirInstructionKind::ListCreate { .. }
+        | MirInstructionKind::ByteBufferCreate { .. }
+        | MirInstructionKind::RangeCreate { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
         MirInstructionKind::ListAdd { element_map, .. } => {
             let effects = MirEffectSummary::from_effects([
                 MirEffect::Allocates,
@@ -7151,6 +7228,20 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
                 effects
             }
         }
+        MirInstructionKind::ByteBufferReserve { .. }
+        | MirInstructionKind::ByteBufferWriteByte { .. }
+        | MirInstructionKind::ByteBufferWriteBytes { .. }
+        | MirInstructionKind::ByteBufferWriteView { .. }
+        | MirInstructionKind::ByteBufferWriteInteger { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+        ]),
+        MirInstructionKind::ByteBufferMaterialize { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
         MirInstructionKind::GcSafePoint { .. } => {
             MirEffectSummary::empty().with(MirEffect::GcSafePoint)
         }
@@ -7270,6 +7361,8 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ArrayLength { .. }
         | MirInstructionKind::ListGet { .. }
         | MirInstructionKind::ListLength { .. }
+        | MirInstructionKind::ByteBufferLength { .. }
+        | MirInstructionKind::ByteBufferClear { .. }
         | MirInstructionKind::FloatAdd { .. }
         | MirInstructionKind::FloatSubtract { .. }
         | MirInstructionKind::FloatMultiply { .. }
@@ -7722,6 +7815,7 @@ pub(crate) fn expected_safe_point_roots(
 ) -> BTreeMap<ValueId, Vec<ValueId>> {
     let (value_types, live_in, live_out) = live_value_facts(function);
     let view_lenders = view_lender_roots(function, arena, &value_types);
+    let active_view_lenders = active_view_lenders_at_safe_points(function, &view_lenders);
 
     let mut maps = BTreeMap::new();
     for block in &function.blocks {
@@ -7729,7 +7823,7 @@ pub(crate) fn expected_safe_point_roots(
         live.extend(terminator_operands(&block.terminator));
         for instruction in block.instructions.iter().rev() {
             if let MirInstructionKind::GcSafePoint { .. } = instruction.kind {
-                let roots = live
+                let mut roots = live
                     .iter()
                     .filter_map(|value| {
                         value_types.get(value).and_then(|type_id| {
@@ -7740,9 +7834,15 @@ pub(crate) fn expected_safe_point_roots(
                             }
                         })
                     })
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect();
+                    .collect::<BTreeSet<_>>();
+                roots.extend(
+                    active_view_lenders
+                        .get(&instruction.result)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+                let roots = roots.into_iter().collect();
                 maps.insert(instruction.result, roots);
             }
             if instruction.has_result() {
@@ -7759,6 +7859,91 @@ pub(crate) fn expected_safe_point_roots(
         }
     }
     maps
+}
+
+fn active_view_lenders_at_safe_points(
+    function: &MirFunction,
+    view_lenders: &BTreeMap<ValueId, ValueId>,
+) -> BTreeMap<ValueId, BTreeSet<ValueId>> {
+    let Some(entry) = function.blocks().first() else {
+        return BTreeMap::new();
+    };
+    let initial = entry
+        .arguments()
+        .iter()
+        .zip(function.parameter_view_borrows())
+        .filter_map(|(argument, borrow)| {
+            borrow
+                .as_ref()
+                .map(|borrow| (borrow.borrow_lifetime(), argument.value()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut incoming = BTreeMap::from([(entry.block(), initial)]);
+    let mut pending = vec![entry.block()];
+    while let Some(block_id) = pending.pop() {
+        let Some(block) = function
+            .blocks()
+            .iter()
+            .find(|block| block.block() == block_id)
+        else {
+            continue;
+        };
+        let mut active = incoming.get(&block_id).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            update_active_view_lenders(instruction, view_lenders, &mut active);
+            if let Some(target) = instruction_unwind_target(instruction) {
+                merge_active_view_lenders(target, &active, &mut incoming, &mut pending);
+            }
+        }
+        for target in terminator_targets(block.terminator()) {
+            merge_active_view_lenders(target, &active, &mut incoming, &mut pending);
+        }
+    }
+
+    let mut safe_points = BTreeMap::new();
+    for block in function.blocks() {
+        let mut active = incoming.get(&block.block()).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            if matches!(instruction.kind(), MirInstructionKind::GcSafePoint { .. }) {
+                safe_points.insert(
+                    instruction.result(),
+                    active.values().copied().collect::<BTreeSet<_>>(),
+                );
+            }
+            update_active_view_lenders(instruction, view_lenders, &mut active);
+        }
+    }
+    safe_points
+}
+
+fn update_active_view_lenders(
+    instruction: &MirInstruction,
+    view_lenders: &BTreeMap<ValueId, ValueId>,
+    active: &mut BTreeMap<LifetimeId, ValueId>,
+) {
+    if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+        if let Some(lender) = view_lenders.get(&instruction.result()).copied() {
+            active.insert(lifetime, lender);
+        }
+    } else if let MirInstructionKind::ViewEnd { borrow_lifetime } = instruction.kind() {
+        active.remove(borrow_lifetime);
+    }
+}
+
+fn merge_active_view_lenders(
+    target: BlockId,
+    active: &BTreeMap<LifetimeId, ValueId>,
+    incoming: &mut BTreeMap<BlockId, BTreeMap<LifetimeId, ValueId>>,
+    pending: &mut Vec<BlockId>,
+) {
+    let target_state = incoming.entry(target).or_default();
+    let previous = target_state.len();
+    for (lifetime, lender) in active {
+        target_state.entry(*lifetime).or_insert(*lender);
+    }
+    if target_state.len() != previous {
+        pending.push(target);
+    }
 }
 
 fn view_lender_roots(

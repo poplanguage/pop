@@ -917,6 +917,63 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             output.push(' ');
             dump_expression(output, value, arena);
         }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            output.push_str("byteBufferCreate");
+            if let Some(capacity) = capacity {
+                output.push(' ');
+                dump_expression(output, capacity, arena);
+            }
+        }
+        HirExpressionKind::ByteBufferLength { buffer } => {
+            output.push_str("byteBufferLength ");
+            dump_expression(output, buffer, arena);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => {
+            output.push_str("byteBufferReserve ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, additional_capacity, arena);
+        }
+        HirExpressionKind::ByteBufferClear { buffer } => {
+            output.push_str("byteBufferClear ");
+            dump_expression(output, buffer, arena);
+        }
+        HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+            output.push_str("byteBufferWriteByte ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+            output.push_str("byteBufferWriteBytes ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+            output.push_str("byteBufferWriteView ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let _ = write!(output, "byteBufferWriteInteger {kind:?} {order:?} ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            output.push_str("byteBufferMaterialize ");
+            dump_expression(output, buffer, arena);
+        }
         HirExpressionKind::RangeCreate { first, last, step } => {
             output.push_str("range.create ");
             dump_expression(output, first, arena);

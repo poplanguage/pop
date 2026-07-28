@@ -2293,12 +2293,14 @@ pub(crate) fn initialize_array_outputs(
                     | MirInstructionKind::ListGet { .. }
                     | MirInstructionKind::ListLength { .. }
                     | MirInstructionKind::ListGetChecked { .. }
+                    | MirInstructionKind::ByteBufferLength { .. }
             ) && match instruction.kind() {
                 MirInstructionKind::ArrayGet { .. } => true,
                 MirInstructionKind::TableGet { .. } => true,
                 MirInstructionKind::ListGet { .. } => true,
                 MirInstructionKind::ListLength { .. }
-                | MirInstructionKind::ListGetChecked { .. } => true,
+                | MirInstructionKind::ListGetChecked { .. }
+                | MirInstructionKind::ByteBufferLength { .. } => true,
                 MirInstructionKind::ArrayLength { array }
                 | MirInstructionKind::ArrayGetChecked { array, .. } => {
                     direct_scalar_arrays.origin(*array).is_none()
@@ -2363,9 +2365,17 @@ pub(crate) fn llvm_block_exit_label(
                 MirInstructionKind::ListSet { .. } | MirInstructionKind::ListAdd { .. } => {
                     "continue"
                 }
+                MirInstructionKind::ByteBufferReserve { .. }
+                | MirInstructionKind::ByteBufferClear { .. }
+                | MirInstructionKind::ByteBufferWriteByte { .. }
+                | MirInstructionKind::ByteBufferWriteBytes { .. }
+                | MirInstructionKind::ByteBufferWriteView { .. }
+                | MirInstructionKind::ByteBufferWriteInteger { .. }
+                | MirInstructionKind::ByteBufferMaterialize { .. } => "continue",
                 MirInstructionKind::GcSafePoint { .. } => "poll_continue",
                 MirInstructionKind::ArrayCreate { .. } => "create",
                 MirInstructionKind::ListCreate { .. } => "create",
+                MirInstructionKind::ByteBufferCreate { .. } => "continue",
                 MirInstructionKind::RangeCreate { .. } => "create",
                 MirInstructionKind::ArrayLength { array }
                 | MirInstructionKind::ArrayGetChecked { array, .. } => {
@@ -2373,7 +2383,8 @@ pub(crate) fn llvm_block_exit_label(
                     "load"
                 }
                 MirInstructionKind::ListLength { .. }
-                | MirInstructionKind::ListGetChecked { .. } => "load",
+                | MirInstructionKind::ListGetChecked { .. }
+                | MirInstructionKind::ByteBufferLength { .. } => "load",
                 _ => return None,
             };
             Some(format!("v{}_{suffix}", instruction.result().raw()))
