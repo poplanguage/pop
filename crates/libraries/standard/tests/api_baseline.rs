@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 338);
+    assert_eq!(baseline.entries().len(), 351);
 
     let prelude_names = baseline
         .entries()
@@ -355,6 +355,19 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Net", "scopedIpv6"),
             ("Pop.Net", "parseScopedIpv6"),
             ("Pop.Net", "formatScopedIpv6"),
+            ("Pop.Net", "NetworkInterface"),
+            ("Pop.Net", "InterfaceAddress"),
+            ("Pop.Net", "Route"),
+            ("Pop.Net", "networkInterface"),
+            ("Pop.Net", "interfaceAddress"),
+            ("Pop.Net", "ipv4OnLinkRoute"),
+            ("Pop.Net", "ipv4ViaRoute"),
+            ("Pop.Net", "ipv6OnLinkRoute"),
+            ("Pop.Net", "ipv6ViaRoute"),
+            ("Pop.Net", "routeDestination"),
+            ("Pop.Net", "routeNextHop"),
+            ("Pop.Net", "routeInterfaceId"),
+            ("Pop.Net", "routeMetric"),
         ]
     );
 }

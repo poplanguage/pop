@@ -5997,6 +5997,80 @@ fn emitted_llvm_executes_numeric_interface_scope() {
 }
 
 #[test]
+fn emitted_llvm_executes_immutable_interface_and_route_facts() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/netFacts.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFacts.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local identity = interfaceId(UInt32(7))?\n\
+                 local fact = networkInterface(identity, \"eth0\", true, false, UInt32(1500))?\n\
+                 if fact.maximumTransmissionUnit ~= UInt32(1500) then\n\
+                     return 1\n\
+                 end\n\
+                 local destination = ipv4Prefix(parseIpv4(\"10.2.3.4\")?, 8)?\n\
+                 local route = ipv4ViaRoute(destination, parseIpv4(\"10.0.0.1\")?, identity, UInt32(20))\n\
+                 if formatAddress(networkAddress(routeDestination(route))) ~= \"10.0.0.0\" then\n\
+                     return 2\n\
+                 end\n\
+                 local nextHop = routeNextHop(route)?\n\
+                 if formatAddress(nextHop) ~= \"10.0.0.1\" then\n\
+                     return 3\n\
+                 end\n\
+                 if routeMetric(route) ~= UInt32(20) then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "immutable-network-facts");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted immutable network facts: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

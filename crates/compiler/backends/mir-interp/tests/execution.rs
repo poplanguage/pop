@@ -3201,6 +3201,90 @@ fn numeric_interface_scope_is_canonical_and_bounded() {
 }
 
 #[test]
+fn immutable_interface_and_route_facts_preserve_family_constraints() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/netFacts.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFacts.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local identity = interfaceId(UInt32(7))?\n\
+                 local fact = networkInterface(identity, \"eth0\", true, false, UInt32(1500))?\n\
+                 if fact.name ~= \"eth0\" or fact.maximumTransmissionUnit ~= UInt32(1500) then\n\
+                     return 1\n\
+                 end\n\
+                 if networkInterface(identity, \"\", true, false, UInt32(0)) ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local destination = ipv4Prefix(parseIpv4(\"10.2.3.4\")?, 8)?\n\
+                 local route = ipv4ViaRoute(destination, parseIpv4(\"10.0.0.1\")?, identity, UInt32(20))\n\
+                 if formatAddress(networkAddress(routeDestination(route))) ~= \"10.0.0.0\" then\n\
+                     return 3\n\
+                 end\n\
+                 local nextHop = routeNextHop(route)?\n\
+                 if formatAddress(nextHop) ~= \"10.0.0.1\" then\n\
+                     return 4\n\
+                 end\n\
+                 local routeIdentity = routeInterfaceId(route)\n\
+                 if routeIdentity.index ~= UInt32(7) or routeMetric(route) ~= UInt32(20) then\n\
+                     return 5\n\
+                 end\n\
+                 local ipv6Destination = ipv6Prefix(parseIpv6(\"2001:db8::1\")?, 32)?\n\
+                 local onLink = ipv6OnLinkRoute(ipv6Destination, identity, UInt32(1))\n\
+                 if routeNextHop(onLink) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("network fact consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified network facts MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("network fact execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

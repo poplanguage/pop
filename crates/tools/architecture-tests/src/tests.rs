@@ -2810,6 +2810,55 @@ fn numeric_interface_scope_follows_adr_0154_without_ambient_host_lookup() {
 }
 
 #[test]
+fn immutable_network_facts_follow_adr_0155_without_host_query_authority() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0155-immutable-network-interface-and-route-facts.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netFacts.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record NetworkInterface",
+        "public record InterfaceAddress",
+        "public union Route",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "networkInterface",
+        "interfaceAddress",
+        "ipv4OnLinkRoute",
+        "ipv4ViaRoute",
+        "ipv6OnLinkRoute",
+        "ipv6ViaRoute",
+        "routeDestination",
+        "routeNextHop",
+        "routeInterfaceId",
+        "routeMetric",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in [
+        "Dynamic",
+        "Any",
+        "Table",
+        "interfaces(",
+        "routes(",
+        "Dns.",
+        "Socket.",
+        "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(
