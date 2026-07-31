@@ -2196,6 +2196,35 @@ fn bounded_semantic_versions_follow_adr_0131_without_a_native_duplicate() {
 }
 
 #[test]
+fn bounded_media_types_follow_adr_0132_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0132-bounded-media-type-values.md"));
+    let mime = read_required(root.join("crates/libraries/standard/pop/src/mime.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(mime.matches("public record Parameter").count(), 1);
+    assert_eq!(mime.matches("public record Value").count(), 1);
+    for function in ["parse", "format", "parameter", "matches"] {
+        assert_eq!(
+            mime.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Mime\t{function}\t")),
+            "Mime.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(mime.contains("MAX_MEDIA_TYPE_LENGTH = 1024"));
+    assert!(mime.contains("MAX_PARAMETER_COUNT = 32"));
+    assert!(!compiler.contains("Pop.Mime"));
+    assert!(!native.contains("Pop.Mime"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

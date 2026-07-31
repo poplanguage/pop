@@ -1,0 +1,408 @@
+namespace Pop.Mime
+using Pop.Text
+using Pop.Unicode
+
+private const MAX_MEDIA_TYPE_LENGTH = 1024
+private const MAX_PARAMETER_COUNT = 32
+
+--- <summary>
+--- Holds one canonical media-type parameter.
+--- </summary>
+public record Parameter
+    --- <summary>
+    --- The lowercase ASCII parameter name.
+    --- </summary>
+    name: String
+
+    --- <summary>
+    --- The decoded owned parameter value.
+    --- </summary>
+    value: String
+end
+
+--- <summary>
+--- Holds one bounded owned media type.
+--- </summary>
+public record Value
+    --- <summary>
+    --- The lowercase ASCII top-level type.
+    --- </summary>
+    mediaType: String
+
+    --- <summary>
+    --- The lowercase ASCII subtype.
+    --- </summary>
+    subtype: String
+
+    --- <summary>
+    --- The declaration-ordered canonical parameters.
+    --- </summary>
+    parameters: List<Parameter>
+end
+
+private function trimAsciiWhitespace(value: String): String
+    local position = 0
+    local start = 0
+    local finish = 0
+    for rune in value do
+        position = position + 1
+        local point = Unicode.codePoint(rune)
+        if point ~= 32 and point ~= 9 then
+            if start == 0 then
+                start = position
+            end
+            finish = position
+        end
+    end
+    if start == 0 then
+        return ""
+    end
+    local remaining = Text.slice(value, start, finish - start + 1)
+    return Text.toString(remaining)
+end
+
+private function isToken(value: String): Boolean
+    if value == "" then
+        return false
+    end
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        local alphanumeric = (point >= 48 and point <= 57) or (point >= 65 and point <= 90) or (point >= 97 and point <= 122)
+        local punctuation = point == 33 or point == 35 or point == 36 or point == 37 or point == 38 or point == 39 or point == 42 or point == 43 or point == 45 or point == 46 or point == 94 or point == 95 or point == 96 or point == 124 or point == 126
+        if not alphanumeric and not punctuation then
+            return false
+        end
+    end
+    return true
+end
+
+private function asciiLower(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local output = Bytes.withCapacity(Bytes.length(view))
+    local index = 1
+    while index <= Bytes.length(view) do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 65 and byte <= 90 then
+            byte = byte + 32
+        end
+        Bytes.write(output, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function splitSections(value: String): List<String>
+    local sections = List.create<<String>>()
+    local section = Bytes.create()
+    local quoted = false
+    local escaping = false
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        if point > 127 then
+            return List.create<<String>>()
+        end
+        if escaping then
+            Bytes.write(section, Byte(point))
+            escaping = false
+        elseif quoted and point == 92 then
+            Bytes.write(section, Byte(point))
+            escaping = true
+        elseif point == 34 then
+            Bytes.write(section, Byte(point))
+            quoted = not quoted
+        elseif point == 59 and not quoted then
+            List.add(sections, Text.decodeUtf8(section) ?? "")
+            Bytes.clear(section)
+        else
+            Bytes.write(section, Byte(point))
+        end
+    end
+    if quoted or escaping then
+        return List.create<<String>>()
+    end
+    List.add(sections, Text.decodeUtf8(section) ?? "")
+    return sections
+end
+
+private function decodeParameterValue(value: String): String?
+    if isToken(value) then
+        return value
+    end
+    local length = 0
+    for _ in value do
+        length = length + 1
+    end
+    if length < 2 or not startsWith(value, "\"") or not endsWith(value, "\"") then
+        return nil
+    end
+    local inner = Text.toString(Text.slice(value, 2, length - 2))
+    local output = Bytes.withCapacity(length - 2)
+    local escaping = false
+    for rune in inner do
+        local point = Unicode.codePoint(rune)
+        if escaping then
+            if point < 32 or point > 126 then
+                return nil
+            end
+            Bytes.write(output, Byte(point))
+            escaping = false
+        elseif point == 92 then
+            escaping = true
+        elseif point == 34 or (point ~= 9 and (point < 32 or point > 126)) then
+            return nil
+        else
+            Bytes.write(output, Byte(point))
+        end
+    end
+    if escaping then
+        return nil
+    end
+    return Text.decodeUtf8(output)
+end
+
+private function encodeParameterValue(value: String): String
+    if isToken(value) then
+        return value
+    end
+    local escaped = replace(value, "\\", "\\\\")
+    escaped = replace(escaped, "\"", "\\\"")
+    return "\"" .. escaped .. "\""
+end
+
+private function parameterExists(parameters: List<Parameter>, name: String): Boolean
+    local index = 1
+    while index <= List.length(parameters) do
+        local candidate = List.get(parameters, index)
+        if candidate.name == name then
+            return true
+        end
+        index = index + 1
+    end
+    return false
+end
+
+--- <summary>
+--- Parses one complete bounded media type with optional parameters.
+--- </summary>
+---
+--- <param name="text">
+--- Exact media-type text with optional ASCII space or tab around parameters.
+--- </param>
+---
+--- <returns>
+--- A canonical owned value, or nil for malformed, duplicate, or oversized
+--- input.
+--- </returns>
+---
+--- <remarks>
+--- Type, subtype, and parameter names are ASCII-lowercased. Parameter values
+--- may be tokens or quoted printable ASCII with backslash escapes.
+--- </remarks>
+---
+--- <complexity time="O(n * p)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates owned canonical text, a parameter list, and bounded parser
+--- storage.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Mime
+---
+--- private function mimeExample(): String
+---     local parameters = List.create&lt;&lt;Parameter&gt;&gt;()
+---     local fallback: Value = {
+---         mediaType = "application",
+---         subtype = "octet-stream",
+---         parameters = parameters,
+---     }
+---     local value = parse("Text/Plain; Charset=\"utf-8\"") ?? fallback
+---     return format(value)
+--- end
+--- </code>
+--- </example>
+public function parse(text: String): Value?
+    local encoded = Text.encodeUtf8(text)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    if length < 3 or length > MAX_MEDIA_TYPE_LENGTH then
+        return nil
+    end
+
+    local sections = splitSections(text)
+    if List.length(sections) == 0 then
+        return nil
+    end
+    local identity = trimAsciiWhitespace(List.get(sections, 1))
+    local identityParts = split(identity, "/")
+    if List.length(identityParts) ~= 2 then
+        return nil
+    end
+    local mediaType = asciiLower(List.get(identityParts, 1))
+    local subtype = asciiLower(List.get(identityParts, 2))
+    if not isToken(mediaType) or not isToken(subtype) then
+        return nil
+    end
+
+    local parameters = List.create<<Parameter>>()
+    local sectionIndex = 2
+    while sectionIndex <= List.length(sections) do
+        if List.length(parameters) >= MAX_PARAMETER_COUNT then
+            return nil
+        end
+        local section = trimAsciiWhitespace(List.get(sections, sectionIndex))
+        local separator = indexOf(section, "=", 1) ?? 0
+        if separator <= 1 then
+            return nil
+        end
+        local nameView = Text.slice(section, 1, separator - 1)
+        local name = asciiLower(trimAsciiWhitespace(Text.toString(nameView)))
+        if not isToken(name) or parameterExists(parameters, name) then
+            return nil
+        end
+        local valueLength = 0
+        for _ in section do
+            valueLength = valueLength + 1
+        end
+        if separator >= valueLength then
+            return nil
+        end
+        local rawView = Text.slice(section, separator + 1, valueLength - separator)
+        local rawValue = trimAsciiWhitespace(Text.toString(rawView))
+        local decoded = decodeParameterValue(rawValue)
+        if decoded == nil then
+            return nil
+        end
+        local parameter: Parameter = {
+            name = name,
+            value = decoded ?? "",
+        }
+        List.add(parameters, parameter)
+        sectionIndex = sectionIndex + 1
+    end
+
+    local value: Value = {
+        mediaType = mediaType,
+        subtype = subtype,
+        parameters = parameters,
+    }
+    return value
+end
+
+--- <summary>
+--- Formats one canonical media type.
+--- </summary>
+---
+--- <param name="value">
+--- A parsed value or record satisfying the same token and uniqueness
+--- invariants.
+--- </param>
+---
+--- <returns>
+--- Lowercase type/name text with minimally quoted parameter values.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String and quoted parameter storage when needed.
+--- </allocation>
+public function format(value: Value): String
+    local output = asciiLower(value.mediaType) .. "/" .. asciiLower(value.subtype)
+    local index = 1
+    while index <= List.length(value.parameters) do
+        local parameter = List.get(value.parameters, index)
+        output = output .. "; " .. asciiLower(parameter.name) .. "=" .. encodeParameterValue(parameter.value)
+        index = index + 1
+    end
+    return output
+end
+
+--- <summary>
+--- Finds one parameter by ASCII-insensitive name.
+--- </summary>
+---
+--- <param name="value">
+--- The media type to inspect.
+--- </param>
+---
+--- <param name="name">
+--- An exact token parameter name.
+--- </param>
+---
+--- <returns>
+--- The first owned decoded value, or nil when absent or the name is invalid.
+--- Parsed values never contain duplicate names.
+--- </returns>
+---
+--- <complexity time="O(p + n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates lowercase lookup text.
+--- </allocation>
+public function parameter(value: Value, name: String): String?
+    local canonical = asciiLower(name)
+    if not isToken(canonical) then
+        return nil
+    end
+    local index = 1
+    while index <= List.length(value.parameters) do
+        local candidate = List.get(value.parameters, index)
+        if candidate.name == canonical then
+            return candidate.value
+        end
+        index = index + 1
+    end
+    return nil
+end
+
+--- <summary>
+--- Tests a media type against one exact or wildcard identity pattern.
+--- </summary>
+---
+--- <param name="value">
+--- The media type being tested. Parameters do not affect identity matching.
+--- </param>
+---
+--- <param name="pattern">
+--- One exact `type/subtype`, `type/*`, or `*/*` pattern.
+--- </param>
+---
+--- <returns>
+--- True when the bounded pattern is valid and accepts the value.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded canonical pattern storage.
+--- </allocation>
+public function matches(value: Value, pattern: String): Boolean
+    local encoded = Text.encodeUtf8(pattern)
+    local view = Bytes.view(encoded)
+    if Bytes.length(view) > MAX_MEDIA_TYPE_LENGTH then
+        return false
+    end
+    local identity = trimAsciiWhitespace(pattern)
+    local pieces = split(identity, "/")
+    if List.length(pieces) ~= 2 then
+        return false
+    end
+    local mediaType = asciiLower(List.get(pieces, 1))
+    local subtype = asciiLower(List.get(pieces, 2))
+    if mediaType == "*" then
+        return subtype == "*"
+    end
+    if not isToken(mediaType) then
+        return false
+    end
+    if subtype ~= "*" and not isToken(subtype) then
+        return false
+    end
+    if asciiLower(value.mediaType) ~= mediaType then
+        return false
+    end
+    return subtype == "*" or asciiLower(value.subtype) == subtype
+end

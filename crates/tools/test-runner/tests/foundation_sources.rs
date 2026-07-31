@@ -359,7 +359,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        108,
+        112,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();
@@ -407,7 +407,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
             }
         }
     }
-    assert_eq!(examples.len(), 12, "baseline examples remain compiled");
+    assert_eq!(examples.len(), 13, "baseline examples remain compiled");
 
     for (index, example) in examples.iter().enumerate() {
         let raw = u32::try_from(index + 20).expect("documentation example identity");
@@ -445,43 +445,26 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         });
     }
 
-    let mut aggregate_usings = Vec::new();
-    let aggregate_examples = examples
+    let example_modules = examples
         .iter()
-        .map(|example| {
-            example
-                .lines()
-                .filter(|line| {
-                    if line.starts_with("using ") {
-                        if !aggregate_usings.iter().any(|existing| existing == line) {
-                            aggregate_usings.push((*line).to_owned());
-                        }
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
+        .enumerate()
+        .map(|(index, example)| {
+            let raw = u32::try_from(index).expect("aggregate example identity");
+            let source = SourceFile::new(
+                FileId::from_raw(raw),
+                format!("examples/standardExample{index}.pop"),
+                format!("namespace StandardExampleAggregate{index}\n{example}\n"),
+            )
+            .expect("aggregate documentation example source");
+            FrontEndModule::new(ModuleId::from_raw(raw), source)
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let example_source = SourceFile::new(
-        FileId::from_raw(0),
-        "examples/sequence.pop",
-        format!(
-            "namespace StandardExamples\n{}\n{}\n",
-            aggregate_usings.join("\n"),
-            aggregate_examples
-        ),
-    )
-    .expect("compiled documentation example source");
+        .collect();
     let compiled_examples = analyze_bubble(
         FrontEndBubbleInput::new(
             BubbleId::from_raw(8),
             NamespaceId::from_raw(8),
             vec![STANDARD_BUBBLE],
-            vec![FrontEndModule::new(ModuleId::from_raw(0), example_source)],
+            example_modules,
         )
         .with_reference_metadata(vec![
             standard

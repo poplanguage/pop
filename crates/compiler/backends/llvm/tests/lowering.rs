@@ -4948,6 +4948,70 @@ fn emitted_llvm_executes_bounded_semantic_versions() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_media_types() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/mime.pop",
+            include_str!("../../../../libraries/standard/pop/src/mime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Mime\n\
+             private function fallback(): Value\n\
+                 local parameters = List.create<<Parameter>>()\n\
+                 return { mediaType = \"application\", subtype = \"octet-stream\", parameters = parameters }\n\
+             end\n\
+             private function required(text: String): Value\n\
+                 return parse(text) ?? fallback()\n\
+             end\n\
+             private function main(): Int\n\
+                 local plain = required(\"Text/Plain; Charset=\\\"utf-8\\\"; title=\\\"a b\\\"; note=\\\"a;b\\\"\")\n\
+                 if plain.mediaType ~= \"text\" or plain.subtype ~= \"plain\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (parameter(plain, \"CHARSET\") ?? \"\") ~= \"utf-8\" or (parameter(plain, \"title\") ?? \"\") ~= \"a b\" or (parameter(plain, \"note\") ?? \"\") ~= \"a;b\" then\n\
+                     return 2\n\
+                 end\n\
+                 if format(plain) ~= \"text/plain; charset=utf-8; title=\\\"a b\\\"; note=\\\"a;b\\\"\" then\n\
+                     return 3\n\
+                 end\n\
+                 local escaped = required(\"text/plain; title=\\\"a\\\\\\\"b\\\"\")\n\
+                 if (parameter(escaped, \"title\") ?? \"\") ~= \"a\\\"b\" or format(escaped) ~= \"text/plain; title=\\\"a\\\\\\\"b\\\"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"text\") ~= nil or parse(\"text/plain;\") ~= nil or parse(\"text/plain; A=1; a=2\") ~= nil or parse(\"téxt/plain\") ~= nil or parse(\"text/plain; x=\\\"broken\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if not matches(plain, \"text/plain\") or not matches(plain, \"TEXT/*\") or not matches(plain, \"*/*\") then\n\
+                     return 6\n\
+                 end\n\
+                 if matches(plain, \"application/*\") or matches(plain, \"*/plain\") or matches(plain, \"text/plain; charset=utf-8\") then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-media-types");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded media types: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

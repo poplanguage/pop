@@ -2194,6 +2194,68 @@ fn bounded_semantic_versions_parse_order_format_and_match() {
 }
 
 #[test]
+fn bounded_media_types_parse_format_lookup_and_match() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/mime.pop",
+            include_str!("../../../../libraries/standard/pop/src/mime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Mime\n\
+             private function fallback(): Value\n\
+                 local parameters = List.create<<Parameter>>()\n\
+                 return { mediaType = \"application\", subtype = \"octet-stream\", parameters = parameters }\n\
+             end\n\
+             private function required(text: String): Value\n\
+                 return parse(text) ?? fallback()\n\
+             end\n\
+             public function verify(): Int\n\
+                 local plain = required(\"Text/Plain; Charset=\\\"utf-8\\\"; title=\\\"a b\\\"; note=\\\"a;b\\\"\")\n\
+                 if plain.mediaType ~= \"text\" or plain.subtype ~= \"plain\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (parameter(plain, \"CHARSET\") ?? \"\") ~= \"utf-8\" or (parameter(plain, \"title\") ?? \"\") ~= \"a b\" or (parameter(plain, \"note\") ?? \"\") ~= \"a;b\" then\n\
+                     return 2\n\
+                 end\n\
+                 if format(plain) ~= \"text/plain; charset=utf-8; title=\\\"a b\\\"; note=\\\"a;b\\\"\" then\n\
+                     return 3\n\
+                 end\n\
+                 local escaped = required(\"text/plain; title=\\\"a\\\\\\\"b\\\"\")\n\
+                 if (parameter(escaped, \"title\") ?? \"\") ~= \"a\\\"b\" or format(escaped) ~= \"text/plain; title=\\\"a\\\\\\\"b\\\"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"text\") ~= nil or parse(\"text/plain;\") ~= nil or parse(\"text/plain; A=1; a=2\") ~= nil or parse(\"téxt/plain\") ~= nil or parse(\"text/plain; x=\\\"broken\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if not matches(plain, \"text/plain\") or not matches(plain, \"TEXT/*\") or not matches(plain, \"*/*\") then\n\
+                     return 6\n\
+                 end\n\
+                 if matches(plain, \"application/*\") or matches(plain, \"*/plain\") or matches(plain, \"text/plain; charset=utf-8\") then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Mime consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Mime MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Mime execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
