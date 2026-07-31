@@ -924,8 +924,43 @@ impl HirClassReference {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirRecordReference {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) symbol: SymbolId,
+    pub(crate) type_id: TypeId,
+}
+
+impl HirRecordReference {
+    #[must_use]
+    pub const fn new(identity: SymbolIdentity, symbol: SymbolId, type_id: TypeId) -> Self {
+        Self {
+            identity,
+            symbol,
+            type_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HirNominalReferenceCatalog {
+    #[serde(default)]
+    pub(crate) records: Vec<HirRecordReference>,
     pub(crate) interfaces: Vec<HirInterfaceReference>,
     pub(crate) classes: Vec<HirClassReference>,
 }
@@ -933,12 +968,15 @@ pub struct HirNominalReferenceCatalog {
 impl HirNominalReferenceCatalog {
     #[must_use]
     pub fn new(
+        mut records: Vec<HirRecordReference>,
         mut interfaces: Vec<HirInterfaceReference>,
         mut classes: Vec<HirClassReference>,
     ) -> Self {
+        records.sort_by_key(HirRecordReference::identity);
         interfaces.sort_by(|left, right| left.identity().cmp(right.identity()));
         classes.sort_by(|left, right| left.identity().cmp(right.identity()));
         Self {
+            records,
             interfaces,
             classes,
         }
@@ -946,7 +984,12 @@ impl HirNominalReferenceCatalog {
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.interfaces.is_empty() && self.classes.is_empty()
+        self.records.is_empty() && self.interfaces.is_empty() && self.classes.is_empty()
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[HirRecordReference] {
+        &self.records
     }
 
     #[must_use]
@@ -3055,6 +3098,23 @@ fn remap_aggregate_statements(statements: &mut [HirStatement], instances: &HirDa
                     remap_aggregate_statements(&mut arm.body, instances);
                 }
             }
+            HirStatementKind::IterationMatch {
+                scrutinee,
+                iteration_type,
+                item_type,
+                arms,
+                ..
+            } => {
+                *iteration_type = instances.type_id(*iteration_type);
+                *item_type = instances.type_id(*item_type);
+                remap_aggregate_expression(scrutinee, instances);
+                for arm in arms {
+                    for binding in &mut arm.bindings {
+                        binding.type_id = instances.type_id(binding.type_id);
+                    }
+                    remap_aggregate_statements(&mut arm.body, instances);
+                }
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 remap_aggregate_expression(scrutinee, instances);
                 for arm in arms {
@@ -3892,6 +3952,14 @@ fn collect_statement_calls(statements: &[HirStatement], calls: &mut Vec<HirColle
                     collect_statement_calls(&arm.body, calls);
                 }
             }
+            HirStatementKind::IterationMatch {
+                scrutinee, arms, ..
+            } => {
+                collect_expression_calls(scrutinee, calls);
+                for arm in arms {
+                    collect_statement_calls(&arm.body, calls);
+                }
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 collect_expression_calls(scrutinee, calls);
                 for arm in arms {
@@ -4474,6 +4542,23 @@ fn specialize_statement(
         } => {
             specialize_expression(scrutinee, substitutions, instances, arena)?;
             specialize_type(result_type, substitutions, arena)?;
+            for arm in arms {
+                for binding in &mut arm.bindings {
+                    specialize_type(&mut binding.type_id, substitutions, arena)?;
+                }
+                specialize_statements(&mut arm.body, substitutions, instances, arena)?;
+            }
+        }
+        HirStatementKind::IterationMatch {
+            scrutinee,
+            iteration_type,
+            item_type,
+            arms,
+            ..
+        } => {
+            specialize_expression(scrutinee, substitutions, instances, arena)?;
+            specialize_type(iteration_type, substitutions, arena)?;
+            specialize_type(item_type, substitutions, arena)?;
             for arm in arms {
                 for binding in &mut arm.bindings {
                     specialize_type(&mut binding.type_id, substitutions, arena)?;
@@ -5280,6 +5365,13 @@ pub enum HirStatementKind {
         result_type: TypeId,
         arms: Vec<HirResultMatchArm>,
     },
+    IterationMatch {
+        scrutinee: HirExpression,
+        iteration: BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: Vec<HirIterationMatchArm>,
+    },
     CodecErrorMatch {
         scrutinee: HirExpression,
         arms: Vec<HirCodecErrorMatchArm>,
@@ -5550,6 +5642,14 @@ pub struct HirResultMatchArm {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirIterationMatchArm {
+    pub(crate) case: IterationCaseId,
+    pub(crate) bindings: Vec<HirMatchBinding>,
+    pub(crate) body: Vec<HirStatement>,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HirCodecErrorMatchArm {
     pub(crate) case: EnumCaseId,
     pub(crate) body: Vec<HirStatement>,
@@ -5579,6 +5679,25 @@ impl HirResultMatchArm {
     #[must_use]
     pub fn body(&self) -> &[HirStatement] {
         &self.body
+    }
+}
+
+impl HirIterationMatchArm {
+    #[must_use]
+    pub const fn case(&self) -> IterationCaseId {
+        self.case
+    }
+    #[must_use]
+    pub fn bindings(&self) -> &[HirMatchBinding] {
+        &self.bindings
+    }
+    #[must_use]
+    pub fn body(&self) -> &[HirStatement] {
+        &self.body
+    }
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
     }
 }
 

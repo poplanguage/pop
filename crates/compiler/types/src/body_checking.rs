@@ -2130,6 +2130,12 @@ pub(crate) fn statements_definitely_return(statements: &[TypedStatement]) -> boo
                     .iter()
                     .all(|arm| statements_definitely_return(arm.body()))
         }
+        TypedStatementKind::IterationMatch { arms, .. } => {
+            !arms.is_empty()
+                && arms
+                    .iter()
+                    .all(|arm| statements_definitely_return(arm.body()))
+        }
         TypedStatementKind::CodecErrorMatch { arms, .. } => {
             !arms.is_empty()
                 && arms

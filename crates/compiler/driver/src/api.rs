@@ -363,6 +363,8 @@ pub struct ReferenceRecord {
     pub(crate) namespace: String,
     pub(crate) name: String,
     pub(crate) fields: Vec<ReferenceRecordField>,
+    #[serde(default)]
+    pub(crate) ffi_c_layout: bool,
     pub(crate) span: SourceSpan,
 }
 
@@ -390,6 +392,11 @@ impl ReferenceRecord {
     #[must_use]
     pub fn fields(&self) -> &[ReferenceRecordField] {
         &self.fields
+    }
+
+    #[must_use]
+    pub const fn has_ffi_c_layout(&self) -> bool {
+        self.ffi_c_layout
     }
 
     #[must_use]
@@ -945,6 +952,7 @@ pub enum ReferenceMetadataError {
         function: SymbolIdentity,
         type_id: TypeId,
     },
+    UnsupportedPublicRecord(SymbolIdentity),
     InvalidFfiLayout,
     InvalidNominalMetadata,
     InvalidRetainedMetadata,

@@ -1773,6 +1773,25 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         if let Some((success, error)) = self.resolver.result_parts(scrutinee.type_id()) {
             return self.check_result_match(signature, scrutinee, success, error, arms, span);
         }
+        if let Some((protocol, item_type)) =
+            self.resolver
+                .schema()
+                .iteration_protocol()
+                .and_then(
+                    |protocol| match self.resolver.arena().get(scrutinee.type_id()) {
+                        Some(SemanticType::Builtin {
+                            definition,
+                            arguments,
+                        }) if *definition == protocol.iteration() && arguments.len() == 1 => {
+                            Some((protocol, arguments[0]))
+                        }
+                        _ => None,
+                    },
+                )
+        {
+            return self
+                .check_iteration_match(signature, scrutinee, protocol, item_type, arms, span);
+        }
         if let Some(SemanticType::ErrorUnion { source, .. }) =
             self.resolver.arena().get(scrutinee.type_id()).cloned()
         {
@@ -2306,6 +2325,138 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             scrutinee,
             result: self.resolver.result_definition()?,
             result_type,
+            arms: typed_arms,
+        })
+    }
+
+    fn check_iteration_match(
+        &mut self,
+        signature: &ResolvedFunctionSignature,
+        scrutinee: TypedExpression,
+        protocol: crate::BootstrapIterationProtocol,
+        item_type: pop_foundation::TypeId,
+        arms: &[MatchArmSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedStatementKind> {
+        let iteration_type = scrutinee.type_id();
+        let mut seen = BTreeMap::new();
+        let mut typed_arms = Vec::new();
+        for arm in arms {
+            let (case, payload_type) = match arm.case_path() {
+                [iteration, case] if iteration == "Iteration" && case == "Item" => {
+                    (protocol.item_case(), Some(item_type))
+                }
+                [iteration, case] if iteration == "Iteration" && case == "End" => {
+                    (protocol.end_case(), None)
+                }
+                _ => {
+                    self.diagnostics.push(type_diagnostics::foreign_match_case(
+                        arm.span(),
+                        arm.case_path().join("."),
+                    ));
+                    continue;
+                }
+            };
+            if let Some(original) = seen.insert(case, arm.span()) {
+                self.diagnostics
+                    .push(type_diagnostics::duplicate_match_case(
+                        arm.span(),
+                        arm.case_path().last().map_or("Iteration", String::as_str),
+                        original,
+                    ));
+                continue;
+            }
+            let expected_arity = usize::from(payload_type.is_some());
+            if arm.bindings().len() != expected_arity {
+                self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                    arm.span(),
+                    "Iteration match case payload",
+                    expected_arity,
+                    arm.bindings().len(),
+                ));
+                continue;
+            }
+            self.scopes.push(BTreeMap::new());
+            let bindings = payload_type.map_or_else(Vec::new, |payload_type| {
+                let name = &arm.bindings()[0];
+                if name == "_" {
+                    return vec![TypedMatchBinding {
+                        binding: None,
+                        local: None,
+                        name: name.clone(),
+                        type_id: payload_type,
+                        span: arm.span(),
+                    }];
+                }
+                let local = LocalId::from_raw(self.next_local);
+                self.next_local = self.next_local.saturating_add(1);
+                let binding = BindingId::from_raw(self.next_binding);
+                self.next_binding = self.next_binding.saturating_add(1);
+                self.scopes
+                    .last_mut()
+                    .expect("iteration match scope was just pushed")
+                    .insert(
+                        name.clone(),
+                        Binding {
+                            id: binding,
+                            kind: BindingKind::Local(local),
+                            type_id: payload_type,
+                            function_depth: self.function_depth,
+                        },
+                    );
+                vec![TypedMatchBinding {
+                    binding: Some(binding),
+                    local: Some(local),
+                    name: name.clone(),
+                    type_id: payload_type,
+                    span: arm.span(),
+                }]
+            });
+            let body = arm
+                .body()
+                .iter()
+                .filter_map(|statement| self.check_statement(signature, statement))
+                .collect();
+            self.scopes
+                .pop()
+                .expect("iteration match scope was just pushed");
+            typed_arms.push(TypedIterationMatchArm {
+                case,
+                bindings,
+                body,
+                span: arm.span(),
+            });
+        }
+        let missing = [
+            (protocol.item_case(), "Item", "(value)"),
+            (protocol.end_case(), "End", ""),
+        ]
+        .into_iter()
+        .filter(|(case, _, _)| !seen.contains_key(case))
+        .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            let replacement = missing
+                .iter()
+                .map(|(_, case, binding)| format!("when Iteration.{case}{binding} then\n"))
+                .collect::<String>();
+            let insert_offset = span.range().end().to_u32().saturating_sub(3);
+            let insertion = SourceSpan::new(
+                span.file(),
+                TextRange::empty(TextSize::from_u32(insert_offset)),
+            );
+            let missing_names = missing.iter().map(|(_, case, _)| *case).collect::<Vec<_>>();
+            self.diagnostics.push(type_diagnostics::missing_match_cases(
+                span,
+                &missing_names,
+                insertion,
+                replacement,
+            ));
+        }
+        Some(TypedStatementKind::IterationMatch {
+            scrutinee,
+            iteration: protocol.iteration(),
+            iteration_type,
+            item_type,
             arms: typed_arms,
         })
     }

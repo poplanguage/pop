@@ -741,12 +741,31 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
             "src/main.pop",
             "namespace Main\n\
              using Pop.Sequence\n\
+             private function valueOr(step: Iteration<Int>, fallback: Int): Int\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return value\n\
+                 when Iteration.End then\n\
+                     return fallback\n\
+                 end\n\
+             end\n\
+             private function hasItem<T>(step: Iteration<T>): Boolean\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return true\n\
+                 when Iteration.End then\n\
+                     return false\n\
+                 end\n\
+             end\n\
              public function terminalResult(): Int\n\
                  local empty: {Int} = {}\n\
                  local single: {Int} = {9}\n\
                  local values: {Int} = {1, 2, 3, 4}\n\
                  local absent: Int? = empty[1]\n\
                  local optionalValues: {Int?} = {absent}\n\
+                 if not hasItem(first(optionalValues)) or hasItem(first(empty)) then\n\
+                     return -1\n\
+                 end\n\
                  if not isEmpty(empty) or isEmpty(values) then\n\
                      return -1\n\
                  end\n\
@@ -770,7 +789,7 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
                  if noEven then\n\
                      return -1\n\
                  end\n\
-                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + matches\n\
+                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + matches + valueOr(first(values), 0) + valueOr(last(values), 0) + valueOr(first(empty), 1)\n\
              end\n",
         ),
     ]);
@@ -785,7 +804,7 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
             .expect("verified Sequence terminal MIR")
             .call(function, &[])
             .expect("Sequence inspection and visitation"),
-        vec![int(44)]
+        vec![int(50)]
     );
 }
 

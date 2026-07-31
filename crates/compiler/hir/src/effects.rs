@@ -508,6 +508,19 @@ fn infer_statement(
                 ))
             },
         ),
+        HirStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => arms.iter_mut().fold(
+            infer_expression(scrutinee, context, environment),
+            |summary, arm| {
+                let mut arm_environment = environment.clone();
+                summary.union(infer_statements(
+                    &mut arm.body,
+                    context,
+                    &mut arm_environment,
+                ))
+            },
+        ),
         HirStatementKind::CodecErrorMatch { scrutinee, arms } => arms.iter_mut().fold(
             infer_expression(scrutinee, context, environment),
             |summary, arm| {
@@ -1136,6 +1149,14 @@ fn rewrite_statement_type(
             }
         }
         HirStatementKind::ResultMatch {
+            scrutinee, arms, ..
+        } => {
+            rewrite_expression_type(scrutinee, functions, arena, locals);
+            for arm in arms {
+                rewrite_statement_types(&mut arm.body, functions, arena, &mut locals.clone());
+            }
+        }
+        HirStatementKind::IterationMatch {
             scrutinee, arms, ..
         } => {
             rewrite_expression_type(scrutinee, functions, arena, locals);

@@ -198,3 +198,5 @@ api:138	Api	Pop.Standard	Pop.Sequence	sort	sort<T,TSource:Iterable<T>>(TSource,f
 api:139	Api	Pop.Standard	Pop.Sequence	sortBy	sortBy<T,TSource:Iterable<T>>(TSource,function(T)->Int)->List<T>	standard	implemented	false	architecture/decisions/0128-materializing-sequence-order-and-equality.md
 api:140	Api	Pop.Standard	Pop.Sequence	containsBy	containsBy<T,TSource:Iterable<T>>(TSource,T,function(T,T)->Boolean)->Boolean	standard	implemented	false	architecture/decisions/0128-materializing-sequence-order-and-equality.md
 api:141	Api	Pop.Standard	Pop.Sequence	equalsBy	equalsBy<T,TLeft:Iterable<T>,TRight:Iterable<T>>(TLeft,TRight,function(T,T)->Boolean)->Boolean	standard	implemented	false	architecture/decisions/0128-materializing-sequence-order-and-equality.md
+api:142	Api	Pop.Standard	Pop.Sequence	first	first<T,TSource:Iterable<T>>(TSource)->Iteration<T>	standard	implemented	false	architecture/decisions/0130-sequence-no-fallback-inspection.md
+api:143	Api	Pop.Standard	Pop.Sequence	last	last<T,TSource:Iterable<T>>(TSource)->Iteration<T>	standard	implemented	false	architecture/decisions/0130-sequence-no-fallback-inspection.md

@@ -190,9 +190,9 @@ pub(crate) fn lower_instruction(
             allocation_site,
             arguments,
             ..
-        } => lower_union_make(
+        } => lower_iteration_make(
             &result,
-            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            *case,
             arguments,
             value_types,
             types,
@@ -1294,7 +1294,18 @@ pub(crate) fn lower_instruction(
             &format!("%v{}", iteration.raw()),
             2,
             types,
-        )?
+        )
+        .or_else(|error| {
+            optional_inner_type(types, instruction.result_type()).map_or(Err(error), |inner| {
+                lower_optional_iteration_item(
+                    &result,
+                    instruction.result_type(),
+                    inner,
+                    *iteration,
+                    types,
+                )
+            })
+        })?
         .join("\n"),
         MirInstructionKind::InterfaceUpcast { value, .. } => {
             format!("{result} = add i64 %v{}, 0", value.raw())
@@ -3802,6 +3813,114 @@ pub(crate) fn lower_union_make(
     )
 }
 
+fn lower_iteration_make(
+    result: &str,
+    case: pop_foundation::IterationCaseId,
+    arguments: &[ValueId],
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let [argument] = arguments else {
+        return lower_union_make(
+            result,
+            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            arguments,
+            values,
+            types,
+            descriptor,
+        );
+    };
+    let argument_type = values
+        .get(argument)
+        .copied()
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+    let Some(inner) = optional_inner_type(types, argument_type) else {
+        return lower_union_make(
+            result,
+            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            arguments,
+            values,
+            types,
+            descriptor,
+        );
+    };
+    let inner_type = llvm_type(inner, types)?;
+    let presence = format!("%v{}_iteration_presence", argument.raw());
+    let presence_slot = format!("{presence}_slot");
+    let payload = format!("%v{}_iteration_payload", argument.raw());
+    let payload_slot = format!("{payload}_slot");
+    let mut lines = vec![
+        format!(
+            "{presence} = extractvalue {{ i1, {inner_type} }} %v{}, 0",
+            argument.raw()
+        ),
+        format!("{presence_slot} = zext i1 {presence} to i64"),
+        format!(
+            "{payload} = extractvalue {{ i1, {inner_type} }} %v{}, 1",
+            argument.raw()
+        ),
+    ];
+    lines.extend(lower_rendered_runtime_slot_store(
+        &payload,
+        &payload_slot,
+        inner,
+        &inner_type,
+    )?);
+    lines.push(lower_initialized_values(
+        result,
+        vec![
+            ObjectInitializer::Rendered(case.raw().to_string()),
+            ObjectInitializer::Rendered(presence_slot),
+            ObjectInitializer::Rendered(payload_slot),
+        ],
+        values,
+        types,
+        descriptor,
+    )?);
+    Ok(lines.join("\n"))
+}
+
+fn lower_optional_iteration_item(
+    result: &str,
+    result_type: TypeId,
+    inner: TypeId,
+    iteration: ValueId,
+    types: &TypeArena,
+) -> Result<Vec<String>, LlvmLoweringError> {
+    let inner_type = llvm_type(inner, types)?;
+    let presence_slot = format!("{result}_presence_slot");
+    let presence = format!("{result}_presence");
+    let payload = format!("{result}_payload");
+    let mut lines = vec![
+        format!(
+            "{presence_slot} = call i64 @{}(i64 %v{}, i64 2)",
+            native_runtime_symbol(RuntimeOperation::FieldGet),
+            iteration.raw()
+        ),
+        format!("{presence} = trunc i64 {presence_slot} to i1"),
+    ];
+    lines.extend(lower_runtime_slot_load_named(
+        &payload,
+        inner,
+        &format!("%v{}", iteration.raw()),
+        3,
+        types,
+    )?);
+    lines.extend([
+        format!(
+            "{result}_partial = insertvalue {{ i1, {inner_type} }} zeroinitializer, i1 {presence}, 0"
+        ),
+        format!(
+            "{result} = insertvalue {{ i1, {inner_type} }} {result}_partial, {inner_type} {payload}, 1"
+        ),
+    ]);
+    if optional_inner_type(types, result_type) != Some(inner) {
+        return Err(LlvmLoweringError::InvalidType(result_type));
+    }
+    Ok(lines)
+}
+
 fn lower_ffi_pointer_require(
     result: &str,
     pointer: ValueId,
@@ -4005,6 +4124,27 @@ pub(crate) fn lower_runtime_slot_store(
             vec![format!("{converted} = ptrtoint ptr {source} to i64")],
             converted,
         )),
+        _ => Err(LlvmLoweringError::InvalidType(type_id)),
+    }
+}
+
+fn lower_rendered_runtime_slot_store(
+    source: &str,
+    converted: &str,
+    type_id: TypeId,
+    ty: &str,
+) -> Result<Vec<String>, LlvmLoweringError> {
+    match ty {
+        "i64" => Ok(vec![format!("{converted} = add i64 {source}, 0")]),
+        "i1" | "i8" | "i16" | "i32" => Ok(vec![format!("{converted} = zext {ty} {source} to i64")]),
+        "float" => Ok(vec![
+            format!("{converted}_bits = bitcast float {source} to i32"),
+            format!("{converted} = zext i32 {converted}_bits to i64"),
+        ]),
+        "double" => Ok(vec![format!(
+            "{converted} = bitcast double {source} to i64"
+        )]),
+        "ptr" => Ok(vec![format!("{converted} = ptrtoint ptr {source} to i64")]),
         _ => Err(LlvmLoweringError::InvalidType(type_id)),
     }
 }

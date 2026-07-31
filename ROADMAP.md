@@ -240,8 +240,16 @@ Post-baseline library work has begun without widening the release foundation:
   and checked probability distributions with shared rejection sampling.
 - [x] Implement ADR 0128 stable materializing Sequence sort/sortBy/reverse and
   explicit contains/equality search with interpreter/LLVM agreement.
-- Make reserved `Iteration<T>` exhaustively matchable in ordinary source
-  before adding no-fallback sequence inspection.
+- [x] Implement ADR 0129 ordinary public record reference metadata with exact
+  producer identity, source-free dependent construction/projection/calls, and
+  verified HIR/MIR round trips.
+- [x] Make reserved `Iteration<T>` exhaustively matchable in ordinary source
+  with exact `Item`/`End` typing, missing/foreign/arity diagnostics, verified
+  HIR/MIR, portable generic capsules, and MIR-interpreter/LLVM agreement.
+- [ ] Implement ADR 0130 exact no-fallback `Sequence.first`/`last` inspection,
+  checked documentation, portable capsules, and interpreter/LLVM agreement.
+  Ordinary elements pass; the required optional-element native proof depends
+  on the aggregate-representation item below.
 - Complete LLVM aggregate representation for collections whose element is
   optional; MIR already preserves the typed optional item contract.
 

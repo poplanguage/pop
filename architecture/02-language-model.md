@@ -400,7 +400,7 @@ Tuple and fixed-pack elements use one-based static projection such as
 `result[1]`. The index is a compile-time integer literal within the exact arity,
 so the result type and MIR slot are known without runtime tuple lookup.
 
-## Exhaustive tagged-union matching
+## Exhaustive closed-union matching
 
 The initial `match` is a statement whose arms use `when ... then` and must name
 every resolved case exactly once:
@@ -416,9 +416,11 @@ end
 
 The scrutinee is evaluated once. Payload bindings are statically typed and
 arm-local; `_` ignores one payload. Version one has no wildcard arm, guard,
-nested pattern, or expression-valued match. HIR retains `UnionCaseId`s and MIR
-uses a discriminant switch plus typed payload projections, never tag-name
-lookup. See ADR 0021.
+nested pattern, or expression-valued match. Ordinary tagged unions retain
+`UnionCaseId`s and use a discriminant switch. The reserved `Result<T, TError>`
+and `Iteration<T>` families retain their exact builtin case identities and
+lower to their existing typed presence and payload operations. None uses
+tag-name lookup. See ADRs 0021, 0052, and 0053.
 
 ## Functions, closures, and methods
 

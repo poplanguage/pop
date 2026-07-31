@@ -768,6 +768,99 @@ public function isEmpty<T, TSource: Iterable<T>>(source: TSource): Boolean
 end
 
 --- <summary>
+--- Returns the first remaining item without inventing an empty fallback.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source item type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <returns>
+--- Item containing the first value, or End when the source is empty.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate storage of its own.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function firstExample(): Int
+---     local values: {Int} = {4, 9}
+---     match Sequence.first(values)
+---     when Iteration.Item(value) then
+---         return value
+---     when Iteration.End then
+---         return 0
+---     end
+--- end
+--- </code>
+--- </example>
+public function first<T, TSource: Iterable<T>>(source: TSource): Iteration<T>
+    for value in source do
+        return Iteration.Item(value)
+    end
+    return Iteration.End
+end
+
+--- <summary>
+--- Returns the last remaining item without inventing an empty fallback.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The source item type.
+--- </typeparam>
+---
+--- <typeparam name="TSource">
+--- The exact statically iterable source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The statically iterable source.
+--- </param>
+---
+--- <returns>
+--- Item containing the last value, or End when the source is empty.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate storage of its own.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- private function lastExample(): Int
+---     local values: {Int} = {4, 9}
+---     match Sequence.last(values)
+---     when Iteration.Item(value) then
+---         return value
+---     when Iteration.End then
+---         return 0
+---     end
+--- end
+--- </code>
+--- </example>
+public function last<T, TSource: Iterable<T>>(source: TSource): Iteration<T>
+    local result: Iteration<T> = Iteration.End
+    for value in source do
+        result = Iteration.Item(value)
+    end
+    return result
+end
+
+--- <summary>
 --- Returns the first remaining item or an explicit fallback.
 --- </summary>
 ---

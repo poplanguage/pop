@@ -222,6 +222,39 @@ impl MirInterfaceReference {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MirRecordReference {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) symbol: SymbolId,
+    pub(crate) type_id: TypeId,
+}
+
+impl MirRecordReference {
+    #[must_use]
+    pub const fn new(identity: SymbolIdentity, symbol: SymbolId, type_id: TypeId) -> Self {
+        Self {
+            identity,
+            symbol,
+            type_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MirClassReference {
     pub(crate) identity: MirNominalIdentity,
     pub(crate) declaration: MirClassDeclaration,
@@ -307,17 +340,28 @@ impl MirClassReference {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MirNominalReferenceCatalog {
+    pub(crate) records: Vec<MirRecordReference>,
     pub(crate) interfaces: Vec<MirInterfaceReference>,
     pub(crate) classes: Vec<MirClassReference>,
 }
 
 impl MirNominalReferenceCatalog {
     #[must_use]
-    pub fn new(interfaces: Vec<MirInterfaceReference>, classes: Vec<MirClassReference>) -> Self {
+    pub fn new(
+        records: Vec<MirRecordReference>,
+        interfaces: Vec<MirInterfaceReference>,
+        classes: Vec<MirClassReference>,
+    ) -> Self {
         Self {
+            records,
             interfaces,
             classes,
         }
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[MirRecordReference] {
+        &self.records
     }
 
     #[must_use]
@@ -616,6 +660,16 @@ impl MirBubble {
                 adapter.schema_version,
                 adapter.projection_sha256,
                 members,
+            );
+        }
+        for reference in self.nominal_references.records() {
+            let _ = writeln!(
+                output,
+                "nominal.record b{}:s{} s{} t{}",
+                reference.identity().bubble().raw(),
+                reference.identity().symbol().raw(),
+                reference.symbol().raw(),
+                reference.type_id().raw(),
             );
         }
         for reference in self.nominal_references.interfaces() {

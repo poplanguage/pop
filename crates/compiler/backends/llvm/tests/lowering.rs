@@ -3468,6 +3468,67 @@ end\n",
 }
 
 #[test]
+fn emitted_llvm_executes_both_reserved_iteration_match_cases() {
+    let module = native_module(
+        "namespace Main\n\
+private function inspect<T>(step: Iteration<T>, fallback: T): T\n\
+    match step\n\
+    when Iteration.Item(value) then\n\
+        return value\n\
+    when Iteration.End then\n\
+        return fallback\n\
+    end\n\
+end\n\
+private function main(): Int\n\
+    local item: Iteration<Int> = Iteration.Item(41)\n\
+    local empty: Iteration<Int> = Iteration.End\n\
+    return inspect(item, 0) + inspect(empty, 1)\n\
+end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "iteration-match");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Iteration match: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_preserves_optional_iteration_item_presence() {
+    let module = native_module(
+        "namespace Main\n\
+private function hasItem(step: Iteration<Int?>): Boolean\n\
+    match step\n\
+    when Iteration.Item(value) then\n\
+        return true\n\
+    when Iteration.End then\n\
+        return false\n\
+    end\n\
+end\n\
+private function main(): Int\n\
+    local empty: {Int} = {}\n\
+    local absent: Int? = empty[1]\n\
+    local item: Iteration<Int?> = Iteration.Item(absent)\n\
+    local ended: Iteration<Int?> = Iteration.End\n\
+    if hasItem(item) and not hasItem(ended) then\n\
+        return 42\n\
+    end\n\
+    return 1\n\
+end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "optional-iteration-match");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable collapsed Item(nil) into End: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_keeps_iterator_cleanup_explicit() {
     let module = native_module(
         "namespace Main\n\
@@ -3673,6 +3734,14 @@ fn emitted_llvm_executes_sequence_inspection_and_visitation() {
             "src/main.pop",
             "namespace Main\n\
              using Pop.Sequence\n\
+             private function valueOr(step: Iteration<Int>, fallback: Int): Int\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return value\n\
+                 when Iteration.End then\n\
+                     return fallback\n\
+                 end\n\
+             end\n\
              private class CountingIterator implements Iterator<Int>\n\
                  private values: {Int}\n\
                  private index: Int\n\
@@ -3733,14 +3802,23 @@ fn emitted_llvm_executes_sequence_inspection_and_visitation() {
                  if noEven or matchCounter:callCount() ~= 2 then\n\
                      return -1\n\
                  end\n\
-                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + eachCounter:visitedTotal() + matches\n\
+                 local firstCounter = CountingIterator.new(values)\n\
+                 local firstSource: Iterator<Int> = firstCounter\n\
+                 local firstValue = valueOr(first(firstSource), 0)\n\
+                 local lastCounter = CountingIterator.new(values)\n\
+                 local lastSource: Iterator<Int> = lastCounter\n\
+                 local lastValue = valueOr(last(lastSource), 0)\n\
+                 if firstCounter:callCount() ~= 1 or firstCounter:visitedTotal() ~= 1 or lastCounter:callCount() ~= 5 or lastCounter:visitedTotal() ~= 10 then\n\
+                     return -1\n\
+                 end\n\
+                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + eachCounter:visitedTotal() + matches + firstValue + lastValue\n\
              end\n",
         ),
     ]);
     let result = link_with_runtime_and_run(&module, "sequence-inspection-visitation");
     assert_eq!(
         result.status.code(),
-        Some(53),
+        Some(58),
         "native executable misexecuted Sequence terminals: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
@@ -4359,6 +4437,8 @@ fn emitted_llvm_executes_portable_bytes_inspection_and_endian_reads() {
             "",
         );
     llvm.push_str(PORTABLE_BYTES_EXACT_VIEW_FIXTURE);
+    let retained_entry = format!("pop_b0_s{}", entry.raw());
+    llvm = retain_reachable_llvm_fixture(&llvm, &retained_entry, "portable-bytes");
     let fixture = format!(
         "#include <stdint.h>\n\
          #include <stdlib.h>\n\
@@ -4376,6 +4456,29 @@ fn emitted_llvm_executes_portable_bytes_inspection_and_endian_reads() {
         "LLVM Bytes fixture failed with {:?}:\n{llvm}",
         result.status.code()
     );
+}
+
+fn retain_reachable_llvm_fixture(llvm: &str, entry: &str, name: &str) -> String {
+    let input = std::env::temp_dir().join(format!("pop-backend-llvm-{name}-complete.ll"));
+    let output = std::env::temp_dir().join(format!("pop-backend-llvm-{name}-reachable.ll"));
+    fs::write(&input, llvm).expect("write complete LLVM fixture");
+    let retained_api = format!("--internalize-public-api-list={entry}");
+    let optimized = Command::new("opt")
+        .args(["--passes=internalize,globaldce", &retained_api, "-S"])
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("opt must be installed");
+    assert!(
+        optimized.status.success(),
+        "opt rejected LLVM fixture: {}\n{llvm}",
+        String::from_utf8_lossy(&optimized.stderr)
+    );
+    let reachable = fs::read_to_string(&output).expect("read reachable LLVM fixture");
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    reachable
 }
 
 #[test]

@@ -19,8 +19,8 @@ use pop_hir::{
     HirCodecErrorMatchArm, HirDataSpecialization, HirDeclaration, HirDeclarationKind,
     HirErrorMatchArm, HirExpression, HirExpressionKind, HirFieldValue, HirFunction,
     HirGeneratedCodecEntry, HirGeneratedCodecEntryBody, HirGeneratedCodecMemberId,
-    HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm, HirResultMatchArm,
-    HirStatement, HirStatementKind, HirTableEntry, hir_direct_call_instances,
+    HirIterationMatchArm, HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm,
+    HirResultMatchArm, HirStatement, HirStatementKind, HirTableEntry, hir_direct_call_instances,
     hir_generic_call_instances, remap_hir_function_dispatches, specialize_hir_function,
 };
 use pop_runtime_interface::{
@@ -31,8 +31,9 @@ use pop_target::{CAbiScalarKind, TargetSpec};
 use pop_types::{
     FfiCIntegerKind, FloatKind, IntegerKind, IntegerValue, NumericConversionKind, PrimitiveType,
     ResultProvenance, SemanticType, TypeArena, TypedBinaryOperator, TypedCompoundOperator,
-    TypedUnaryOperator, ffi_c_integer_kind, is_ffi_function_type_constructor,
-    is_ffi_integer_abi_builtin_type, is_ffi_pointer_type_constructor,
+    TypedUnaryOperator, embedded_bootstrap_schema, ffi_c_integer_kind,
+    is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
+    is_ffi_pointer_type_constructor,
 };
 
 use crate::ir::*;
@@ -604,6 +605,17 @@ fn bind_function_call_lifetimes(
 fn lower_nominal_reference_catalog(
     catalog: &pop_hir::HirNominalReferenceCatalog,
 ) -> MirNominalReferenceCatalog {
+    let records = catalog
+        .records()
+        .iter()
+        .map(|reference| {
+            MirRecordReference::new(
+                reference.identity(),
+                reference.symbol(),
+                reference.type_id(),
+            )
+        })
+        .collect();
     let interfaces = catalog
         .interfaces()
         .iter()
@@ -651,7 +663,7 @@ fn lower_nominal_reference_catalog(
             )
         })
         .collect();
-    MirNominalReferenceCatalog::new(interfaces, classes)
+    MirNominalReferenceCatalog::new(records, interfaces, classes)
 }
 
 fn source_ffi_layout_catalog(
@@ -2369,6 +2381,16 @@ fn visit_statement_closures(
                 }
             }
         }
+        HirStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => {
+            visit_expression_closures(scrutinee, parameters, locals);
+            for arm in arms {
+                for nested in arm.body() {
+                    visit_statement_closures(nested, parameters, locals);
+                }
+            }
+        }
         HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
             visit_expression_closures(scrutinee, parameters, locals);
             for arm in arms {
@@ -2476,6 +2498,9 @@ fn contains_continue_for_current_loop(statements: &[HirStatement]) -> bool {
             .iter()
             .any(|arm| contains_continue_for_current_loop(arm.body())),
         HirStatementKind::ResultMatch { arms, .. } => arms
+            .iter()
+            .any(|arm| contains_continue_for_current_loop(arm.body())),
+        HirStatementKind::IterationMatch { arms, .. } => arms
             .iter()
             .any(|arm| contains_continue_for_current_loop(arm.body())),
         HirStatementKind::CodecErrorMatch { arms, .. } => arms
@@ -3336,6 +3361,13 @@ impl<'hir> FunctionBuilder<'hir> {
                     result_type,
                     arms,
                 } => self.lower_result_match(scrutinee, *result, *result_type, arms),
+                HirStatementKind::IterationMatch {
+                    scrutinee,
+                    iteration,
+                    item_type,
+                    arms,
+                    ..
+                } => self.lower_iteration_match(scrutinee, *iteration, *item_type, arms),
                 HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                     self.lower_codec_error_match(scrutinee, arms);
                 }
@@ -4019,6 +4051,73 @@ impl<'hir> FunctionBuilder<'hir> {
             condition: is_ok,
             when_true: ok_block,
             when_false: error_block,
+        });
+        self.current = join;
+    }
+
+    fn lower_iteration_match(
+        &mut self,
+        scrutinee: &HirExpression,
+        iteration_definition: pop_foundation::BuiltinTypeId,
+        item_type: TypeId,
+        arms: &'hir [HirIterationMatchArm],
+    ) {
+        let protocol = embedded_bootstrap_schema()
+            .expect("verified bootstrap schema")
+            .iteration_protocol()
+            .expect("verified Iteration match requires the reserved protocol");
+        let iteration_value = self.lower_expression(scrutinee);
+        let has_item = self.emit(
+            MirInstructionKind::IterationIsItem {
+                iteration: iteration_value,
+                definition: iteration_definition,
+                item_case: protocol.item_case(),
+                end_case: protocol.end_case(),
+            },
+            self.arena.source_type("Boolean").expect("Boolean"),
+            scrutinee.span(),
+        );
+        let dispatch = self.current;
+        let join = self.new_block();
+        let outer_locals = self.locals.clone();
+        let mut item_block = None;
+        let mut end_block = None;
+        for arm in arms {
+            let block = self.new_block();
+            if arm.case() == protocol.item_case() {
+                item_block = Some(block);
+            } else {
+                end_block = Some(block);
+            }
+            self.current = block;
+            self.locals.clone_from(&outer_locals);
+            if arm.case() == protocol.item_case() {
+                let value = self.emit(
+                    MirInstructionKind::IterationGetItem {
+                        iteration: iteration_value,
+                        definition: iteration_definition,
+                        item_case: protocol.item_case(),
+                    },
+                    item_type,
+                    arm.span(),
+                );
+                if let Some(binding) = arm.bindings().first()
+                    && let Some(local) = binding.local()
+                {
+                    self.locals.insert(local, value);
+                }
+            }
+            self.lower_statements(arm.body());
+            self.branch_if_open(join);
+        }
+        self.locals = outer_locals;
+        let item_block = item_block.expect("verified Iteration match has Item arm");
+        let end_block = end_block.expect("verified Iteration match has End arm");
+        self.current = dispatch;
+        self.terminate(MirTerminator::ConditionalBranch {
+            condition: has_item,
+            when_true: item_block,
+            when_false: end_block,
         });
         self.current = join;
     }
@@ -5685,10 +5784,9 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
-                object_map: fixed_object_map(
+                object_map: iteration_object_map(
                     self.arena,
                     arguments.iter().map(HirExpression::type_id),
-                    1,
                 ),
             },
             HirExpressionKind::ErrorCase {
@@ -7058,6 +7156,24 @@ fn fixed_object_map(
         references,
     )
     .expect("fixed managed construction has a canonical logical object map")
+}
+
+pub(crate) fn iteration_object_map(
+    arena: &TypeArena,
+    field_types: impl IntoIterator<Item = TypeId>,
+) -> ObjectMap {
+    let field_types = field_types.into_iter().collect::<Vec<_>>();
+    if let [field_type] = field_types.as_slice()
+        && let Some(inner) = optional_inner_type(arena, *field_type)
+    {
+        let references = is_managed_reference_type_id(inner, Some(arena))
+            .then(|| ObjectSlot::new(2))
+            .into_iter()
+            .collect();
+        return ObjectMap::new(3, references)
+            .expect("optional Iteration payload has tag, presence, and payload slots");
+    }
+    fixed_object_map(arena, field_types, 1)
 }
 
 fn closure_environment_object_map(arena: &TypeArena, captures: &[MirClosureCapture]) -> ObjectMap {

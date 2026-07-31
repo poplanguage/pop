@@ -143,7 +143,9 @@ transplanted into a Luau-shaped file.
   last-in, first-out cleanup.
 - Generalized iteration uses the reserved nominal `Iterable<T>`, `Iterator<T>`,
   and `Iteration<T>` contracts; arrays remain fixed and `List<T>` owns
-  sequential growth.
+  sequential growth. Ordinary source exhaustively matches exact
+  `Iteration.Item`/`Iteration.End` cases through verified HIR/MIR and portable
+  generic capsules.
 - Generic calls infer one complete canonical argument list or fail statically;
   nominal bounds and verified portable specialization capsules preserve exact
   types and Bubble identity across dependency boundaries.
@@ -239,6 +241,11 @@ transplanted into a Luau-shaped file.
   checked probability sampling over that explicit state.
 - ADR 0128 adds stable materializing Sequence ordering/reversal and explicit
   typed equality search without hidden hash or native requirements.
+- ADR 0129 carries ordinary non-generic public record schemas and exact
+  producer identities through reference metadata, HIR, and MIR without source
+  loading, reflection, or an FFI layout claim.
+- ADR 0130 adds exact no-fallback `Sequence.first`/`last` inspection through
+  `Iteration<T>` now that ordinary source can exhaustively match the carrier.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

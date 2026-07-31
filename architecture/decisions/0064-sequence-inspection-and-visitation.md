@@ -60,10 +60,12 @@ The functions are ordinary generic `.pop` implementations. They gain no
 bootstrap identity, compiler name recognition, HIR/MIR operation, runtime
 adapter, or backend lowering.
 
-An inspection API returning `Iteration<T>` remains deferred until a focused
-language/compiler change makes the reserved union exhaustively matchable in
-ordinary source. That work must cover typing, HIR/MIR, diagnostics, portable
-capsules, and both primary backends before such a result is public.
+An inspection API returning `Iteration<T>` was deferred until a focused
+language/compiler change made the reserved union exhaustively matchable in
+ordinary source. That compiler slice is complete across typing, HIR/MIR,
+diagnostics, portable capsules, and both primary backends. ADR 0130 now
+publishes exact no-fallback `first` and `last`; other no-fallback terminal
+families retain their separate design gates.
 
 ## Consequences
 
@@ -72,7 +74,8 @@ capsules, and both primary backends before such a result is public.
 - Callers choose fallback values explicitly without an error, trap, or sentinel.
 - Common terminal operations remain one direct call with exact traversal cost.
 - Single-pass sources remain visibly consuming; no API promises replay.
-- Reserved `Iteration<T>` matching remains an explicit compiler roadmap item.
+- Reserved `Iteration<T>` matching is an implemented compiler contract, and
+  ADR 0130 uses it for exact no-fallback `first`/`last` inspection.
 
 ## Alternatives considered
 
@@ -82,9 +85,9 @@ Rejected because `Iterable<T?>` cannot distinguish a nil item from exhaustion.
 
 ### Return `Iteration<T>` immediately
 
-Deferred because ordinary source cannot yet exhaustively match the reserved
-union. Implementing that language capability is larger than an ordinary
-library-algorithm contribution.
+Originally deferred because ordinary source could not exhaustively match the
+reserved union. The language capability and ADR 0130 `first`/`last` API are now
+accepted and implemented in focused slices.
 
 ### Return Result for empty input
 

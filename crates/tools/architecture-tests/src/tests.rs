@@ -1543,6 +1543,12 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
         .expect("read Pop.Standard Rust module inventory");
     let sequence = fs::read_to_string(root.join("crates/libraries/standard/pop/src/sequence.pop"))
         .expect("read Pop.Sequence source");
+    let baseline = fs::read_to_string(root.join("libraries/standard/bootstrap/api-baseline.tsv"))
+        .expect("read Pop.Standard API baseline");
+    let decision = fs::read_to_string(
+        root.join("architecture/decisions/0130-sequence-no-fallback-inspection.md"),
+    )
+    .expect("read ADR 0130");
 
     assert!(!standard.contains("pub mod sequence;"));
     assert!(
@@ -1559,6 +1565,8 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
         "all",
         "count",
         "isEmpty",
+        "first",
+        "last",
         "firstOr",
         "lastOr",
         "each",
@@ -1590,6 +1598,16 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
         assert!(
             sequence.contains(&format!("public function {function}<")),
             "Pop.Sequence must own `{function}` as ordinary Pop source"
+        );
+    }
+    for function in ["first", "last"] {
+        assert!(
+            baseline.contains(&format!("\tPop.Sequence\t{function}\t")),
+            "ADR 0130 `{function}` must have an append-only API identity"
+        );
+        assert!(
+            decision.contains(&format!("public function {function}<")),
+            "ADR 0130 must authorize exact `{function}` source syntax"
         );
     }
 }
@@ -2124,6 +2142,53 @@ fn materializing_sequence_order_and_equality_follow_adr_0128() {
     assert!(sequence.contains("if length ~= List.length(rightValues) then"));
     assert!(!compiler.contains("Pop.Sequence.sort"));
     assert!(!native.contains("Pop.Sequence.sort"));
+}
+
+#[test]
+fn ordinary_public_record_metadata_follows_adr_0129() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0129-ordinary-public-record-reference-metadata.md"),
+    );
+    let api = read_required(root.join("crates/compiler/driver/src/api.rs"));
+    let reference = read_required(root.join("crates/compiler/driver/src/reference.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(api.contains("pub struct ReferenceRecord"));
+    assert!(reference.contains("let public_records = hir"));
+    assert!(reference.contains("hir_reference_record_declarations"));
+    assert!(hir.contains("pub struct HirRecordReference"));
+    assert!(mir.contains("pub struct MirRecordReference"));
+    assert!(!native.contains("ReferenceRecord"));
+}
+
+#[test]
+fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
+    let root = repository_root();
+    let iteration = read_required(
+        root.join("architecture/decisions/0053-nominal-iteration-sequences-and-growable-lists.md"),
+    );
+    let inspection = read_required(
+        root.join("architecture/decisions/0064-sequence-inspection-and-visitation.md"),
+    );
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let checking = read_required(root.join("crates/compiler/types/src/statement_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/lowering.rs"));
+    let roadmap = read_required(root.join("ROADMAP.md"));
+
+    assert!(iteration.contains("- Status: accepted"));
+    assert!(inspection.contains("- Status: accepted"));
+    assert!(typed.contains("IterationMatch {"));
+    assert!(checking.contains("fn check_iteration_match("));
+    assert!(hir.contains("IterationMatch {"));
+    assert!(mir.contains("fn lower_iteration_match("));
+    assert!(mir.contains("MirInstructionKind::IterationIsItem"));
+    assert!(mir.contains("MirInstructionKind::IterationGetItem"));
+    assert!(roadmap.contains("- [x] Make reserved `Iteration<T>` exhaustively matchable"));
 }
 
 #[test]

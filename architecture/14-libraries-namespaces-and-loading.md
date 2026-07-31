@@ -247,6 +247,13 @@ identities, and reserved built-in identities. Unsupported public signature or
 capsule types reject metadata emission rather than becoming erased or dynamic.
 HIR/MIR retain complete identities after any session-local metadata remapping.
 
+ADR 0129 extends that projection to every non-generic ordinary public record.
+The metadata carries its stable producer identity and declaration-ordered
+closed field schema; a consumer reconstructs private session-local types and
+fields while HIR/MIR retain the producer identity. Defaults, generic records,
+class/interface fields, cycles, and dangling record identities fail closed in
+the first slice. Ordinary records require no FFI catalog and gain no ABI claim.
+
 Concrete `AllocationSiteId`, `LifetimeId`, `RegionId`, `StoragePlan`, view
 ranges, and proof graphs remain verified implementation/capsule facts rather
 than consumer names or reflection. When serialized for execution or portable

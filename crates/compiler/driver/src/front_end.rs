@@ -51,7 +51,8 @@ use crate::compile_time::{
 };
 use crate::reference::{
     define_reference_records, emit_reference_metadata, hir_function_references,
-    hir_reference_ffi_layout_catalog, invalid_reference_capsule, reference_signatures,
+    hir_reference_ffi_layout_catalog, hir_reference_record_declarations, invalid_reference_capsule,
+    reference_signatures,
 };
 use crate::work::*;
 
@@ -219,6 +220,12 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
     }
     let reference_record_types =
         define_reference_records(&input.reference_metadata, &database, &mut resolver);
+    let reference_record_declarations = hir_reference_record_declarations(
+        &input.reference_metadata,
+        &database,
+        &resolver,
+        input.bubble,
+    );
     let reference_generated_codec_adapters =
         crate::retained_metadata::generate_reference_codec_adapter_hir(
             &input.reference_metadata,
@@ -241,6 +248,7 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
         &mut resolver,
         &mut diagnostics,
     );
+    declarations.extend(reference_record_declarations);
     let (constant_work, mut constant_attributes) =
         define_constants(&parsed, &database, &mut diagnostics);
     declaration_attributes.append(&mut constant_attributes);
@@ -472,6 +480,7 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
         &mut resolver,
         &reference_nominal_types,
         &reference_record_types,
+        &database,
     );
     let referenced_call_instances = hir_functions
         .iter()

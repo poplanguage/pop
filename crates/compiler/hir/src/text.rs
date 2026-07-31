@@ -629,6 +629,47 @@ fn dump_statements(
                 output.push_str(&indentation);
                 output.push_str("end\n");
             }
+            HirStatementKind::IterationMatch {
+                scrutinee,
+                iteration,
+                iteration_type,
+                item_type,
+                arms,
+            } => {
+                let _ = write!(
+                    output,
+                    "iterationMatch builtin#{}:{} item:{} ",
+                    iteration.raw(),
+                    type_text(*iteration_type, arena),
+                    type_text(*item_type, arena)
+                );
+                dump_expression(output, scrutinee, arena);
+                output.push('\n');
+                for arm in arms {
+                    output.push_str(&indentation);
+                    let _ = write!(output, "when iterationCase#{}", arm.case.raw());
+                    for binding in &arm.bindings {
+                        if binding.is_ignored() {
+                            let _ = write!(output, " _:{}", type_text(binding.type_id, arena));
+                        } else if let (Some(binding_id), Some(local)) =
+                            (binding.binding, binding.local)
+                        {
+                            let _ = write!(
+                                output,
+                                " bind#{} l{} {}:{}",
+                                binding_id.raw(),
+                                local.raw(),
+                                binding.name,
+                                type_text(binding.type_id, arena)
+                            );
+                        }
+                    }
+                    output.push('\n');
+                    dump_statements(output, &arm.body, arena, depth + 1);
+                }
+                output.push_str(&indentation);
+                output.push_str("end\n");
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 output.push_str("codec.error.match ");
                 dump_expression(output, scrutinee, arena);

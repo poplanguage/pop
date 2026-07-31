@@ -42,6 +42,7 @@ pub enum ReferenceMetadataDecodeError {
     TooLarge,
     InvalidCapsule(SymbolIdentity),
     InvalidForeignDeclaration(SymbolIdentity),
+    InvalidRecordMetadata,
     InvalidFfiLayout,
     InvalidNominalMetadata,
     InvalidLifetimeSummary,
@@ -112,6 +113,8 @@ fn validate_metadata(metadata: &ReferenceMetadata) -> Result<(), ReferenceMetada
             identity,
         ));
     }
+    crate::reference::validate_reference_records(metadata)
+        .map_err(|()| ReferenceMetadataDecodeError::InvalidRecordMetadata)?;
     crate::reference::validate_reference_ffi_layouts(metadata)
         .map_err(|()| ReferenceMetadataDecodeError::InvalidFfiLayout)?;
     crate::reference::validate_reference_nominals(metadata)

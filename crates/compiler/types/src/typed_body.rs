@@ -144,6 +144,13 @@ pub enum TypedStatementKind {
         result_type: TypeId,
         arms: Vec<TypedResultMatchArm>,
     },
+    IterationMatch {
+        scrutinee: TypedExpression,
+        iteration: BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: Vec<TypedIterationMatchArm>,
+    },
     CodecErrorMatch {
         scrutinee: TypedExpression,
         arms: Vec<TypedCodecErrorMatchArm>,
@@ -1061,6 +1068,14 @@ pub struct TypedResultMatchArm {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypedIterationMatchArm {
+    pub(crate) case: pop_foundation::IterationCaseId,
+    pub(crate) bindings: Vec<TypedMatchBinding>,
+    pub(crate) body: Vec<TypedStatement>,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedCodecErrorMatchArm {
     pub(crate) reason: crate::CodecErrorReason,
     pub(crate) body: Vec<TypedStatement>,
@@ -1087,6 +1102,28 @@ impl TypedCodecErrorMatchArm {
 impl TypedResultMatchArm {
     #[must_use]
     pub const fn case(&self) -> ResultCaseId {
+        self.case
+    }
+
+    #[must_use]
+    pub fn bindings(&self) -> &[TypedMatchBinding] {
+        &self.bindings
+    }
+
+    #[must_use]
+    pub fn body(&self) -> &[TypedStatement] {
+        &self.body
+    }
+
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+impl TypedIterationMatchArm {
+    #[must_use]
+    pub const fn case(&self) -> pop_foundation::IterationCaseId {
         self.case
     }
 

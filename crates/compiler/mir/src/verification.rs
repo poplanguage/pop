@@ -20,8 +20,9 @@ use pop_types::{
 use crate::ir::*;
 use crate::lowering::{
     array_element_map, expected_safe_point_roots, expected_suspend_frame_slots,
-    is_managed_reference_type_id, list_element_map, local_instruction_effects, table_element_maps,
-    task_group_object_map, task_object_map, terminator_effects,
+    is_managed_reference_type_id, iteration_object_map, list_element_map,
+    local_instruction_effects, table_element_maps, task_group_object_map, task_object_map,
+    terminator_effects,
 };
 use crate::render::{float_kind_text, integer_kind_text};
 use crate::{
@@ -548,6 +549,31 @@ impl<'mir> MirSchema<'mir> {
             fields: BTreeMap::new(),
         };
         let mut symbols = BTreeSet::new();
+        let mut record_identities = BTreeSet::new();
+        for reference in bubble.nominal_references().records() {
+            let valid_owner = bubble.dependencies.contains(&reference.identity().bubble());
+            let valid_declaration = bubble.declarations.iter().any(|declaration| {
+                declaration.symbol() == reference.symbol()
+                    && matches!(
+                        declaration.kind(),
+                        MirDeclarationKind::Record(record)
+                            if record.type_id() == reference.type_id()
+                    )
+            });
+            let valid_type = matches!(
+                arena.get(reference.type_id()),
+                Some(SemanticType::Record(_))
+            );
+            if !valid_owner
+                || !valid_declaration
+                || !valid_type
+                || !record_identities.insert(reference.identity())
+            {
+                errors.push(MirVerificationError::InvalidNominalReference(
+                    reference.identity(),
+                ));
+            }
+        }
         for reference in bubble.nominal_references().interfaces() {
             let valid_owner = bubble
                 .dependencies
@@ -1586,11 +1612,6 @@ fn verify_gc_contracts(
                     object_map,
                     ..
                 }
-                | MirInstructionKind::IterationMake {
-                    arguments,
-                    object_map,
-                    ..
-                }
                 | MirInstructionKind::ErrorMake {
                     arguments,
                     object_map,
@@ -1599,6 +1620,22 @@ fn verify_gc_contracts(
                     if expected_operand_object_map(arguments, 1, facts.values, arena)
                         .is_some_and(|expected| expected != *object_map)
                     {
+                        errors.push(MirVerificationError::InvalidObjectMap {
+                            instruction: instruction.result(),
+                        });
+                    }
+                }
+                MirInstructionKind::IterationMake {
+                    arguments,
+                    object_map,
+                    ..
+                } => {
+                    let expected = arguments
+                        .iter()
+                        .map(|argument| facts.values.get(argument).copied())
+                        .collect::<Option<Vec<_>>>()
+                        .map(|types| iteration_object_map(arena, types));
+                    if expected.is_some_and(|expected| expected != *object_map) {
                         errors.push(MirVerificationError::InvalidObjectMap {
                             instruction: instruction.result(),
                         });

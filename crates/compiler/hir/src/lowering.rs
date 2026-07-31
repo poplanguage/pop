@@ -389,6 +389,11 @@ fn collect_view_locals(
                     collect_view_locals(arm.body(), locals);
                 }
             }
+            TypedStatementKind::IterationMatch { arms, .. } => {
+                for arm in arms {
+                    collect_view_locals(arm.body(), locals);
+                }
+            }
             TypedStatementKind::CodecErrorMatch { arms, .. } => {
                 for arm in arms {
                     collect_view_locals(arm.body(), locals);
@@ -453,6 +458,11 @@ fn collect_view_returns(
                 }
             }
             TypedStatementKind::ResultMatch { arms, .. } => {
+                for arm in arms {
+                    collect_view_returns(arm.body(), locals, returned);
+                }
+            }
+            TypedStatementKind::IterationMatch { arms, .. } => {
                 for arm in arms {
                     collect_view_returns(arm.body(), locals, returned);
                 }
@@ -794,6 +804,31 @@ fn lower_statement(
             arms: arms
                 .iter()
                 .map(|arm| HirResultMatchArm {
+                    case: arm.case(),
+                    bindings: arm.bindings().iter().map(lower_match_binding).collect(),
+                    body: arm
+                        .body()
+                        .iter()
+                        .map(|statement| lower_statement(statement, interface_slots))
+                        .collect(),
+                    span: arm.span(),
+                })
+                .collect(),
+        },
+        TypedStatementKind::IterationMatch {
+            scrutinee,
+            iteration,
+            iteration_type,
+            item_type,
+            arms,
+        } => HirStatementKind::IterationMatch {
+            scrutinee: lower_expression(scrutinee, interface_slots),
+            iteration: *iteration,
+            iteration_type: *iteration_type,
+            item_type: *item_type,
+            arms: arms
+                .iter()
+                .map(|arm| HirIterationMatchArm {
                     case: arm.case(),
                     bindings: arm.bindings().iter().map(lower_match_binding).collect(),
                     body: arm
@@ -2035,6 +2070,12 @@ fn first_unknown_interface_call(
                 arms.iter()
                     .find_map(|arm| first_unknown_interface_call(arm.body(), slots))
             }),
+            TypedStatementKind::IterationMatch {
+                scrutinee, arms, ..
+            } => first_unknown_interface_expression(scrutinee, slots).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| first_unknown_interface_call(arm.body(), slots))
+            }),
             TypedStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 first_unknown_interface_expression(scrutinee, slots).or_else(|| {
                     arms.iter()
@@ -2522,6 +2563,12 @@ fn first_compile_time_only_statement(statements: &[TypedStatement]) -> Option<So
                     .find_map(|arm| first_compile_time_only_statement(arm.body()))
             }),
             TypedStatementKind::ResultMatch {
+                scrutinee, arms, ..
+            } => first_compile_time_only_expression(scrutinee).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| first_compile_time_only_statement(arm.body()))
+            }),
+            TypedStatementKind::IterationMatch {
                 scrutinee, arms, ..
             } => first_compile_time_only_expression(scrutinee).or_else(|| {
                 arms.iter()

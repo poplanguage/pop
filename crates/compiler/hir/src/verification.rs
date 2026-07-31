@@ -797,6 +797,29 @@ impl HirSchema {
                 });
             }
         }
+        let mut record_identities = BTreeSet::new();
+        for reference in bubble.nominal_references().records() {
+            let valid_owner = bubble
+                .dependencies()
+                .contains(&reference.identity().bubble());
+            let valid_schema = schema
+                .records
+                .get(&reference.symbol())
+                .is_some_and(|record| record.type_id == reference.type_id());
+            let valid_type = matches!(
+                arena.get(reference.type_id()),
+                Some(SemanticType::Record(_))
+            );
+            if !valid_owner
+                || !valid_schema
+                || !valid_type
+                || !record_identities.insert(reference.identity())
+            {
+                errors.push(HirVerificationError::InvalidNominalReference(
+                    reference.identity(),
+                ));
+            }
+        }
         for reference in bubble.nominal_references().interfaces() {
             let valid_owner = bubble
                 .dependencies()
@@ -2359,6 +2382,21 @@ impl Verifier<'_> {
                     scrutinee,
                     *result,
                     *result_type,
+                    arms,
+                    statement.span(),
+                    &visible,
+                ),
+                HirStatementKind::IterationMatch {
+                    scrutinee,
+                    iteration,
+                    iteration_type,
+                    item_type,
+                    arms,
+                } => self.verify_iteration_match(
+                    scrutinee,
+                    *iteration,
+                    *iteration_type,
+                    *item_type,
                     arms,
                     statement.span(),
                     &visible,
@@ -4717,6 +4755,63 @@ impl Verifier<'_> {
         }
     }
 
+    fn verify_iteration_match(
+        &mut self,
+        scrutinee: &HirExpression,
+        iteration: pop_foundation::BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: &[HirIterationMatchArm],
+        span: SourceSpan,
+        visible: &BTreeSet<LocalId>,
+    ) {
+        self.verify_expression(scrutinee, visible);
+        let protocol = embedded_bootstrap_schema()
+            .ok()
+            .and_then(|schema| schema.iteration_protocol());
+        let valid_type = matches!(
+            self.arena.get(iteration_type),
+            Some(SemanticType::Builtin { definition, arguments })
+                if *definition == iteration
+                    && arguments.as_slice() == [item_type]
+                    && protocol.is_some_and(|protocol| protocol.iteration() == iteration)
+        );
+        if scrutinee.type_id() != iteration_type || !valid_type {
+            self.errors
+                .push(HirVerificationError::InvalidIterationCase {
+                    case: IterationCaseId::from_raw(u32::MAX),
+                    span,
+                });
+        }
+        let Some(protocol) = protocol else {
+            return;
+        };
+        let mut seen = BTreeSet::new();
+        for arm in arms {
+            let expected = if arm.case == protocol.item_case() {
+                Some(std::slice::from_ref(&item_type))
+            } else if arm.case == protocol.end_case() {
+                Some(&[][..])
+            } else {
+                None
+            };
+            if !seen.insert(arm.case) || expected.is_none() {
+                self.errors
+                    .push(HirVerificationError::InvalidIterationCase {
+                        case: arm.case,
+                        span: arm.span,
+                    });
+            }
+            self.verify_match_bindings(&arm.bindings, expected, &arm.body, visible);
+        }
+        for case in [protocol.item_case(), protocol.end_case()] {
+            if !seen.contains(&case) {
+                self.errors
+                    .push(HirVerificationError::InvalidIterationCase { case, span });
+            }
+        }
+    }
+
     fn verify_match_bindings(
         &mut self,
         bindings: &[HirMatchBinding],
@@ -6182,6 +6277,16 @@ fn collect_local_binding_map(
                     collect_local_binding_map(&arm.body, local_bindings);
                 }
             }
+            HirStatementKind::IterationMatch { arms, .. } => {
+                for arm in arms {
+                    for binding in &arm.bindings {
+                        if let (Some(binding), Some(local)) = (binding.binding, binding.local) {
+                            local_bindings.insert(local, binding);
+                        }
+                    }
+                    collect_local_binding_map(&arm.body, local_bindings);
+                }
+            }
             HirStatementKind::CodecErrorMatch { arms, .. } => {
                 for arm in arms {
                     collect_local_binding_map(&arm.body, local_bindings);
@@ -6383,6 +6488,20 @@ fn collect_written_bindings(
                 }
             }
             HirStatementKind::ResultMatch {
+                scrutinee, arms, ..
+            } => {
+                collect_cell_captures(scrutinee, written);
+                for arm in arms {
+                    collect_written_bindings(
+                        &arm.body,
+                        parameter_bindings,
+                        capture_bindings,
+                        local_bindings,
+                        written,
+                    );
+                }
+            }
+            HirStatementKind::IterationMatch {
                 scrutinee, arms, ..
             } => {
                 collect_cell_captures(scrutinee, written);

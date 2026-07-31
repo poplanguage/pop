@@ -351,6 +351,16 @@ Architecture CI should eventually verify:
 - ADR 0128's stable comparator/key ordering, once-per-item key selection,
   independent reverse storage, explicit equality short-circuiting, documented
   materialization, and interpreter/LLVM agreement;
+- ADR 0130's exact `Sequence.first`/`last` identities, `Iteration<T>` results,
+  at-most-one/complete traversal boundaries, portable capsules, and absence of
+  compiler/runtime/backend name recognition;
+- ADR 0129's sorted public-only ordinary record schemas, ordered closed fields,
+  exact producer identity through canonical metadata and verified HIR/MIR,
+  source-free dependent construction/projection/calls, malformed-input
+  rejection, and separation from target FFI layout evidence;
+- reserved `Iteration<T>` exhaustive source matching with exact `Item`/`End`
+  payload typing, missing/foreign/arity diagnostics, verified HIR/MIR,
+  portable generic capsule specialization, and interpreter/LLVM agreement;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

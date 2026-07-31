@@ -1472,6 +1472,53 @@ fn reserved_iteration_protocol_methods_are_statically_callable_from_exact_bounds
 }
 
 #[test]
+fn reserved_iteration_match_survives_verified_hir_and_mir_without_dynamic_dispatch() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/iterationMatch.pop",
+        "namespace Main\n\
+         public function inspect(step: Iteration<Int>): Int\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return 0\n\
+             end\n\
+         end\n",
+    )
+    .expect("source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let hir = result.hir().expect("Iteration match HIR");
+    let hir_dump = hir.dump(result.types());
+    assert!(
+        hir_dump.contains("iterationMatch builtin#113"),
+        "{hir_dump}"
+    );
+    let mir = lower_hir_bubble(hir, result.types()).expect("Iteration match MIR");
+    let mir_dump = mir.dump();
+    assert!(
+        mir_dump.contains("iteration.isItem definition#113 case#0"),
+        "{mir_dump}"
+    );
+    assert!(
+        mir_dump.contains("iteration.getItem definition#113 case#0"),
+        "{mir_dump}"
+    );
+    assert!(!mir_dump.contains("dynamic"), "{mir_dump}");
+    pop_mir::verify_mir_bubble(&mir, result.types()).expect("Iteration match MIR verifies");
+}
+
+#[test]
 fn nominal_iterator_class_drives_generalized_for_through_exact_witnesses() {
     let source = SourceFile::new(
         FileId::from_raw(0),

@@ -55,6 +55,62 @@ fn check_function(source_text: &str) -> CollectionFixture {
 }
 
 #[test]
+fn reserved_iteration_is_exhaustively_matchable_without_an_optional_sentinel() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function collections(step: Iteration<Int>): Int\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return 0\n\
+             end\n\
+         end\n",
+    );
+
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn reserved_iteration_match_rejects_missing_foreign_and_malformed_cases() {
+    for (arms, expected) in [
+        (
+            "when Iteration.Item(value) then\n                 return value\n",
+            "POP2020",
+        ),
+        (
+            "when Result.Ok(value) then\n                 return value\n\
+             when Iteration.End then\n                 return 0\n",
+            "POP2022",
+        ),
+        (
+            "when Iteration.Item then\n                 return 1\n\
+             when Iteration.End(value) then\n                 return value\n",
+            "POP2004",
+        ),
+    ] {
+        let fixture = check_function(&format!(
+            "namespace Example\n\
+             public function collections(step: Iteration<Int>): Int\n\
+                 match step\n\
+                 {arms}\
+                 end\n\
+             end\n"
+        ));
+        assert!(fixture.result.body().is_none(), "{arms}");
+        assert!(
+            fixture.result.diagnostic_snapshot().contains(expected),
+            "{}",
+            fixture.result.diagnostic_snapshot()
+        );
+    }
+}
+
+#[test]
 fn checks_luau_shaped_array_and_named_table_literals_against_declared_types() {
     let fixture = check_function(
         "namespace Example\n\

@@ -33,9 +33,9 @@ use super::{
     MirInstructionKind, MirInterfaceDeclaration, MirInterfaceImplementation, MirInterfaceMethod,
     MirInterfaceMethodImplementation, MirInterfaceReference, MirLiveFrame, MirMethod,
     MirNestedFunction, MirNominalIdentity, MirNominalReferenceCatalog, MirRecordDeclaration,
-    MirSuspendOperation, MirTaskDispatch, MirTerminator, MirUnionCase, MirUnionDeclaration,
-    MirUnionSwitchArm, MirUnwindAction, MirViewBoundaryProof, MirViewKind, MirViewLender,
-    MirViewRangeUnit, MirViewTrap, local_instruction_effects,
+    MirRecordReference, MirSuspendOperation, MirTaskDispatch, MirTerminator, MirUnionCase,
+    MirUnionDeclaration, MirUnionSwitchArm, MirUnwindAction, MirViewBoundaryProof, MirViewKind,
+    MirViewLender, MirViewRangeUnit, MirViewTrap, local_instruction_effects,
 };
 use crate::MirFfiLayoutCatalog;
 
@@ -97,12 +97,19 @@ pub fn parse_mir_dump(text: &str) -> Result<MirBubble, MirParseError> {
     let mut methods = Vec::new();
     let mut nested_functions = Vec::new();
     let mut function_references = Vec::new();
+    let mut nominal_records = Vec::new();
     let mut nominal_interfaces = Vec::new();
     let mut nominal_classes = Vec::new();
     let mut generated_codec_adapters = Vec::new();
     while position < lines.len() {
         if lines[position].starts_with("codec.schema ") {
             generated_codec_adapters.push(parse_generated_codec_adapter(
+                lines[position],
+                position + 1,
+            )?);
+            position += 1;
+        } else if lines[position].starts_with("nominal.record ") {
+            nominal_records.push(parse_nominal_record_reference(
                 lines[position],
                 position + 1,
             )?);
@@ -167,7 +174,11 @@ pub fn parse_mir_dump(text: &str) -> Result<MirBubble, MirParseError> {
         methods,
         nested_functions,
         function_references,
-        nominal_references: MirNominalReferenceCatalog::new(nominal_interfaces, nominal_classes),
+        nominal_references: MirNominalReferenceCatalog::new(
+            nominal_records,
+            nominal_interfaces,
+            nominal_classes,
+        ),
         ffi_layouts: MirFfiLayoutCatalog::empty(
             &TargetSpec::for_triple("x86_64-unknown-linux-gnu")
                 .expect("the accepted native FFI target is part of the target inventory"),
@@ -263,6 +274,21 @@ fn parse_generated_codec_adapter(
         projection_sha256: parts[19].to_owned(),
         members,
     })
+}
+
+fn parse_nominal_record_reference(
+    line: &str,
+    number: usize,
+) -> Result<MirRecordReference, MirParseError> {
+    let parts = line.split_whitespace().collect::<Vec<_>>();
+    if parts.len() != 4 || parts[0] != "nominal.record" {
+        return Err(error(number, "malformed nominal record reference"));
+    }
+    Ok(MirRecordReference::new(
+        parse_nominal_identity(parts[1], number)?,
+        SymbolId::from_raw(parse_prefixed(parts[2], 's', number)?),
+        TypeId::from_raw(parse_prefixed(parts[3], 't', number)?),
+    ))
 }
 
 fn parse_nominal_interface_reference(

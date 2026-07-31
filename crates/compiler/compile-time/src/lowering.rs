@@ -433,7 +433,9 @@ fn unsupported_statement_error(statement: &TypedStatement) -> Option<CompileTime
         | TypedStatementKind::ListSet { .. }
         | TypedStatementKind::TableSet { .. }
         | TypedStatementKind::CompoundArraySet { .. } => UnsupportedCompileTimeConstruct::Mutation,
-        TypedStatementKind::Match { .. } => UnsupportedCompileTimeConstruct::Match,
+        TypedStatementKind::Match { .. } | TypedStatementKind::IterationMatch { .. } => {
+            UnsupportedCompileTimeConstruct::Match
+        }
         TypedStatementKind::ErrorMatch { .. }
         | TypedStatementKind::ResultMatch { .. }
         | TypedStatementKind::CodecErrorMatch { .. } => {

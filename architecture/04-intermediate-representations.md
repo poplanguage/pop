@@ -82,7 +82,10 @@ HIR invariants:
   effect summary;
 - closures identify every capture, its type, owner, and value/cell mode;
 - interface calls identify the static interface and resolved member/slot;
-- matches name every case of one resolved tagged union exactly once;
+- matches name every case of one resolved ordinary or reserved closed union
+  exactly once, retaining `UnionCaseId` or the exact reserved builtin case ID;
+- an optional payload inside reserved `Iteration.Item` keeps separate outer
+  case, inner presence, and payload slots in the verified MIR object map;
 - implicit source conversions are explicit HIR conversion nodes;
 - source spans survive desugaring through origin chains;
 - no target word size is assumed for language-defined numeric types;

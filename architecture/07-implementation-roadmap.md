@@ -84,6 +84,8 @@ Exit criterion: core language tests execute through MIR without LLVM.
 - nominal interfaces and explicit implementation;
 - optimized record layout, arrays, and statically typed tables;
 - exhaustive tagged-union matching and missing-case quick fixes;
+- exhaustive reserved `Result<T, TError>` and `Iteration<T>` matching with
+  exact builtin case identities and typed payload projection;
 - closure conversion and captured variables;
 - allocation, precise stack/object maps, and bootstrap stop-the-world GC.
 - initial `Pop.Standard` collections, text, result, and iteration conformance;

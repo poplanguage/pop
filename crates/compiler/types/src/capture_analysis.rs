@@ -125,6 +125,16 @@ fn finalize_statement_captures(statement: &mut TypedStatement, written: &BTreeSe
                 }
             }
         }
+        TypedStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => {
+            finalize_expression_captures(scrutinee, written);
+            for arm in arms {
+                for statement in &mut arm.body {
+                    finalize_statement_captures(statement, written);
+                }
+            }
+        }
         TypedStatementKind::CodecErrorMatch { scrutinee, arms } => {
             finalize_expression_captures(scrutinee, written);
             for arm in arms {

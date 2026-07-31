@@ -97,9 +97,9 @@ pub use typed_body::{
     CaptureMode, CaptureSource, StringFormatKind, TypedAssignmentTarget, TypedBinaryOperator,
     TypedBody, TypedBodyResult, TypedCall, TypedCallDispatch, TypedCapture, TypedClosure,
     TypedClosureParameter, TypedCompoundOperator, TypedErrorMatchArm, TypedExpression,
-    TypedExpressionKind, TypedExpressionResult, TypedFieldValue, TypedIterationSource,
-    TypedMatchArm, TypedMatchBinding, TypedResultMatchArm, TypedStatement, TypedStatementKind,
-    TypedTableEntry, TypedUnaryOperator,
+    TypedExpressionKind, TypedExpressionResult, TypedFieldValue, TypedIterationMatchArm,
+    TypedIterationSource, TypedMatchArm, TypedMatchBinding, TypedResultMatchArm, TypedStatement,
+    TypedStatementKind, TypedTableEntry, TypedUnaryOperator,
 };
 
 pub type ClassFieldDefault = FieldDefault;
