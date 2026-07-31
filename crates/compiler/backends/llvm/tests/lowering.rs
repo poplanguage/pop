@@ -5724,6 +5724,55 @@ fn emitted_llvm_executes_canonical_ipv4_values() {
 }
 
 #[test]
+fn emitted_llvm_executes_canonical_ipv6_values() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local address = parseIpv6(\"2001:db8::1\")?\n\
+                 local second = ipv6Segment(address, 2)?\n\
+                 if formatIpv6(address) ~= \"2001:db8::1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if second ~= UInt16(3512) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv6Loopback(parseIpv6(\"::1\")?) or not isIpv6Unspecified(parseIpv6(\"::\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if formatIpv6(parseIpv6(\"2001::1:0:0:1:1\")?) ~= \"2001::1:0:0:1:1\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv6(\"2001:DB8::1\") ~= nil or parseIpv6(\"2001:0db8::1\") ~= nil or parseIpv6(\"2001:db8:0:0:0:0:0:1\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv6(\"2001:::1\") ~= nil or parseIpv6(\"2001:db8:1\") ~= nil or parseIpv6(\"::ffff:192.0.2.1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "canonical-ipv6-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted canonical IPv6 values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

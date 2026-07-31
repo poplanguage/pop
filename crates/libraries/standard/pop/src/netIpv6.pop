@@ -1,0 +1,406 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one exact network-order IPv6 address.
+--- </summary>
+public record Ipv6Address
+    --- <summary>
+    --- The first two network-order segments.
+    --- </summary>
+    first: UInt32
+
+    --- <summary>
+    --- The third and fourth network-order segments.
+    --- </summary>
+    second: UInt32
+
+    --- <summary>
+    --- The fifth and sixth network-order segments.
+    --- </summary>
+    third: UInt32
+
+    --- <summary>
+    --- The seventh and eighth network-order segments.
+    --- </summary>
+    fourth: UInt32
+end
+
+private function ipv6Word(high: UInt16, low: UInt16): UInt32
+    return UInt32(Int(high) * 65536 + Int(low))
+end
+
+private function ipv6SegmentValue(address: Ipv6Address, index: Int): Int
+    local word = address.first
+    if index >= 3 and index <= 4 then
+        word = address.second
+    elseif index >= 5 and index <= 6 then
+        word = address.third
+    elseif index >= 7 then
+        word = address.fourth
+    end
+    if index % 2 == 1 then
+        return Int(word) / 65536
+    end
+    return Int(word) % 65536
+end
+
+private function ipv6HexDigit(point: Int): Int?
+    if point >= 48 and point <= 57 then
+        return point - 48
+    end
+    if point >= 97 and point <= 102 then
+        return point - 87
+    end
+    return nil
+end
+
+private function formatIpv6Segment(value: Int): String
+    local output = Bytes.create()
+    local divisor = 4096
+    local started = false
+    while divisor > 0 do
+        local digit = (value / divisor) % 16
+        if digit ~= 0 or started or divisor == 1 then
+            if digit < 10 then
+                Bytes.write(output, Byte(48 + digit))
+            else
+                Bytes.write(output, Byte(87 + digit))
+            end
+            started = true
+        end
+        divisor = divisor / 16
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function ipv6FromSegments(segments: List<Int>): Ipv6Address
+    local address: Ipv6Address = {
+        first = ipv6Word(UInt16(List.get(segments, 1)), UInt16(List.get(segments, 2))),
+        second = ipv6Word(UInt16(List.get(segments, 3)), UInt16(List.get(segments, 4))),
+        third = ipv6Word(UInt16(List.get(segments, 5)), UInt16(List.get(segments, 6))),
+        fourth = ipv6Word(UInt16(List.get(segments, 7)), UInt16(List.get(segments, 8))),
+    }
+    return address
+end
+
+--- <summary>
+--- Creates an IPv6 address from eight network-order segments.
+--- </summary>
+---
+--- <param name="first">
+--- The first network-order segment.
+--- </param>
+---
+--- <param name="second">
+--- The second network-order segment.
+--- </param>
+---
+--- <param name="third">
+--- The third network-order segment.
+--- </param>
+---
+--- <param name="fourth">
+--- The fourth network-order segment.
+--- </param>
+---
+--- <param name="fifth">
+--- The fifth network-order segment.
+--- </param>
+---
+--- <param name="sixth">
+--- The sixth network-order segment.
+--- </param>
+---
+--- <param name="seventh">
+--- The seventh network-order segment.
+--- </param>
+---
+--- <param name="eighth">
+--- The eighth network-order segment.
+--- </param>
+---
+--- <returns>
+--- The exact packed address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv6Address.
+--- </allocation>
+public function ipv6(
+    first: UInt16,
+    second: UInt16,
+    third: UInt16,
+    fourth: UInt16,
+    fifth: UInt16,
+    sixth: UInt16,
+    seventh: UInt16,
+    eighth: UInt16,
+): Ipv6Address
+    local address: Ipv6Address = {
+        first = ipv6Word(first, second),
+        second = ipv6Word(third, fourth),
+        third = ipv6Word(fifth, sixth),
+        fourth = ipv6Word(seventh, eighth),
+    }
+    return address
+end
+
+--- <summary>
+--- Formats an IPv6 address using canonical lowercase compressed text.
+--- </summary>
+---
+--- <param name="address">
+--- The address to format.
+--- </param>
+---
+--- <returns>
+--- Canonical text using the first longest run of at least two zero segments.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates bounded segment and result strings.
+--- </allocation>
+public function formatIpv6(address: Ipv6Address): String
+    local bestStart = 0
+    local bestLength = 0
+    local index = 1
+    while index <= 8 do
+        if ipv6SegmentValue(address, index) == 0 then
+            local start = index
+            while index <= 8 and ipv6SegmentValue(address, index) == 0 do
+                index = index + 1
+            end
+            local length = index - start
+            if length >= 2 and length > bestLength then
+                bestStart = start
+                bestLength = length
+            end
+        else
+            index = index + 1
+        end
+    end
+
+    local output = ""
+    local afterCompression = false
+    index = 1
+    while index <= 8 do
+        if index == bestStart then
+            output = output .. "::"
+            afterCompression = true
+            index = index + bestLength
+        else
+            if output ~= "" and not afterCompression then
+                output = output .. ":"
+            end
+            output = output .. formatIpv6Segment(ipv6SegmentValue(address, index))
+            afterCompression = false
+            index = index + 1
+        end
+    end
+    return output
+end
+
+--- <summary>
+--- Parses complete canonical lowercase IPv6 text.
+--- </summary>
+---
+--- <param name="text">
+--- Canonical text without a zone identifier or embedded IPv4 spelling.
+--- </param>
+---
+--- <returns>
+--- The address, or nil for malformed or noncanonical input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates bounded parsed and expanded segment lists plus one address.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Net
+---
+--- private function ipv6Example(): Boolean?
+---     local address = parseIpv6("2001:db8::1")?
+---     return formatIpv6(address) == "2001:db8::1"
+--- end
+--- </code>
+--- </example>
+public function parseIpv6(text: String): Ipv6Address?
+    local parsed = List.create<<Int>>()
+    local current = 0
+    local digits = 0
+    local compression = 0
+    local pendingColon = false
+    local position = 0
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if point == 58 then
+            if digits > 0 then
+                List.add(parsed, current)
+                current = 0
+                digits = 0
+                pendingColon = true
+            elseif pendingColon then
+                if compression ~= 0 then
+                    return nil
+                end
+                compression = List.length(parsed) + 1
+                pendingColon = false
+            elseif position == 0 then
+                pendingColon = true
+            else
+                return nil
+            end
+        else
+            local digit = ipv6HexDigit(point)?
+            if digits >= 4 then
+                return nil
+            end
+            current = current * 16 + digit
+            digits = digits + 1
+            pendingColon = false
+        end
+        position = position + 1
+    end
+
+    if pendingColon then
+        return nil
+    end
+    if digits > 0 then
+        List.add(parsed, current)
+    end
+    local parsedCount = List.length(parsed)
+    if compression == 0 then
+        if parsedCount ~= 8 then
+            return nil
+        end
+    elseif parsedCount >= 8 then
+        return nil
+    end
+
+    local segments = List.create<<Int>>()
+    local beforeCompression = parsedCount
+    if compression > 0 then
+        beforeCompression = compression - 1
+    end
+    local index = 1
+    while index <= beforeCompression do
+        List.add(segments, List.get(parsed, index))
+        index = index + 1
+    end
+    if compression > 0 then
+        local zeros = 8 - parsedCount
+        while zeros > 0 do
+            List.add(segments, 0)
+            zeros = zeros - 1
+        end
+    end
+    index = beforeCompression + 1
+    while index <= parsedCount do
+        List.add(segments, List.get(parsed, index))
+        index = index + 1
+    end
+    if List.length(segments) ~= 8 then
+        return nil
+    end
+    local address = ipv6FromSegments(segments)
+    if formatIpv6(address) ~= text then
+        return nil
+    end
+    return address
+end
+
+--- <summary>
+--- Returns one network-order IPv6 segment.
+--- </summary>
+---
+--- <param name="address">
+--- The address to inspect.
+--- </param>
+---
+--- <param name="index">
+--- The one-based segment index.
+--- </param>
+---
+--- <returns>
+--- The selected segment, or nil outside one through eight.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function ipv6Segment(address: Ipv6Address, index: Int): UInt16?
+    if index < 1 or index > 8 then
+        return nil
+    end
+    return UInt16(ipv6SegmentValue(address, index))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address is the loopback address.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True exactly for ::1.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6Loopback(address: Ipv6Address): Boolean
+    if address.first ~= UInt32(0) then
+        return false
+    end
+    if address.second ~= UInt32(0) then
+        return false
+    end
+    if address.third ~= UInt32(0) then
+        return false
+    end
+    return address.fourth == UInt32(1)
+end
+
+--- <summary>
+--- Reports whether an IPv6 address is the unspecified address.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True exactly for ::.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6Unspecified(address: Ipv6Address): Boolean
+    if address.first ~= UInt32(0) then
+        return false
+    end
+    if address.second ~= UInt32(0) then
+        return false
+    end
+    if address.third ~= UInt32(0) then
+        return false
+    end
+    return address.fourth == UInt32(0)
+end

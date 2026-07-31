@@ -2912,6 +2912,54 @@ fn canonical_ipv4_values_parse_format_and_classify() {
 }
 
 #[test]
+fn canonical_ipv6_values_parse_format_and_classify() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local address = parseIpv6(\"2001:db8::1\")?\n\
+                 if formatIpv6(address) ~= \"2001:db8::1\" or (ipv6Segment(address, 2) ?? UInt16(0)) ~= UInt16(3512) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv6Loopback(parseIpv6(\"::1\")?) or isIpv6Unspecified(parseIpv6(\"::1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if not isIpv6Unspecified(parseIpv6(\"::\")?) or isIpv6Loopback(parseIpv6(\"::\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local tie = parseIpv6(\"2001::1:0:0:1:1\")?\n\
+                 if formatIpv6(tie) ~= \"2001::1:0:0:1:1\" then\n\
+                     return 4\n\
+                 end\n\
+                 local direct = ipv6(UInt16(1), UInt16(2), UInt16(3), UInt16(4), UInt16(5), UInt16(6), UInt16(7), UInt16(8))\n\
+                 if (ipv6Segment(direct, 8) ?? UInt16(0)) ~= UInt16(8) or ipv6Segment(direct, 0) ~= nil or ipv6Segment(direct, 9) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv6(\"2001:DB8::1\") ~= nil or parseIpv6(\"2001:0db8::1\") ~= nil or parseIpv6(\"2001:db8:0:0:0:0:0:1\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parseIpv6(\"2001:::1\") ~= nil or parseIpv6(\"2001:db8:1\") ~= nil or parseIpv6(\":\") ~= nil or parseIpv6(\"::ffff:192.0.2.1\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("IPv6 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv6 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("IPv6 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

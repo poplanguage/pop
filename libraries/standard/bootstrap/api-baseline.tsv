@@ -306,3 +306,10 @@ api:240	Api	Pop.Standard	Pop.Channel	sendClosed	sendClosed(Channel.SendOutcome)-
 api:241	Api	Pop.Standard	Pop.Channel	received	received<T>(Channel.ReceiveOutcome<T>)->T?	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
 api:242	Api	Pop.Standard	Pop.Channel	receiveEmpty	receiveEmpty<T>(Channel.ReceiveOutcome<T>)->Boolean	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
 api:243	Api	Pop.Standard	Pop.Channel	receiveClosed	receiveClosed<T>(Channel.ReceiveOutcome<T>)->Boolean	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
+api:244	Api	Pop.Standard	Pop.Net	Ipv6Address	record Ipv6Address(UInt32,UInt32,UInt32,UInt32)	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:245	Api	Pop.Standard	Pop.Net	ipv6	ipv6(UInt16,UInt16,UInt16,UInt16,UInt16,UInt16,UInt16,UInt16)->Net.Ipv6Address	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:246	Api	Pop.Standard	Pop.Net	parseIpv6	parseIpv6(String)->Net.Ipv6Address?	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:247	Api	Pop.Standard	Pop.Net	formatIpv6	formatIpv6(Net.Ipv6Address)->String	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:248	Api	Pop.Standard	Pop.Net	ipv6Segment	ipv6Segment(Net.Ipv6Address,Int)->UInt16?	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:249	Api	Pop.Standard	Pop.Net	isIpv6Loopback	isIpv6Loopback(Net.Ipv6Address)->Boolean	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:250	Api	Pop.Standard	Pop.Net	isIpv6Unspecified	isIpv6Unspecified(Net.Ipv6Address)->Boolean	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
