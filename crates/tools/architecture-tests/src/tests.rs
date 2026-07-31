@@ -2225,6 +2225,39 @@ fn bounded_media_types_follow_adr_0132_without_a_native_duplicate() {
 }
 
 #[test]
+fn bounded_uri_references_follow_adr_0133_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0133-bounded-uri-reference-values.md"));
+    let uri = read_required(root.join("crates/libraries/standard/pop/src/uri.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(uri.matches("public record Value").count(), 1);
+    for function in [
+        "parse",
+        "format",
+        "percentEncode",
+        "percentDecode",
+        "resolve",
+    ] {
+        assert_eq!(
+            uri.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Uri\t{function}\t")),
+            "Uri.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(uri.contains("MAX_URI_LENGTH = 4096"));
+    assert!(!compiler.contains("Pop.Uri"));
+    assert!(!native.contains("Pop.Uri"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

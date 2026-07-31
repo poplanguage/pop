@@ -7218,6 +7218,18 @@ pub fn is_managed_reference_type_id(type_id: TypeId, arena: Option<&TypeArena>) 
             | SemanticType::Function { .. }
             | SemanticType::ErrorUnion { .. },
         ) => true,
+        Some(SemanticType::Union(members)) => {
+            let Some(nil) = arena.source_type("nil") else {
+                return false;
+            };
+            let mut present = members.iter().copied().filter(|member| *member != nil);
+            let Some(inner) = present.next() else {
+                return false;
+            };
+            members.contains(&nil)
+                && present.next().is_none()
+                && is_managed_reference_type_id(inner, Some(arena))
+        }
         _ => false,
     }
 }

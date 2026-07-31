@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 211);
+    assert_eq!(baseline.entries().len(), 217);
 
     let prelude_names = baseline
         .entries()
@@ -234,6 +234,12 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Mime", "format"),
             ("Pop.Mime", "parameter"),
             ("Pop.Mime", "matches"),
+            ("Pop.Uri", "Value"),
+            ("Pop.Uri", "parse"),
+            ("Pop.Uri", "format"),
+            ("Pop.Uri", "percentEncode"),
+            ("Pop.Uri", "percentDecode"),
+            ("Pop.Uri", "resolve"),
         ]
     );
 }

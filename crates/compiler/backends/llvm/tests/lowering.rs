@@ -5012,6 +5012,100 @@ fn emitted_llvm_executes_bounded_media_types() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_uri_references() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/uri.pop",
+            include_str!("../../../../libraries/standard/pop/src/uri.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Uri\n\
+             private function resolved(base: Value, referenceText: String): String\n\
+                 local reference = parse(referenceText) ?? base\n\
+                 return format(resolve(base, reference))\n\
+             end\n\
+             private function main(): Int\n\
+                 if local absolute = parse(\"HTTPS://example.test/a%20b?x=1#part\") then\n\
+                     if absolute.scheme ~= \"https\" or (absolute.authority ?? \"\") ~= \"example.test\" or absolute.path ~= \"/a%20b\" or (absolute.query ?? \"\") ~= \"x=1\" or (absolute.fragment ?? \"\") ~= \"part\" then\n\
+                         return 1\n\
+                     end\n\
+                     if format(absolute) ~= \"https://example.test/a%20b?x=1#part\" then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local empty = parse(\"https://example.test?#\") then\n\
+                     if empty.query == nil or empty.fragment == nil or format(empty) ~= \"https://example.test?#\" then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 if parse(\"1http:x\") ~= nil or parse(\"a b\") ~= nil or parse(\"a%2\") ~= nil or parse(\"é\") ~= nil or parse(\"a#b#c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if local relative = parse(\"a/b:c\") then\n\
+                     if relative.scheme ~= \"\" or relative.path ~= \"a/b:c\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if local fragmentColon = parse(\"abc#d:e\") then\n\
+                     if fragmentColon.scheme ~= \"\" or fragmentColon.path ~= \"abc\" or (fragmentColon.fragment ?? \"\") ~= \"d:e\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if (percentEncode(\"é 中\") ?? \"\") ~= \"%C3%A9%20%E4%B8%AD\" or (percentDecode(\"%C3%A9%20%E4%B8%AD\") ?? \"\") ~= \"é 中\" then\n\
+                     return 6\n\
+                 end\n\
+                 if percentDecode(\"%\") ~= nil or percentDecode(\"%GG\") ~= nil or percentDecode(\"%FF\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if local base = parse(\"http://a/b/c/d;p?q\") then\n\
+                     if resolved(base, \"g:h\") ~= \"g:h\" or resolved(base, \"g\") ~= \"http://a/b/c/g\" or resolved(base, \"./g\") ~= \"http://a/b/c/g\" then\n\
+                         return 8\n\
+                     end\n\
+                     if resolved(base, \"/g\") ~= \"http://a/g\" or resolved(base, \"//g\") ~= \"http://g\" or resolved(base, \"?y\") ~= \"http://a/b/c/d;p?y\" then\n\
+                         return 9\n\
+                     end\n\
+                     if resolved(base, \"g?y#s\") ~= \"http://a/b/c/g?y#s\" or resolved(base, \"#s\") ~= \"http://a/b/c/d;p?q#s\" then\n\
+                         return 10\n\
+                     end\n\
+                     if resolved(base, \".\") ~= \"http://a/b/c/\" or resolved(base, \"..\") ~= \"http://a/b/\" or resolved(base, \"../../g\") ~= \"http://a/g\" then\n\
+                         return 11\n\
+                     end\n\
+                 else\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-uri-references");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded URI references: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

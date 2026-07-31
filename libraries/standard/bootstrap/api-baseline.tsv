@@ -211,3 +211,9 @@ api:151	Api	Pop.Standard	Pop.Mime	parse	parse(String)->Mime.Value?	standard	impl
 api:152	Api	Pop.Standard	Pop.Mime	format	format(Mime.Value)->String	standard	implemented	false	architecture/decisions/0132-bounded-media-type-values.md
 api:153	Api	Pop.Standard	Pop.Mime	parameter	parameter(Mime.Value,String)->String?	standard	implemented	false	architecture/decisions/0132-bounded-media-type-values.md
 api:154	Api	Pop.Standard	Pop.Mime	matches	matches(Mime.Value,String)->Boolean	standard	implemented	false	architecture/decisions/0132-bounded-media-type-values.md
+api:155	Api	Pop.Standard	Pop.Uri	Value	record Value(String,String?,String,String?,String?)	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:156	Api	Pop.Standard	Pop.Uri	parse	parse(String)->Uri.Value?	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:157	Api	Pop.Standard	Pop.Uri	format	format(Uri.Value)->String	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:158	Api	Pop.Standard	Pop.Uri	percentEncode	percentEncode(String)->String?	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:159	Api	Pop.Standard	Pop.Uri	percentDecode	percentDecode(String)->String?	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:160	Api	Pop.Standard	Pop.Uri	resolve	resolve(Uri.Value,Uri.Value)->Uri.Value	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md

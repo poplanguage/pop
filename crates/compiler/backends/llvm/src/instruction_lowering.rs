@@ -596,12 +596,14 @@ pub(crate) fn lower_instruction(
             safe_point.raw(),
             roots,
             direct_scalar_arrays,
+            value_types,
+            types,
             matches!(
                 options.runtime_profile,
                 pop_backend_api::RuntimeProfile::ProductionGenerational
             ),
             options.gc_poll_interval.get(),
-        ),
+        )?,
         MirInstructionKind::RetainRoot { value } => format!(
             "{result} = call i64 @{}(i64 %v{})",
             native_runtime_symbol(RuntimeOperation::RetainRoot),
@@ -2308,13 +2310,18 @@ fn lower_foreign_call(
         lines.push(format!("{root_array} = alloca [{} x i64]", roots.len()));
         for (index, root) in roots.iter().enumerate() {
             let slot = format!("{root_array}_{index}");
-            lines.extend([
-                format!(
-                    "{slot} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
-                    roots.len()
-                ),
-                format!("store i64 %v{}, ptr {slot}", root.raw()),
-            ]);
+            lines.push(format!(
+                "{slot} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
+                roots.len()
+            ));
+            let type_id = *values
+                .get(root)
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let source = format!("%v{}", root.raw());
+            let (conversions, stored) =
+                lower_gc_root_value(&source, &format!("{slot}_value"), type_id, types)?;
+            lines.extend(conversions);
+            lines.push(format!("store i64 {stored}, ptr {slot}"));
         }
         lines.push(format!(
             "{root_pointer} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 0",
@@ -2484,6 +2491,7 @@ pub(crate) fn lower_array_create(
         initial_value,
         initial_type,
         &llvm_type(initial_type, types)?,
+        types,
     )?;
     let label = result.trim_start_matches('%');
     lines.extend([
@@ -2531,6 +2539,7 @@ pub(crate) fn lower_direct_array_create(
         allocation.initial_value,
         initial_type,
         &llvm_type(initial_type, types)?,
+        types,
     )?;
     let label = result.trim_start_matches('%');
     lines.extend([
@@ -2733,7 +2742,7 @@ pub(crate) fn lower_direct_array_set(
         return Err(LlvmLoweringError::InvalidType(allocation.element_type));
     }
     let (mut conversion, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     conversion.extend([
         format!("{result}_zero_index = sub i64 %v{}, 1", index.raw()),
@@ -2781,7 +2790,7 @@ pub(crate) fn lower_direct_array_fill(
         return Err(LlvmLoweringError::InvalidType(allocation.element_type));
     }
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!("{result}_storage = inttoptr i64 %v{} to ptr", origin.raw()),
@@ -3153,7 +3162,7 @@ pub(crate) fn lower_list_mutation(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     let index = index.map_or_else(String::new, |index| format!(", i64 %v{}", index.raw()));
     lines.extend([
@@ -3220,7 +3229,7 @@ pub(crate) fn lower_array_fill(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!(
@@ -3255,7 +3264,7 @@ pub(crate) fn lower_array_set(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!(
@@ -3434,8 +3443,12 @@ fn lower_initialized_values_with_store(
                     let type_id = *values
                         .get(&value)
                         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
-                    let (conversions, stored) =
-                        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+                    let (conversions, stored) = lower_runtime_slot_store(
+                        value,
+                        type_id,
+                        &llvm_type(type_id, types)?,
+                        types,
+                    )?;
                     lines.extend(conversions);
                     stored
                 }
@@ -3571,9 +3584,11 @@ pub(crate) fn lower_gc_safe_point(
     safe_point: u32,
     roots: &[ValueId],
     direct_scalar_arrays: &DirectScalarArrays,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
     writable_roots: bool,
     poll_interval: u32,
-) -> String {
+) -> Result<String, LlvmLoweringError> {
     let roots = roots
         .iter()
         .copied()
@@ -3591,13 +3606,18 @@ pub(crate) fn lower_gc_safe_point(
     if !roots.is_empty() {
         for (index, root) in roots.iter().enumerate() {
             let entry = format!("{root_array}_{index}");
-            lines.extend([
-                format!(
-                    "{entry} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
-                    roots.len()
-                ),
-                format!("store i64 %v{}, ptr {entry}", root.raw()),
-            ]);
+            lines.push(format!(
+                "{entry} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
+                roots.len()
+            ));
+            let type_id = *value_types
+                .get(root)
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let source = format!("%v{}", root.raw());
+            let (conversions, stored) =
+                lower_gc_root_value(&source, &format!("{entry}_value"), type_id, types)?;
+            lines.extend(conversions);
+            lines.push(format!("store i64 {stored}, ptr {entry}"));
         }
     }
     lines.extend([
@@ -3641,7 +3661,7 @@ pub(crate) fn lower_gc_safe_point(
                 format!("{continuation}:"),
             ]);
         }
-        return lines.join("\n");
+        return Ok(lines.join("\n"));
     }
     if writable_roots {
         let status = format!("{result}_gc_status");
@@ -3686,11 +3706,50 @@ pub(crate) fn lower_gc_safe_point(
             ]);
         }
     }
-    lines.join("\n")
+    Ok(lines.join("\n"))
 }
 
 pub(crate) fn is_managed_type(type_id: TypeId, types: &TypeArena) -> bool {
     pop_mir::is_managed_reference_type_id(type_id, Some(types))
+}
+
+pub(crate) fn is_optional_managed_type(type_id: TypeId, types: &TypeArena) -> bool {
+    optional_inner_type(types, type_id).is_some_and(|inner| is_managed_type(inner, types))
+}
+
+fn lower_gc_root_value(
+    source: &str,
+    prefix: &str,
+    type_id: TypeId,
+    types: &TypeArena,
+) -> Result<(Vec<String>, String), LlvmLoweringError> {
+    if matches!(
+        types.get(type_id),
+        Some(SemanticType::Builtin { definition, .. })
+            if matches!(
+                *definition,
+                pop_types::BYTES_VIEW_TYPE_ID | pop_types::TEXT_VIEW_TYPE_ID
+            )
+    ) {
+        return Ok((Vec::new(), source.to_owned()));
+    }
+    if is_optional_managed_type(type_id, types) {
+        let present = format!("{prefix}_present");
+        let payload = format!("{prefix}_payload");
+        let stored = format!("{prefix}_stored");
+        return Ok((
+            vec![
+                format!("{present} = extractvalue {{ i1, i64 }} {source}, 0"),
+                format!("{payload} = extractvalue {{ i1, i64 }} {source}, 1"),
+                format!("{stored} = select i1 {present}, i64 {payload}, i64 0"),
+            ],
+            stored,
+        ));
+    }
+    if llvm_type(type_id, types)? != "i64" {
+        return Err(LlvmLoweringError::InvalidType(type_id));
+    }
+    Ok((Vec::new(), source.to_owned()))
 }
 
 pub(crate) fn lower_tuple_make(
@@ -4036,7 +4095,7 @@ pub(crate) fn lower_capture_store(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?, types)?;
     lines.push(format!(
         "call i8 @{}(i64 {owner}, i64 1, i64 {stored})",
         native_runtime_symbol(RuntimeOperation::FieldSet)
@@ -4100,9 +4159,24 @@ pub(crate) fn lower_runtime_slot_store(
     value: ValueId,
     type_id: TypeId,
     ty: &str,
+    types: &TypeArena,
 ) -> Result<(Vec<String>, String), LlvmLoweringError> {
     let source = format!("%v{}", value.raw());
-    let converted = format!("%v{}_slot", value.raw());
+    let converted = format!("%v{}_stored_slot", value.raw());
+    if ty == "{ i1, i64 }"
+        && optional_inner_type(types, type_id).is_some_and(|inner| is_managed_type(inner, types))
+    {
+        return Ok((
+            vec![
+                format!("{converted}_present = extractvalue {{ i1, i64 }} {source}, 0"),
+                format!("{converted}_payload = extractvalue {{ i1, i64 }} {source}, 1"),
+                format!(
+                    "{converted} = select i1 {converted}_present, i64 {converted}_payload, i64 0"
+                ),
+            ],
+            converted,
+        ));
+    }
     match ty {
         "i64" => Ok((Vec::new(), source)),
         "i1" | "i8" | "i16" | "i32" => Ok((
@@ -4189,6 +4263,19 @@ pub(crate) fn lower_runtime_slot_load_named(
         "call i64 @{}(i64 {owner}, i64 {slot})",
         native_runtime_symbol(RuntimeOperation::FieldGet),
     );
+    if ty == "{ i1, i64 }"
+        && optional_inner_type(types, result_type)
+            .is_some_and(|inner| is_managed_type(inner, types))
+    {
+        return Ok(vec![
+            format!("{loaded} = {call}"),
+            format!("{result}_present = icmp ne i64 {loaded}, 0"),
+            format!(
+                "{result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0"
+            ),
+            format!("{result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {loaded}, 1"),
+        ]);
+    }
     Ok(match ty.as_str() {
         "i64" => vec![format!("{result} = {call}")],
         "i1" | "i8" | "i16" | "i32" => vec![
@@ -4238,7 +4325,7 @@ pub(crate) fn runtime_field_call(
             .get(&value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (mut lines, stored) =
-            lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+            lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?, types)?;
         lines.push(format!(
             "call i8 @{}(i64 %v{}, i64 {}, i64 {stored})",
             native_runtime_symbol(operation),
@@ -4281,7 +4368,7 @@ pub(crate) fn lower_array_make(
             .get(value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (conversions, stored) =
-            lower_runtime_slot_store(*value, type_id, &llvm_type(type_id, types)?)?;
+            lower_runtime_slot_store(*value, type_id, &llvm_type(type_id, types)?, types)?;
         lines.extend(conversions);
         lines.push(format!(
             "call i8 @{}(i64 {result}, i64 {}, i64 {stored})",
@@ -4315,9 +4402,9 @@ pub(crate) fn lower_table_make(
             .get(value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (key_conversions, stored_key) =
-            lower_runtime_slot_store(*key, key_type, &llvm_type(key_type, types)?)?;
+            lower_runtime_slot_store(*key, key_type, &llvm_type(key_type, types)?, types)?;
         let (value_conversions, stored_value) =
-            lower_runtime_slot_store(*value, value_type, &llvm_type(value_type, types)?)?;
+            lower_runtime_slot_store(*value, value_type, &llvm_type(value_type, types)?, types)?;
         lines.extend(key_conversions);
         lines.extend(value_conversions);
         lines.push(format!(
@@ -4345,7 +4432,7 @@ pub(crate) fn lower_table_get(
         .get(&key)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored_key) =
-        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?)?;
+        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?, types)?;
     let output = format!("{result}_output");
     let status = format!("{result}_status");
     let present = format!("{result}_present");
@@ -4389,9 +4476,9 @@ pub(crate) fn lower_table_set(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored_key) =
-        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?)?;
+        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?, types)?;
     let (value_conversions, stored_value) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     lines.extend(value_conversions);
     let label = result.trim_start_matches('%');
     lines.extend([

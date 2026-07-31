@@ -252,6 +252,9 @@ transplanted into a Luau-shaped file.
 - ADR 0132 adds bounded owned media-type and ordered parameter records,
   canonical parsing/formatting, lookup, and exact/wildcard identity matching
   while excluding ambient registries and implicit content sniffing.
+- ADR 0133 adds bounded owned ASCII URI references, component percent coding,
+  and deterministic hierarchical resolution without scheme dispatch, host
+  policy, or network capability.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

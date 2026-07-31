@@ -23,7 +23,7 @@ use crate::api::{LlvmLoweringError, LlvmLoweringOptions, LlvmModule};
 use crate::async_lowering::{lower_async_function, lower_async_nested};
 use crate::ffi_buffer::marshalling;
 use crate::instruction_lowering::{
-    allocation_site_symbol, is_managed_type, llvm_results, llvm_type,
+    allocation_site_symbol, is_managed_type, is_optional_managed_type, llvm_results, llvm_type,
     lower_adjacent_array_field_get, lower_adjacent_class_array_store, lower_instruction,
     lower_runtime_slot_load, lower_terminator,
 };
@@ -1557,6 +1557,8 @@ pub(crate) fn lower_function_parts(
                     .copied()
                     .chain(relocated_roots),
                 &writable_root_values,
+                &value_types,
+                types,
                 &format!("v{}", instruction.result().raw()),
                 &mut instructions,
             );
@@ -1700,6 +1702,20 @@ pub(crate) fn lower_function_parts(
                         instruction.result().raw(),
                         instruction.result().raw()
                     ));
+                } else if is_optional_managed_type(instruction.result_type(), types) {
+                    let value = instruction.result().raw();
+                    instructions.extend([
+                        format!(
+                            "%v{value}_gc_present = extractvalue {{ i1, i64 }} %v{value}, 0"
+                        ),
+                        format!(
+                            "%v{value}_gc_payload = extractvalue {{ i1, i64 }} %v{value}, 1"
+                        ),
+                        format!(
+                            "%v{value}_gc_value = select i1 %v{value}_gc_present, i64 %v{value}_gc_payload, i64 0"
+                        ),
+                        format!("store i64 %v{value}_gc_value, ptr %v{value}_gc_root"),
+                    ]);
                 } else {
                     instructions.push(format!(
                         "store i64 %v{}, ptr %v{}_gc_root",
@@ -1724,6 +1740,8 @@ pub(crate) fn lower_function_parts(
         let root_aliases = load_root_cell_uses(
             terminator_values.iter().copied().chain(relocated_roots),
             &writable_root_values,
+            &value_types,
+            types,
             &format!("b{}_exit", block.block().raw()),
             &mut terminator_prefix,
         );
@@ -1839,6 +1857,30 @@ fn initialize_block_root_cells(
                         value.raw()
                     ),
                 ]
+            } else if is_optional_managed_type(argument.type_id(), types) {
+                vec![
+                    format!(
+                        "%v{}_initial_present = extractvalue {{ i1, i64 }} %v{}, 0",
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "%v{}_initial_payload = extractvalue {{ i1, i64 }} %v{}, 1",
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "%v{}_initial_value = select i1 %v{}_initial_present, i64 %v{}_initial_payload, i64 0",
+                        value.raw(),
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "store i64 %v{}_initial_value, ptr %v{}_gc_root",
+                        value.raw(),
+                        value.raw()
+                    ),
+                ]
             } else {
                 vec![format!(
                     "store i64 %v{}, ptr %v{}_gc_root",
@@ -1853,6 +1895,8 @@ fn initialize_block_root_cells(
 fn load_root_cell_uses(
     values: impl IntoIterator<Item = ValueId>,
     writable_root_values: &BTreeSet<ValueId>,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
     location: &str,
     instructions: &mut Vec<String>,
 ) -> BTreeMap<ValueId, String> {
@@ -1863,7 +1907,29 @@ fn load_root_cell_uses(
         .into_iter()
         .map(|value| {
             let alias = format!("%v{}_before_{location}", value.raw());
-            instructions.push(format!("{alias} = load i64, ptr %v{}_gc_root", value.raw()));
+            let optional_managed = value_types
+                .get(&value)
+                .is_some_and(|type_id| is_optional_managed_type(*type_id, types));
+            if optional_managed {
+                let payload = format!("{alias}_payload");
+                let present = format!("{alias}_present");
+                let with_presence = format!("{alias}_with_presence");
+                instructions.extend([
+                    format!("{payload} = load i64, ptr %v{}_gc_root", value.raw()),
+                    format!("{present} = icmp ne i64 {payload}, 0"),
+                    format!(
+                        "{with_presence} = insertvalue {{ i1, i64 }} zeroinitializer, i1 {present}, 0"
+                    ),
+                    format!(
+                        "{alias} = insertvalue {{ i1, i64 }} {with_presence}, i64 {payload}, 1"
+                    ),
+                ]);
+            } else {
+                instructions.push(format!(
+                    "{alias} = load i64, ptr %v{}_gc_root",
+                    value.raw()
+                ));
+            }
             (value, alias)
         })
         .collect()
