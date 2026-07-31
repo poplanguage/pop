@@ -1,0 +1,257 @@
+namespace Pop.Csv
+
+private const MAX_CSV_BYTES = 1048576
+private const MAX_CSV_ROWS = 4096
+private const MAX_CSV_FIELDS = 4096
+private const MAX_CSV_FIELD_BYTES = 65536
+
+private function csvByteLength(value: String): Int
+    return Bytes.length(Bytes.view(Text.encodeUtf8(value)))
+end
+
+private function csvRuneText(rune: Rune): String
+    local point = Int(Unicode.codePoint(rune))
+    local output = Bytes.create()
+    if point <= 127 then
+        Bytes.write(output, Byte(point))
+    elseif point <= 2047 then
+        Bytes.write(output, Byte(192 + point / 64))
+        Bytes.write(output, Byte(128 + point % 64))
+    elseif point <= 65535 then
+        Bytes.write(output, Byte(224 + point / 4096))
+        Bytes.write(output, Byte(128 + (point / 64) % 64))
+        Bytes.write(output, Byte(128 + point % 64))
+    else
+        Bytes.write(output, Byte(240 + point / 262144))
+        Bytes.write(output, Byte(128 + (point / 4096) % 64))
+        Bytes.write(output, Byte(128 + (point / 64) % 64))
+        Bytes.write(output, Byte(128 + point % 64))
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function emptyCsvRow(): List<String>
+    return List.create<<String>>()
+end
+
+private function parseCsvRow(text: String): List<String>
+    local row = List.create<<String>>()
+    local field = ""
+    local fieldBytes = 0
+    local quoted = false
+    local afterQuote = false
+    local atFieldStart = true
+    for rune in text do
+        local point = Unicode.codePoint(rune)
+        if point == 34 then
+            if quoted then
+                quoted = false
+                afterQuote = true
+            elseif afterQuote then
+                field = field .. "\""
+                fieldBytes = fieldBytes + 1
+                quoted = true
+                afterQuote = false
+            elseif atFieldStart then
+                quoted = true
+                atFieldStart = false
+            else
+                return emptyCsvRow()
+            end
+        elseif point == 44 and not quoted then
+            if List.length(row) >= MAX_CSV_FIELDS then
+                return emptyCsvRow()
+            end
+            List.add(row, field)
+            field = ""
+            fieldBytes = 0
+            afterQuote = false
+            atFieldStart = true
+        else
+            if not quoted and afterQuote then
+                return emptyCsvRow()
+            end
+            if not quoted and (point == 10 or point == 13) then
+                return emptyCsvRow()
+            end
+            local scalar = csvRuneText(rune)
+            field = field .. scalar
+            fieldBytes = fieldBytes + csvByteLength(scalar)
+            if fieldBytes > MAX_CSV_FIELD_BYTES then
+                return emptyCsvRow()
+            end
+            atFieldStart = false
+        end
+    end
+    if quoted or List.length(row) >= MAX_CSV_FIELDS then
+        return emptyCsvRow()
+    end
+    List.add(row, field)
+    return row
+end
+
+--- <summary>
+--- Parses strict bounded comma-separated text rows.
+--- </summary>
+---
+--- <param name="text">
+--- Complete UTF-8 CSV text using LF or CRLF record endings.
+--- </param>
+---
+--- <returns>
+--- Typed rows and fields, or nil for malformed or excessive input.
+--- </returns>
+---
+--- <complexity time="O(n²)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded owned rows, fields, and scalar parser strings.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Csv
+---
+--- private function csvExample(): Boolean?
+---     local rows = parse("name,note\nPop,\"typed, static\"")?
+---     return List.get(List.get(rows, 2), 2) == "typed, static"
+--- end
+--- </code>
+--- </example>
+public function parse(text: String): List<List<String>>?
+    if csvByteLength(text) > MAX_CSV_BYTES then
+        return nil
+    end
+    local rows = List.create<<List<String>>>()
+    local recordText = ""
+    local quoted = false
+    local awaitingLineFeed = false
+    local endedRecord = false
+    for rune in text do
+        local point = Unicode.codePoint(rune)
+        if awaitingLineFeed then
+            if point ~= 10 then
+                return nil
+            end
+            awaitingLineFeed = false
+        elseif point == 34 then
+            quoted = not quoted
+            recordText = recordText .. "\""
+            endedRecord = false
+        elseif point == 13 and not quoted then
+            if List.length(rows) >= MAX_CSV_ROWS then
+                return nil
+            end
+            local carriageReturnRow = parseCsvRow(recordText)
+            if List.length(carriageReturnRow) == 0 then
+                return nil
+            end
+            List.add(rows, carriageReturnRow)
+            recordText = ""
+            awaitingLineFeed = true
+            endedRecord = true
+        elseif point == 10 and not quoted then
+            if List.length(rows) >= MAX_CSV_ROWS then
+                return nil
+            end
+            local lineFeedRow = parseCsvRow(recordText)
+            if List.length(lineFeedRow) == 0 then
+                return nil
+            end
+            List.add(rows, lineFeedRow)
+            recordText = ""
+            endedRecord = true
+        else
+            recordText = recordText .. csvRuneText(rune)
+            endedRecord = false
+        end
+    end
+    if quoted or awaitingLineFeed then
+        return nil
+    end
+    if not endedRecord then
+        if List.length(rows) >= MAX_CSV_ROWS then
+            return nil
+        end
+        local finalRow = parseCsvRow(recordText)
+        if List.length(finalRow) == 0 then
+            return nil
+        end
+        List.add(rows, finalRow)
+    end
+    return rows
+end
+
+private function encodeCsvField(field: String): String
+    local needsQuote = false
+    for rune in field do
+        local point = Unicode.codePoint(rune)
+        if point == 34 or point == 44 or point == 10 or point == 13 then
+            needsQuote = true
+        end
+    end
+    if not needsQuote then
+        return field
+    end
+    local output = "\""
+    for rune in field do
+        if Unicode.codePoint(rune) == 34 then
+            output = output .. "\"\""
+        else
+            output = output .. csvRuneText(rune)
+        end
+    end
+    output = output .. "\""
+    return output
+end
+
+--- <summary>
+--- Formats typed text rows as canonical comma-separated text.
+--- </summary>
+---
+--- <param name="rows">
+--- The complete owned rows and fields to encode.
+--- </param>
+---
+--- <returns>
+--- Canonical CRLF text, or nil when a size or count limit is exceeded.
+--- </returns>
+---
+--- <complexity time="O(n²)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded encoded fields and one canonical output String.
+--- </allocation>
+public function format(rows: List<List<String>>): String?
+    if List.length(rows) > MAX_CSV_ROWS then
+        return nil
+    end
+    local output = ""
+    local rowIndex = 1
+    while rowIndex <= List.length(rows) do
+        local row = List.get(rows, rowIndex)
+        local fieldCount = List.length(row)
+        if fieldCount < 1 or fieldCount > MAX_CSV_FIELDS then
+            return nil
+        end
+        local fieldIndex = 1
+        while fieldIndex <= fieldCount do
+            if csvByteLength(List.get(row, fieldIndex)) > MAX_CSV_FIELD_BYTES then
+                return nil
+            end
+            output = output .. encodeCsvField(List.get(row, fieldIndex))
+            if fieldIndex < fieldCount then
+                output = output .. ","
+            end
+            if csvByteLength(output) > MAX_CSV_BYTES then
+                return nil
+            end
+            fieldIndex = fieldIndex + 1
+        end
+        if rowIndex < List.length(rows) then
+            output = output .. "\r\n"
+        end
+        rowIndex = rowIndex + 1
+    end
+    return output
+end

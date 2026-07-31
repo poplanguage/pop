@@ -5544,6 +5544,49 @@ fn emitted_llvm_executes_bounded_text_globs() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_csv_rows() {
+    let module = native_modules(&[
+        (
+            "src/csv.pop",
+            include_str!("../../../../libraries/standard/pop/src/csv.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Csv\n\
+             private function verify(): Int?\n\
+                 local rows = parse(\"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\\n\")?\n\
+                 if List.length(rows) ~= 2 or List.get(List.get(rows, 1), 2) ~= \"b,c\" or List.get(List.get(rows, 2), 1) ~= \"x\\\"y\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (format(rows) ?? \"\") ~= \"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\" then\n\
+                     return 2\n\
+                 end\n\
+                 local embedded = parse(\"\\\"a\\nb\\\",c\")?\n\
+                 if List.get(List.get(embedded, 1), 1) ~= \"a\\nb\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parse(\"a\\rb\") ~= nil or parse(\"a\\\"b\") ~= nil or parse(\"\\\"a\\\"x\") ~= nil or parse(\"\\\"open\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-csv-rows");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Csv rows: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

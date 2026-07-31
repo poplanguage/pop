@@ -2786,6 +2786,54 @@ fn bounded_text_globs_match_unicode_scalars_and_escapes() {
 }
 
 #[test]
+fn bounded_csv_rows_parse_and_format_strict_quoting() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/csv.pop",
+            include_str!("../../../../libraries/standard/pop/src/csv.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Csv\n\
+             public function verify(): Int?\n\
+                 local rows = parse(\"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\\n\")?\n\
+                 if List.length(rows) ~= 2 then\n\
+                     return 11\n\
+                 end\n\
+                 if List.get(List.get(rows, 1), 2) ~= \"b,c\" then\n\
+                     return 12\n\
+                 end\n\
+                 if List.get(List.get(rows, 2), 1) ~= \"x\\\"y\" then\n\
+                     return 13\n\
+                 end\n\
+                 if (format(rows) ?? \"\") ~= \"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\" then\n\
+                     return 2\n\
+                 end\n\
+                 local embedded = parse(\"\\\"a\\nb\\\",c\")?\n\
+                 if List.get(List.get(embedded, 1), 1) ~= \"a\\nb\" then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = parse(\"\")?\n\
+                 if List.length(empty) ~= 1 or List.get(List.get(empty, 1), 1) ~= \"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"a\\rb\") ~= nil or parse(\"a\\\"b\") ~= nil or parse(\"\\\"a\\\"x\") ~= nil or parse(\"\\\"open\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Csv consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Csv MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Csv execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

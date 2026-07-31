@@ -2526,6 +2526,35 @@ fn bounded_text_globs_follow_adr_0141_without_regex_or_host_duplicates() {
 }
 
 #[test]
+fn bounded_csv_rows_follow_adr_0142_without_dynamic_or_host_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0142-bounded-csv-text-rows.md"));
+    let csv = read_required(root.join("crates/libraries/standard/pop/src/csv.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["parse", "format"] {
+        assert_eq!(
+            csv.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Csv\t{function}\t")));
+    }
+    for limit in [
+        "MAX_CSV_BYTES = 1048576",
+        "MAX_CSV_ROWS = 4096",
+        "MAX_CSV_FIELDS = 4096",
+        "MAX_CSV_FIELD_BYTES = 65536",
+    ] {
+        assert!(csv.contains(limit));
+    }
+    assert!(!compiler.contains("Pop.Csv"));
+    assert!(!native.contains("Pop.Csv"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

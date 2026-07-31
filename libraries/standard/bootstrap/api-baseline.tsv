@@ -271,3 +271,5 @@ api:212	Api	Pop.Standard	Pop.Locale	sameLanguage	sameLanguage(Locale.Tag,Locale.
 api:213	Api	Pop.Standard	Pop.Glob	Pattern	class Pattern(private List<Int>)	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
 api:214	Api	Pop.Standard	Pop.Glob	compile	compile(String)->Glob.Pattern?	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
 api:215	Api	Pop.Standard	Pop.Glob	matches	matches(Glob.Pattern,String)->Boolean	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
+api:216	Api	Pop.Standard	Pop.Csv	parse	parse(String)->List<List<String>>?	standard	implemented	false	architecture/decisions/0142-bounded-csv-text-rows.md
+api:217	Api	Pop.Standard	Pop.Csv	format	format(List<List<String>>)->String?	standard	implemented	false	architecture/decisions/0142-bounded-csv-text-rows.md
