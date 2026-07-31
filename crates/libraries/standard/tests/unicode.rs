@@ -19,6 +19,7 @@ fn portable_ascii_rune_helpers_have_checked_allocation_free_documentation() {
         "isAsciiDigit",
         "isAsciiAlphanumeric",
         "isAsciiWhitespace",
+        "isWhitespace",
         "toAsciiLower",
         "toAsciiUpper",
     ];
@@ -29,7 +30,7 @@ fn portable_ascii_rune_helpers_have_checked_allocation_free_documentation() {
             .filter(|line| line.starts_with("public function "))
             .count(),
         functions.len(),
-        "the focused Unicode Module must contain only the ADR 0114 ASCII surface"
+        "the Unicode Module must contain exactly the accepted ADR 0114 and 0123 surface"
     );
     for name in functions {
         let marker = format!("public function {name}(");

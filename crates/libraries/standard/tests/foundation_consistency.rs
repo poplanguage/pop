@@ -51,7 +51,10 @@ fn frozen_foundation_baseline_and_delivery_status_stay_consistent() {
         .split_once("### 3. Make the runtime release-ready")
         .expect("runtime roadmap section follows the standard foundation")
         .0;
-    let (frozen_foundation, modern_essential) = section
+    let (frozen_foundation, post_baseline) = section
+        .split_once("Post-baseline library work has begun")
+        .expect("post-baseline library boundary");
+    let (_, modern_essential) = post_baseline
         .split_once("#### Complete the modern essential libraries")
         .expect("ADR 0110 modern essential-library boundary");
     assert!(
