@@ -267,6 +267,8 @@ transplanted into a Luau-shaped file.
 - ADR 0137 adds bounded monotonic `Time.Instant`/`Deadline` values and an
   explicitly injected deterministic `Time.TestClock`; host wall/monotonic
   clocks, timers, and suspension remain later PLRI contracts.
+- ADR 0138 adds bounded proleptic-Gregorian `Time.Date` values and pure calendar
+  validation/comparison without wall-clock, time-zone, or locale authority.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

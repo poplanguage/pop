@@ -2593,6 +2593,52 @@ fn deterministic_test_clocks_advance_and_expire_exactly() {
 }
 
 #[test]
+fn bounded_gregorian_dates_validate_and_compare_exactly() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local leap = date(2024, 2, 29)?\n\
+                 local next = date(2024, 3, 1)?\n\
+                 if (daysInMonth(2024, 2) ?? 0) ~= 29 or (daysInMonth(2023, 2) ?? 0) ~= 28 then\n\
+                     return 1\n\
+                 end\n\
+                 if not isLeapYear(2024) or isLeapYear(1900) or not isLeapYear(2000) then\n\
+                     return 2\n\
+                 end\n\
+                 if compareDates(leap, next) ~= -1 or compareDates(next, leap) ~= 1 or compareDates(leap, leap) ~= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if date(0, 1, 1) ~= nil or date(10000, 1, 1) ~= nil or date(2023, 2, 29) ~= nil or date(2024, 13, 1) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if daysInMonth(0, 1) ~= nil or daysInMonth(2024, 0) ~= nil or daysInMonth(2024, 13) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local first = date(1, 1, 1)?\n\
+                 local final = date(9999, 12, 31)?\n\
+                 if compareDates(first, final) ~= -1 then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Date consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Date MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Date execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

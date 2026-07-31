@@ -1,0 +1,174 @@
+namespace Pop.Time
+
+private const MIN_DATE_YEAR = 1
+private const MAX_DATE_YEAR = 9999
+
+--- <summary>
+--- Holds one bounded proleptic-Gregorian civil date.
+--- </summary>
+public record Date
+    --- <summary>
+    --- The year from 1 through 9,999.
+    --- </summary>
+    year: Int
+
+    --- <summary>
+    --- The month from 1 through 12.
+    --- </summary>
+    month: Int
+
+    --- <summary>
+    --- The day within the selected month.
+    --- </summary>
+    day: Int
+end
+
+private function dateValue(year: Int, month: Int, day: Int): Date
+    local result: Date = { year = year, month = month, day = day }
+    return result
+end
+
+--- <summary>
+--- Reports whether a year follows the Gregorian leap-year rule.
+--- </summary>
+---
+--- <param name="year">
+--- The signed year to classify.
+--- </param>
+---
+--- <returns>
+--- True when divisible by four except for non-four-hundred-divisible centuries.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isLeapYear(year: Int): Boolean
+    return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
+end
+
+--- <summary>
+--- Returns the number of days in one bounded Gregorian month.
+--- </summary>
+---
+--- <param name="year">
+--- The year from 1 through 9,999.
+--- </param>
+---
+--- <param name="month">
+--- The month from 1 through 12.
+--- </param>
+---
+--- <returns>
+--- The month length, or nil when the year or month is outside its valid range.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function daysInMonth(year: Int, month: Int): Int?
+    if year < MIN_DATE_YEAR or year > MAX_DATE_YEAR or month < 1 or month > 12 then
+        return nil
+    end
+    if month == 2 then
+        if isLeapYear(year) then
+            return 29
+        end
+        return 28
+    end
+    if month == 4 or month == 6 or month == 9 or month == 11 then
+        return 30
+    end
+    return 31
+end
+
+--- <summary>
+--- Creates a bounded proleptic-Gregorian civil date.
+--- </summary>
+---
+--- <param name="year">
+--- The year from 1 through 9,999.
+--- </param>
+---
+--- <param name="month">
+--- The month from 1 through 12.
+--- </param>
+---
+--- <param name="day">
+--- The day within the selected month.
+--- </param>
+---
+--- <returns>
+--- The date, or nil when any field is outside its valid range.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Date for valid fields.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Time
+---
+--- private function leapDayExample(): Boolean?
+---     local leapDay = date(2024, 2, 29)?
+---     return leapDay.day == 29 and (daysInMonth(leapDay.year, leapDay.month) ?? 0) == 29
+--- end
+--- </code>
+--- </example>
+public function date(year: Int, month: Int, day: Int): Date?
+    local length = daysInMonth(year, month) ?? 0
+    if day < 1 or day > length then
+        return nil
+    end
+    return dateValue(year, month, day)
+end
+
+--- <summary>
+--- Compares two civil dates by year, month, and day.
+--- </summary>
+---
+--- <param name="left">
+--- The left date.
+--- </param>
+---
+--- <param name="right">
+--- The right date.
+--- </param>
+---
+--- <returns>
+--- Negative one, zero, or one by chronological field order.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function compareDates(left: Date, right: Date): Int
+    if left.year < right.year then
+        return -1
+    end
+    if left.year > right.year then
+        return 1
+    end
+    if left.month < right.month then
+        return -1
+    end
+    if left.month > right.month then
+        return 1
+    end
+    if left.day < right.day then
+        return -1
+    end
+    if left.day > right.day then
+        return 1
+    end
+    return 0
+end

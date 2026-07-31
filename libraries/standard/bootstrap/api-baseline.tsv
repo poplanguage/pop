@@ -250,3 +250,8 @@ api:191	Api	Pop.Standard	Pop.Time	now	now(Time.TestClock)->Time.Instant	standard
 api:192	Api	Pop.Standard	Pop.Time	advance	advance(Time.TestClock,Time.Duration)->Boolean	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
 api:193	Api	Pop.Standard	Pop.Time	deadlineAfter	deadlineAfter(Time.TestClock,Time.Duration)->Time.Deadline?	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
 api:194	Api	Pop.Standard	Pop.Time	isExpired	isExpired(Time.TestClock,Time.Deadline)->Boolean	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:195	Api	Pop.Standard	Pop.Time	Date	record Date(Int,Int,Int)	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
+api:196	Api	Pop.Standard	Pop.Time	date	date(Int,Int,Int)->Time.Date?	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
+api:197	Api	Pop.Standard	Pop.Time	isLeapYear	isLeapYear(Int)->Boolean	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
+api:198	Api	Pop.Standard	Pop.Time	daysInMonth	daysInMonth(Int,Int)->Int?	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
+api:199	Api	Pop.Standard	Pop.Time	compareDates	compareDates(Time.Date,Time.Date)->Int	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md

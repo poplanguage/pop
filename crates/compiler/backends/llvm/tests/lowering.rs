@@ -5347,6 +5347,54 @@ fn emitted_llvm_executes_deterministic_test_clocks() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_gregorian_dates() {
+    let module = native_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local leap = date(2024, 2, 29)?\n\
+                 local next = date(2024, 3, 1)?\n\
+                 if (daysInMonth(2024, 2) ?? 0) ~= 29 or (daysInMonth(2023, 2) ?? 0) ~= 28 then\n\
+                     return 1\n\
+                 end\n\
+                 if not isLeapYear(2024) or isLeapYear(1900) or not isLeapYear(2000) then\n\
+                     return 2\n\
+                 end\n\
+                 if compareDates(leap, next) ~= -1 or compareDates(next, leap) ~= 1 or compareDates(leap, leap) ~= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if date(0, 1, 1) ~= nil or date(10000, 1, 1) ~= nil or date(2023, 2, 29) ~= nil or date(2024, 13, 1) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local first = date(1, 1, 1)?\n\
+                 local final = date(9999, 12, 31)?\n\
+                 if compareDates(first, final) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-gregorian-dates");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Gregorian dates: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

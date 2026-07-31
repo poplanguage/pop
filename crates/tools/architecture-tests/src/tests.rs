@@ -2408,6 +2408,34 @@ fn deterministic_test_clocks_follow_adr_0137_without_host_or_native_duplicates()
 }
 
 #[test]
+fn bounded_gregorian_dates_follow_adr_0138_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0138-bounded-gregorian-date-values.md"));
+    let date = read_required(root.join("crates/libraries/standard/pop/src/timeDate.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(date.matches("public record Date").count(), 1);
+    for function in ["date", "isLeapYear", "daysInMonth", "compareDates"] {
+        assert_eq!(
+            date.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(date.contains("MAX_DATE_YEAR = 9999"));
+    assert!(!compiler.contains("Time.Date"));
+    assert!(!native.contains("Time.Date"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
