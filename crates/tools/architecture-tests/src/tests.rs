@@ -2761,6 +2761,47 @@ fn directional_channel_api_follows_adr_0147_across_verified_ir_and_backends() {
 }
 
 #[test]
+fn local_actor_lifecycle_follows_adr_0148_without_channel_or_dynamic_erasure() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0148-local-actor-incarnation-lifecycle.md"),
+    );
+    let actor = read_required(root.join("crates/runtime/interface/src/actor.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/actor_contracts.rs"));
+    let integrated =
+        read_required(root.join("architecture/23-concurrency-actors-and-distribution.md"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(integrated.contains("ADR 0148"));
+    for declaration in [
+        "pub struct ActorId",
+        "pub struct ActorIncarnation",
+        "pub struct ActorReference",
+        "pub enum ActorExit",
+        "pub enum ActorState",
+        "pub enum ActorSendError<T>",
+        "pub enum ActorReceive<T>",
+        "pub struct ActorLifecycle<T>",
+    ] {
+        assert_eq!(actor.matches(declaration).count(), 1);
+    }
+    for behavior in [
+        "active_actor_mailbox_preserves_fifo",
+        "old_actor_reference_is_stale_after_restart",
+        "actor_exit_closes_admission",
+        "actor_start_and_exit_transitions_are_single_use",
+    ] {
+        assert!(tests.contains(behavior));
+    }
+    assert!(actor.contains("copied_message: T"));
+    assert!(actor.contains("mailbox: VecDeque<T>"));
+    assert!(!actor.contains("ChannelLifecycle"));
+    assert!(!actor.contains("Box<dyn"));
+    assert!(!actor.contains("std::any::Any"));
+    assert!(!actor.contains("HashMap"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

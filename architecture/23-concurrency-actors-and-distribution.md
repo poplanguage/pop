@@ -237,6 +237,14 @@ result. Completion means mailbox admission, not handler completion.
 `Actor.trySend` reports full, closed, or stale incarnation without suspending.
 `Actor.Reply<T>` is a typed single-use response capability.
 
+ADR 0148 fixes the backend-neutral lifecycle below those operations. One local
+actor identity and one exact incarnation form every reference. A restart
+constructs a new incarnation rather than retargeting old references. The
+bounded FIFO accepts only already checked/copied messages while running, and
+preserves the unconsumed value for full, closed, and stale outcomes. Exit first
+closes admission and returns queued messages for precise cleanup; terminal
+publication follows child-task and resource cleanup.
+
 ## Message and capture safety
 
 The compiler proves a recursive actor-message-safe property. It is not a

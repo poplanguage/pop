@@ -1,5 +1,6 @@
 //! Versioned backend-neutral Pop Lang Runtime Interface contracts.
 
+mod actor;
 mod adapter;
 mod allocation;
 mod channel;
@@ -13,6 +14,7 @@ mod reference;
 mod scheduler;
 mod task;
 
+pub use actor::*;
 pub use adapter::*;
 pub use allocation::*;
 pub use channel::*;
