@@ -246,6 +246,9 @@ transplanted into a Luau-shaped file.
   loading, reflection, or an FFI layout claim.
 - ADR 0130 adds exact no-fallback `Sequence.first`/`last` inspection through
   `Iteration<T>` now that ordinary source can exhaustively match the carrier.
+- ADR 0131 adds bounded Semantic Versioning values, canonical formatting and
+  precedence, plus one deliberately small exact/comparison requirement matcher
+  in ordinary portable Pop source.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

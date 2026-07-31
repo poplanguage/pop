@@ -2166,6 +2166,36 @@ fn ordinary_public_record_metadata_follows_adr_0129() {
 }
 
 #[test]
+fn bounded_semantic_versions_follow_adr_0131_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0131-bounded-semantic-version-values.md"));
+    let version = read_required(root.join("crates/libraries/standard/pop/src/version.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(version.matches("public record Value").count(), 1);
+    for function in ["parse", "format", "compare", "matches"] {
+        assert_eq!(
+            version
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Version\t{function}\t")),
+            "Version.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(version.contains("MAX_VERSION_TEXT_LENGTH = 1024"));
+    assert!(version.contains("MAX_VERSION_COMPONENT = 2147483646"));
+    assert!(!compiler.contains("Pop.Version"));
+    assert!(!native.contains("Pop.Version"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

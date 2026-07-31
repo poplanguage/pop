@@ -2121,6 +2121,79 @@ fn essential_text_ascii_casing_preserves_non_ascii_bytes() {
 }
 
 #[test]
+fn bounded_semantic_versions_parse_order_format_and_match() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/math.pop",
+            include_str!("../../../../libraries/standard/pop/src/math.pop"),
+        ),
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/version.pop",
+            include_str!("../../../../libraries/standard/pop/src/version.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Version\n\
+             private function required(text: String): Value\n\
+                 local fallback: Value = { major = 0, minor = 0, patch = 0, prerelease = \"\", build = \"\" }\n\
+                 return parse(text) ?? fallback\n\
+             end\n\
+             public function verify(): Int\n\
+                 local complete = required(\"1.2.3-alpha.1+linux\")\n\
+                 if format(complete) ~= \"1.2.3-alpha.1+linux\" then\n\
+                     return 1\n\
+                 end\n\
+                 if parse(\"01.2.3\") ~= nil or parse(\"1.2.3-\") ~= nil or parse(\"1.2.3-alpha..1\") ~= nil or parse(\"1.2.3-α\") ~= nil or parse(\"2147483647.0.0\") ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha\"), required(\"1.0.0-alpha.1\")) >= 0 or compare(required(\"1.0.0-alpha.1\"), required(\"1.0.0-alpha.beta\")) >= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha.beta\"), required(\"1.0.0-beta\")) >= 0 or compare(required(\"1.0.0-beta\"), required(\"1.0.0-beta.2\")) >= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 if compare(required(\"1.0.0-beta.2\"), required(\"1.0.0-beta.11\")) >= 0 or compare(required(\"1.0.0-beta.11\"), required(\"1.0.0-rc.1\")) >= 0 or compare(required(\"1.0.0-rc.1\"), required(\"1.0.0\")) >= 0 then\n\
+                     return 5\n\
+                 end\n\
+                 if compare(required(\"1.2.3+one\"), required(\"1.2.3+two\")) ~= 0 then\n\
+                     return 6\n\
+                 end\n\
+                 if not matches(required(\"1.4.5\"), \"^1.2.3\") or matches(required(\"2.0.0\"), \"^1.2.3\") then\n\
+                     return 7\n\
+                 end\n\
+                 if not matches(required(\"1.2.9\"), \"~1.2.3\") or matches(required(\"1.3.0\"), \"~1.2.3\") then\n\
+                     return 8\n\
+                 end\n\
+                 if not matches(required(\"1.2.3+build\"), \"=1.2.3\") or not matches(required(\"1.2.4\"), \">1.2.3\") or matches(required(\"1.2.3\"), \">=broken\") then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Version consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Version MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Version execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

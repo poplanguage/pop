@@ -1,0 +1,482 @@
+namespace Pop.Version
+using Pop.Math
+using Pop.Text
+using Pop.Unicode
+
+private const MAX_VERSION_TEXT_LENGTH = 1024
+private const MAX_VERSION_COMPONENT = 2147483646
+
+--- <summary>
+--- Holds one bounded Semantic Versioning 2.0.0 value.
+--- </summary>
+---
+--- <remarks>
+--- Build metadata does not participate in precedence. Numeric core components
+--- are limited to 2,147,483,646 so compatible-range upper bounds remain
+--- representable with checked Int arithmetic.
+--- </remarks>
+public record Value
+    --- <summary>
+    --- The nonnegative major component.
+    --- </summary>
+    major: Int
+
+    --- <summary>
+    --- The nonnegative minor component.
+    --- </summary>
+    minor: Int
+
+    --- <summary>
+    --- The nonnegative patch component.
+    --- </summary>
+    patch: Int
+
+    --- <summary>
+    --- Dot-separated prerelease identifiers without the leading hyphen.
+    --- </summary>
+    prerelease: String
+
+    --- <summary>
+    --- Dot-separated build identifiers without the leading plus sign.
+    --- </summary>
+    build: String
+end
+
+private function byteLength(value: String): Int
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    return Bytes.length(view)
+end
+
+private function substring(value: Bytes, start: Int, length: Int): String
+    local output = Bytes.withCapacity(length)
+    local view = Bytes.view(value)
+    local offset = 0
+    while offset < length do
+        Bytes.write(output, Bytes.get(view, start + offset) ?? 0)
+        offset = offset + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function allDigits(value: String): Boolean
+    if value == "" then
+        return false
+    end
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        if point < 48 or point > 57 then
+            return false
+        end
+    end
+    return true
+end
+
+private function validIdentifiers(value: String, rejectLeadingZero: Boolean): Boolean
+    if value == "" then
+        return false
+    end
+    local identifiers = split(value, ".")
+    local index = 1
+    while index <= List.length(identifiers) do
+        local identifier = List.get(identifiers, index)
+        if identifier == "" then
+            return false
+        end
+        for rune in identifier do
+            local point = Unicode.codePoint(rune)
+            local valid = (point >= 48 and point <= 57) or (point >= 65 and point <= 90) or (point >= 97 and point <= 122) or point == 45
+            if not valid then
+                return false
+            end
+        end
+        if rejectLeadingZero and allDigits(identifier) and byteLength(identifier) > 1 then
+            local encoded = Text.encodeUtf8(identifier)
+            local view = Bytes.view(encoded)
+            if (Bytes.get(view, 1) ?? 1) == 48 then
+                return false
+            end
+        end
+        index = index + 1
+    end
+    return true
+end
+
+private function parseComponent(value: String): Int?
+    if not allDigits(value) then
+        return nil
+    end
+    if byteLength(value) > 1 and startsWith(value, "0") then
+        return nil
+    end
+    local parsed = parseInt(value)?
+    if parsed < 0 or parsed > MAX_VERSION_COMPONENT then
+        return nil
+    end
+    return parsed
+end
+
+--- <summary>
+--- Parses one complete bounded Semantic Versioning 2.0.0 value.
+--- </summary>
+---
+--- <param name="text">
+--- The exact version text without surrounding whitespace.
+--- </param>
+---
+--- <returns>
+--- The parsed value, or nil for malformed, oversized, or out-of-range input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates owned prerelease/build text and temporary bounded parser storage.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Version
+---
+--- private function parseVersionExample(): Int
+---     local fallback: Value = {
+---         major = 0,
+---         minor = 0,
+---         patch = 0,
+---         prerelease = "",
+---         build = "",
+---     }
+---     local value = parse("1.2.3-alpha.1+linux") ?? fallback
+---     return value.major + value.minor + value.patch
+--- end
+--- </code>
+--- </example>
+public function parse(text: String): Value?
+    local encoded = Text.encodeUtf8(text)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    if length < 5 or length > MAX_VERSION_TEXT_LENGTH then
+        return nil
+    end
+
+    local prereleaseSeparator = 0
+    local buildSeparator = 0
+    local index = 1
+    local byte = 0
+    while index <= length do
+        byte = Int(Bytes.get(view, index) ?? 0)
+        if byte == 43 then
+            if buildSeparator ~= 0 then
+                return nil
+            end
+            buildSeparator = index
+        elseif byte == 45 and prereleaseSeparator == 0 and buildSeparator == 0 then
+            prereleaseSeparator = index
+        end
+        index = index + 1
+    end
+
+    local coreEnd = length
+    if prereleaseSeparator ~= 0 then
+        coreEnd = prereleaseSeparator - 1
+    elseif buildSeparator ~= 0 then
+        coreEnd = buildSeparator - 1
+    end
+    if coreEnd < 5 then
+        return nil
+    end
+
+    local core = substring(encoded, 1, coreEnd)
+    local components = split(core, ".")
+    if List.length(components) ~= 3 then
+        return nil
+    end
+    local major = parseComponent(List.get(components, 1))?
+    local minor = parseComponent(List.get(components, 2))?
+    local patch = parseComponent(List.get(components, 3))?
+
+    local prerelease = ""
+    if prereleaseSeparator ~= 0 then
+        local finish = length
+        if buildSeparator ~= 0 then
+            finish = buildSeparator - 1
+        end
+        prerelease = substring(
+            encoded,
+            prereleaseSeparator + 1,
+            finish - prereleaseSeparator
+        )
+        if not validIdentifiers(prerelease, true) then
+            return nil
+        end
+    end
+
+    local build = ""
+    if buildSeparator ~= 0 then
+        build = substring(encoded, buildSeparator + 1, length - buildSeparator)
+        if not validIdentifiers(build, false) then
+            return nil
+        end
+    end
+
+    local value: Value = {
+        major = major,
+        minor = minor,
+        patch = patch,
+        prerelease = prerelease,
+        build = build,
+    }
+    return value
+end
+
+--- <summary>
+--- Formats one value as canonical Semantic Versioning text.
+--- </summary>
+---
+--- <param name="value">
+--- A value previously produced by parse or a validated record initializer.
+--- </param>
+---
+--- <returns>
+--- Owned canonical version text.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String.
+--- </allocation>
+public function format(value: Value): String
+    local text = `{value.major}.{value.minor}.{value.patch}`
+    if value.prerelease ~= "" then
+        text = text .. "-" .. value.prerelease
+    end
+    if value.build ~= "" then
+        text = text .. "+" .. value.build
+    end
+    return text
+end
+
+private function compareText(left: String, right: String): Int
+    local leftBytes = Text.encodeUtf8(left)
+    local rightBytes = Text.encodeUtf8(right)
+    local leftView = Bytes.view(leftBytes)
+    local rightView = Bytes.view(rightBytes)
+    local leftLength = Bytes.length(leftView)
+    local rightLength = Bytes.length(rightView)
+    local shared = min(leftLength, rightLength)
+    for index = 1, shared do
+        local leftByte = Bytes.get(leftView, index) ?? 0
+        local rightByte = Bytes.get(rightView, index) ?? 0
+        if leftByte < rightByte then
+            return -1
+        end
+        if leftByte > rightByte then
+            return 1
+        end
+    end
+    if leftLength < rightLength then
+        return -1
+    end
+    if leftLength > rightLength then
+        return 1
+    end
+    return 0
+end
+
+private function compareIdentifier(left: String, right: String): Int
+    local leftNumeric = allDigits(left)
+    local rightNumeric = allDigits(right)
+    if leftNumeric and not rightNumeric then
+        return -1
+    end
+    if not leftNumeric and rightNumeric then
+        return 1
+    end
+    if leftNumeric and rightNumeric then
+        local leftLength = byteLength(left)
+        local rightLength = byteLength(right)
+        if leftLength < rightLength then
+            return -1
+        end
+        if leftLength > rightLength then
+            return 1
+        end
+    end
+    return compareText(left, right)
+end
+
+private function comparePrerelease(left: String, right: String): Int
+    if left == right then
+        return 0
+    end
+    if left == "" then
+        return 1
+    end
+    if right == "" then
+        return -1
+    end
+    local leftIdentifiers = split(left, ".")
+    local rightIdentifiers = split(right, ".")
+    local shared = min(
+        List.length(leftIdentifiers),
+        List.length(rightIdentifiers)
+    )
+    local index = 1
+    local order = 0
+    while index <= shared do
+        order = compareIdentifier(
+            List.get(leftIdentifiers, index),
+            List.get(rightIdentifiers, index)
+        )
+        if order ~= 0 then
+            return order
+        end
+        index = index + 1
+    end
+    if List.length(leftIdentifiers) < List.length(rightIdentifiers) then
+        return -1
+    end
+    return 1
+end
+
+--- <summary>
+--- Compares two versions by Semantic Versioning precedence.
+--- </summary>
+---
+--- <param name="left">
+--- The left value.
+--- </param>
+---
+--- <param name="right">
+--- The right value.
+--- </param>
+---
+--- <returns>
+--- A negative value, zero, or a positive value. Build metadata is ignored.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded prerelease comparison storage.
+--- </allocation>
+public function compare(left: Value, right: Value): Int
+    if left.major < right.major then
+        return -1
+    end
+    if left.major > right.major then
+        return 1
+    end
+    if left.minor < right.minor then
+        return -1
+    end
+    if left.minor > right.minor then
+        return 1
+    end
+    if left.patch < right.patch then
+        return -1
+    end
+    if left.patch > right.patch then
+        return 1
+    end
+    return comparePrerelease(left.prerelease, right.prerelease)
+end
+
+private function release(
+    major: Int,
+    minor: Int,
+    patch: Int,
+): Value
+    return {
+        major = major,
+        minor = minor,
+        patch = patch,
+        prerelease = "",
+        build = "",
+    }
+end
+
+--- <summary>
+--- Tests a version against one exact or comparison requirement.
+--- </summary>
+---
+--- <param name="value">
+--- The version being tested.
+--- </param>
+---
+--- <param name="requirement">
+--- Exact version text or one `=`, `&gt;`, `&gt;=`, `&lt;`, `&lt;=`, `^`, or
+--- `~` prefix followed immediately by a version.
+--- </param>
+---
+--- <returns>
+--- True when the requirement parses and accepts the value.
+--- </returns>
+---
+--- <remarks>
+--- Caret requirements stop at the next incompatible major, minor for zero
+--- major, or patch for zero major/minor. Tilde requirements stop at the next
+--- minor. Requirement unions and intersections belong to package tooling.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded requirement parser storage.
+--- </allocation>
+public function matches(value: Value, requirement: String): Boolean
+    local encoded = Text.encodeUtf8(requirement)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    if length == 0 or length > MAX_VERSION_TEXT_LENGTH + 2 then
+        return false
+    end
+    local first = Int(Bytes.get(view, 1) ?? 0)
+    local prefixLength = 0
+    if first == 61 or first == 62 or first == 60 or first == 94 or first == 126 then
+        prefixLength = 1
+        local inclusive = length > 1 and (first == 62 or first == 60) and Int(Bytes.get(view, 2) ?? 0) == 61
+        if inclusive then
+            prefixLength = 2
+        end
+    end
+    local targetText = requirement
+    if prefixLength > 0 then
+        targetText = substring(encoded, prefixLength + 1, length - prefixLength)
+    end
+    local target = parse(targetText)
+    if target == nil then
+        return false
+    end
+    local exact = target ?? release(0, 0, 0)
+    local order = compare(value, exact)
+    if prefixLength == 0 or first == 61 then
+        return order == 0
+    end
+    if first == 62 then
+        if prefixLength == 2 then
+            return order >= 0
+        end
+        return order > 0
+    end
+    if first == 60 then
+        if prefixLength == 2 then
+            return order <= 0
+        end
+        return order < 0
+    end
+    if order < 0 then
+        return false
+    end
+    if first == 126 then
+        return compare(value, release(exact.major, exact.minor + 1, 0)) < 0
+    end
+    if exact.major > 0 then
+        return compare(value, release(exact.major + 1, 0, 0)) < 0
+    end
+    if exact.minor > 0 then
+        return compare(value, release(0, exact.minor + 1, 0)) < 0
+    end
+    return compare(value, release(0, 0, exact.patch + 1)) < 0
+end

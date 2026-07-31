@@ -37,7 +37,7 @@ Time	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-ca
 Toml	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Unicode	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
 Uri	Pop.Standard	core	planned	architecture/22.1-core-and-portable-library-catalog.md
-Version	Pop.Standard	core	planned	architecture/22.1-core-and-portable-library-catalog.md
+Version	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
 WebSocket	Pop.Http	networkProtocol	planned	architecture/22.2-system-network-security-catalog.md
 Xml	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Yaml	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md

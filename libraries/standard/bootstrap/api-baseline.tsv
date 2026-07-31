@@ -200,3 +200,8 @@ api:140	Api	Pop.Standard	Pop.Sequence	containsBy	containsBy<T,TSource:Iterable<T
 api:141	Api	Pop.Standard	Pop.Sequence	equalsBy	equalsBy<T,TLeft:Iterable<T>,TRight:Iterable<T>>(TLeft,TRight,function(T,T)->Boolean)->Boolean	standard	implemented	false	architecture/decisions/0128-materializing-sequence-order-and-equality.md
 api:142	Api	Pop.Standard	Pop.Sequence	first	first<T,TSource:Iterable<T>>(TSource)->Iteration<T>	standard	implemented	false	architecture/decisions/0130-sequence-no-fallback-inspection.md
 api:143	Api	Pop.Standard	Pop.Sequence	last	last<T,TSource:Iterable<T>>(TSource)->Iteration<T>	standard	implemented	false	architecture/decisions/0130-sequence-no-fallback-inspection.md
+api:144	Api	Pop.Standard	Pop.Version	Value	record Value(Int,Int,Int,String,String)	standard	implemented	false	architecture/decisions/0131-bounded-semantic-version-values.md
+api:145	Api	Pop.Standard	Pop.Version	parse	parse(String)->Version.Value?	standard	implemented	false	architecture/decisions/0131-bounded-semantic-version-values.md
+api:146	Api	Pop.Standard	Pop.Version	format	format(Version.Value)->String	standard	implemented	false	architecture/decisions/0131-bounded-semantic-version-values.md
+api:147	Api	Pop.Standard	Pop.Version	compare	compare(Version.Value,Version.Value)->Int	standard	implemented	false	architecture/decisions/0131-bounded-semantic-version-values.md
+api:148	Api	Pop.Standard	Pop.Version	matches	matches(Version.Value,String)->Boolean	standard	implemented	false	architecture/decisions/0131-bounded-semantic-version-values.md

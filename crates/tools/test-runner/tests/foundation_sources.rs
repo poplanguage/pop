@@ -316,6 +316,15 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         assert!(standard_hir.public_symbols().contains(&function.symbol()));
         assert!(function.type_parameters().is_empty());
     }
+    for function_name in ["parse", "format", "compare", "matches"] {
+        let function = standard_hir
+            .functions()
+            .iter()
+            .find(|function| function.name() == function_name)
+            .unwrap_or_else(|| panic!("ordinary Pop Version.{function_name} implementation"));
+        assert!(standard_hir.public_symbols().contains(&function.symbol()));
+        assert!(function.type_parameters().is_empty());
+    }
     for function_name in [
         "equals",
         "compare",
@@ -350,7 +359,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        104,
+        108,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();
@@ -398,7 +407,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
             }
         }
     }
-    assert_eq!(examples.len(), 11, "baseline examples remain compiled");
+    assert_eq!(examples.len(), 12, "baseline examples remain compiled");
 
     for (index, example) in examples.iter().enumerate() {
         let raw = u32::try_from(index + 20).expect("documentation example identity");
@@ -436,10 +445,35 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         });
     }
 
+    let mut aggregate_usings = Vec::new();
+    let aggregate_examples = examples
+        .iter()
+        .map(|example| {
+            example
+                .lines()
+                .filter(|line| {
+                    if line.starts_with("using ") {
+                        if !aggregate_usings.iter().any(|existing| existing == line) {
+                            aggregate_usings.push((*line).to_owned());
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let example_source = SourceFile::new(
         FileId::from_raw(0),
         "examples/sequence.pop",
-        format!("namespace StandardExamples\n{}\n", examples.join("\n")),
+        format!(
+            "namespace StandardExamples\n{}\n{}\n",
+            aggregate_usings.join("\n"),
+            aggregate_examples
+        ),
     )
     .expect("compiled documentation example source");
     let compiled_examples = analyze_bubble(
