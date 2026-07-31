@@ -273,3 +273,10 @@ api:214	Api	Pop.Standard	Pop.Glob	compile	compile(String)->Glob.Pattern?	standar
 api:215	Api	Pop.Standard	Pop.Glob	matches	matches(Glob.Pattern,String)->Boolean	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
 api:216	Api	Pop.Standard	Pop.Csv	parse	parse(String)->List<List<String>>?	standard	implemented	false	architecture/decisions/0142-bounded-csv-text-rows.md
 api:217	Api	Pop.Standard	Pop.Csv	format	format(List<List<String>>)->String?	standard	implemented	false	architecture/decisions/0142-bounded-csv-text-rows.md
+api:218	Api	Pop.Standard	Pop.Net	Ipv4Address	record Ipv4Address(UInt32)	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:219	Api	Pop.Standard	Pop.Net	ipv4	ipv4(Byte,Byte,Byte,Byte)->Net.Ipv4Address	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:220	Api	Pop.Standard	Pop.Net	parseIpv4	parseIpv4(String)->Net.Ipv4Address?	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:221	Api	Pop.Standard	Pop.Net	formatIpv4	formatIpv4(Net.Ipv4Address)->String	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:222	Api	Pop.Standard	Pop.Net	ipv4Octet	ipv4Octet(Net.Ipv4Address,Int)->Byte?	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:223	Api	Pop.Standard	Pop.Net	isIpv4Loopback	isIpv4Loopback(Net.Ipv4Address)->Boolean	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md
+api:224	Api	Pop.Standard	Pop.Net	isIpv4Private	isIpv4Private(Net.Ipv4Address)->Boolean	standard	implemented	false	architecture/decisions/0143-bounded-ipv4-address-values.md

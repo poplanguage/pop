@@ -2555,6 +2555,36 @@ fn bounded_csv_rows_follow_adr_0142_without_dynamic_or_host_duplicates() {
 }
 
 #[test]
+fn canonical_ipv4_values_follow_adr_0143_without_socket_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0143-bounded-ipv4-address-values.md"));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/net.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public record Ipv4Address").count(), 1);
+    for function in [
+        "ipv4",
+        "parseIpv4",
+        "formatIpv4",
+        "ipv4Octet",
+        "isIpv4Loopback",
+        "isIpv4Private",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(!compiler.contains("Pop.Net"));
+    assert!(!native.contains("Pop.Net"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

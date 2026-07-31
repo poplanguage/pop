@@ -359,7 +359,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        161,
+        167,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();
@@ -407,7 +407,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
             }
         }
     }
-    assert_eq!(examples.len(), 23, "baseline examples remain compiled");
+    assert_eq!(examples.len(), 24, "baseline examples remain compiled");
 
     for (index, example) in examples.iter().enumerate() {
         let raw = u32::try_from(index + 20).expect("documentation example identity");

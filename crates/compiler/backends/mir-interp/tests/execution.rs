@@ -2834,6 +2834,50 @@ fn bounded_csv_rows_parse_and_format_strict_quoting() {
 }
 
 #[test]
+fn canonical_ipv4_values_parse_format_and_classify() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local address = parseIpv4(\"192.168.1.42\")?\n\
+                 if formatIpv4(address) ~= \"192.168.1.42\" or (ipv4Octet(address, 4) ?? 0) ~= Byte(42) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv4Private(address) or isIpv4Loopback(address) then\n\
+                     return 2\n\
+                 end\n\
+                 local loopback = parseIpv4(\"127.255.0.1\")?\n\
+                 if not isIpv4Loopback(loopback) or isIpv4Private(loopback) then\n\
+                     return 3\n\
+                 end\n\
+                 if not isIpv4Private(parseIpv4(\"10.0.0.1\")?) or not isIpv4Private(parseIpv4(\"172.31.255.255\")?) or isIpv4Private(parseIpv4(\"172.32.0.0\")?) then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv4(\"01.2.3.4\") ~= nil or parseIpv4(\"256.0.0.1\") ~= nil or parseIpv4(\"1.2.3\") ~= nil or parseIpv4(\"1.2.3.4.5\") ~= nil or parseIpv4(\"1.2.3.-1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if ipv4Octet(address, 0) ~= nil or ipv4Octet(address, 5) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("IPv4 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv4 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("IPv4 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
