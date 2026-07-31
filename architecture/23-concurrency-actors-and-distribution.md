@@ -161,6 +161,13 @@ contract. Bounded channels are the default for streams and pipelines.
 Unbounded channels require an explicit advanced constructor and memory-limit
 documentation.
 
+ADR 0145 fixes the shared bounded-channel lifecycle beneath those public
+operations. Admitted values remain FIFO and within capacity; full/closed sends
+return the exact unsent value, sender closure drains buffered values, and the
+last receiver returns queued values for precise root release. A zero-capacity
+channel is an explicit rendezvous channel whose send becomes ready only when a
+scheduler receiver can be paired.
+
 Send and receive may suspend and apply backpressure. `Task.select` uses a
 closed typed set of task, channel, or timer cases. It never returns an untyped
 tag/value bag. When several cases are ready, the scheduler chooses unless the

@@ -2,6 +2,7 @@
 
 mod adapter;
 mod allocation;
+mod channel;
 mod contract;
 mod failure;
 mod ffi;
@@ -14,6 +15,7 @@ mod task;
 
 pub use adapter::*;
 pub use allocation::*;
+pub use channel::*;
 pub use contract::*;
 pub use failure::*;
 pub use ffi::*;

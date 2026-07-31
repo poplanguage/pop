@@ -2618,6 +2618,42 @@ fn ipv4_prefixes_and_endpoints_follow_adr_0144_without_transport_operations() {
 }
 
 #[test]
+fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0145-bounded-channel-runtime-lifecycle.md"),
+    );
+    let channel = read_required(root.join("crates/runtime/interface/src/channel.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/channel_contracts.rs"));
+    let integrated =
+        read_required(root.join("architecture/23-concurrency-actors-and-distribution.md"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(integrated.contains("ADR 0145"));
+    for declaration in [
+        "pub struct ChannelId",
+        "pub enum ChannelState",
+        "pub enum ChannelSendError<T>",
+        "pub enum ChannelReceive<T>",
+        "pub struct ChannelLifecycle<T>",
+    ] {
+        assert_eq!(channel.matches(declaration).count(), 1);
+    }
+    for behavior in [
+        "bounded_channel_preserves_fifo",
+        "sender_close_drains_buffer",
+        "endpoint_lifetimes_close",
+        "last_receiver_release_returns_buffered_values",
+        "zero_capacity_is_an_explicit_rendezvous",
+    ] {
+        assert!(tests.contains(behavior));
+    }
+    assert!(!channel.contains("Box<dyn"));
+    assert!(!channel.contains("std::any::Any"));
+    assert!(!channel.contains("HashMap"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
