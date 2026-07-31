@@ -5830,6 +5830,63 @@ fn emitted_llvm_executes_ipv6_prefixes_and_socket_addresses() {
 }
 
 #[test]
+fn emitted_llvm_executes_closed_ip_address_union() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local ipv4Value = parseAddress(\"127.0.0.1\")?\n\
+                 if formatAddress(ipv4Value) ~= \"127.0.0.1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not isAddressLoopback(ipv4Value) then\n\
+                     return 2\n\
+                 end\n\
+                 local ipv6Value = parseAddress(\"::\")?\n\
+                 if formatAddress(ipv6Value) ~= \"::\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not isAddressUnspecified(ipv6Value) then\n\
+                     return 4\n\
+                 end\n\
+                 if parseAddress(\"01.2.3.4\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseAddress(\"2001:DB8::1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "closed-ip-address-union");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted closed IP address union: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

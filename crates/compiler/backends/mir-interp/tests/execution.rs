@@ -3029,6 +3029,65 @@ fn ipv6_prefixes_and_socket_addresses_are_exact_values() {
 }
 
 #[test]
+fn closed_ip_address_union_preserves_family_and_classification() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local ipv4Value = parseAddress(\"127.0.0.1\")?\n\
+                 if formatAddress(ipv4Value) ~= \"127.0.0.1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not isAddressLoopback(ipv4Value) or isAddressUnspecified(ipv4Value) then\n\
+                     return 2\n\
+                 end\n\
+                 local ipv6Value = parseAddress(\"::\")?\n\
+                 if formatAddress(ipv6Value) ~= \"::\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not isAddressUnspecified(ipv6Value) or isAddressLoopback(ipv6Value) then\n\
+                     return 4\n\
+                 end\n\
+                 local direct = Address.Ipv6(parseIpv6(\"2001:db8::1\")?)\n\
+                 if formatAddress(direct) ~= \"2001:db8::1\" then\n\
+                     return 5\n\
+                 end\n\
+                 if parseAddress(\"01.2.3.4\") ~= nil or parseAddress(\"2001:DB8::1\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("closed address consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified address-union MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("address-union execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

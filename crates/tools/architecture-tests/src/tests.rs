@@ -2708,6 +2708,40 @@ fn ipv6_prefixes_and_endpoints_follow_adr_0151_without_transport_operations() {
 }
 
 #[test]
+fn closed_ip_address_union_follows_adr_0152_without_erasure_or_host_behavior() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0152-closed-ip-address-union.md"));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netAddress.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public union Address").count(), 1);
+    assert_eq!(net.matches("Ipv4(value: Ipv4Address)").count(), 1);
+    assert_eq!(net.matches("Ipv6(value: Ipv6Address)").count(), 1);
+    for function in [
+        "parseAddress",
+        "formatAddress",
+        "isAddressLoopback",
+        "isAddressUnspecified",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert_eq!(net.matches("match address").count(), 3);
+    for forbidden in [
+        "Dynamic", "Any", "Table", "reflect", "Dns.", "Socket.", "connect(", "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!native.contains("Address.Ipv4"));
+    assert!(!native.contains("Address.Ipv6"));
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(

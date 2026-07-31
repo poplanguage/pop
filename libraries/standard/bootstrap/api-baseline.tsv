@@ -321,3 +321,8 @@ api:255	Api	Pop.Standard	Pop.Net	containsIpv6	containsIpv6(Net.Ipv6Prefix,Net.Ip
 api:256	Api	Pop.Standard	Pop.Net	ipv6Socket	ipv6Socket(Net.Ipv6Address,UInt16)->Net.Ipv6SocketAddress	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
 api:257	Api	Pop.Standard	Pop.Net	parseIpv6Socket	parseIpv6Socket(String)->Net.Ipv6SocketAddress?	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
 api:258	Api	Pop.Standard	Pop.Net	formatIpv6Socket	formatIpv6Socket(Net.Ipv6SocketAddress)->String	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:259	Api	Pop.Standard	Pop.Net	Address	union Address(Ipv4(Net.Ipv4Address),Ipv6(Net.Ipv6Address))	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
+api:260	Api	Pop.Standard	Pop.Net	parseAddress	parseAddress(String)->Net.Address?	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
+api:261	Api	Pop.Standard	Pop.Net	formatAddress	formatAddress(Net.Address)->String	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
+api:262	Api	Pop.Standard	Pop.Net	isAddressLoopback	isAddressLoopback(Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
+api:263	Api	Pop.Standard	Pop.Net	isAddressUnspecified	isAddressUnspecified(Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
