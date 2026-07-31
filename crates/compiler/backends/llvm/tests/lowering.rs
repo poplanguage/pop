@@ -5106,6 +5106,81 @@ fn emitted_llvm_executes_bounded_uri_references() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_guid_values() {
+    let module = native_modules(&[
+        (
+            "src/guid.pop",
+            include_str!("../../../../libraries/standard/pop/src/guid.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Guid\n\
+             private function main(): Int\n\
+                 if local parsed = parse(\"00112233-4455-1677-8899-aabbccddeeff\") then\n\
+                     if format(parsed) ~= \"00112233-4455-1677-8899-aabbccddeeff\" or isVersion4(parsed) then\n\
+                         return 1\n\
+                     end\n\
+                     local bytes = toBytes(parsed)\n\
+                     if local roundTrip = fromBytes(bytes) then\n\
+                         if format(roundTrip) ~= format(parsed) then\n\
+                             return 3\n\
+                         end\n\
+                     else\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local uppercase = parse(\"00112233-4455-4677-8899-AABBCCDDEEFF\") then\n\
+                     if format(uppercase) ~= \"00112233-4455-4677-8899-aabbccddeeff\" then\n\
+                         return 4\n\
+                     end\n\
+                 else\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"\") ~= nil or parse(\"{00112233-4455-4677-8899-aabbccddeeff}\") ~= nil or parse(\"00112233445546778899aabbccddeeff\") ~= nil or parse(\"00112233-4455-4677-8899-aabbccddeefg\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local empty = Bytes.toBytes(Bytes.create())\n\
+                 if fromBytes(empty) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 local randomBuffer = Bytes.withCapacity(16)\n\
+                 for index = 0, 15 do\n\
+                     Bytes.write(randomBuffer, Byte(index))\n\
+                 end\n\
+                 local randomBytes = Bytes.toBytes(randomBuffer)\n\
+                 if local generated = newVersion4(randomBytes) then\n\
+                     if format(generated) ~= \"00010203-0405-4607-8809-0a0b0c0d0e0f\" or not isVersion4(generated) then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if newVersion4(empty) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nilValue: Value = { firstWord = UInt32(0), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 local unknownValue: Value = { firstWord = UInt32(1), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 if not isNil(nilValue) or isNil(unknownValue) or isVersion4(unknownValue) then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-guid-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded GUID values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

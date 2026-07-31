@@ -69,7 +69,6 @@ fn standard_foundation_prelude_matches_the_frozen_adr_0058_type_baseline() {
             (102, "Set", "Pop.Standard"),
             (103, "Range", "Pop.Standard"),
             (104, "Task", "Pop.Standard"),
-            (105, "Guid", "Pop.Standard"),
             (106, "Iterable", "Pop.Standard"),
             (107, "Iterator", "Pop.Standard"),
             (108, "Equal", "Pop.Standard"),

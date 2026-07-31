@@ -25,7 +25,6 @@ type:101	Type	Pop.Standard	Pop	List	List<T>	prelude	implemented	true	architectur
 type:102	Type	Pop.Standard	Pop	Set	Set<T>	prelude	implemented	true	architecture/16-base-libraries.md
 type:103	Type	Pop.Standard	Pop	Range	Range<TInteger>	prelude	implemented	true	architecture/decisions/0056-first-class-integer-ranges.md
 type:104	Type	Pop.Standard	Pop	Task	Task<T>	prelude	implemented	true	architecture/decisions/0068-typed-async-tasks-actors-and-distribution.md
-type:105	Type	Pop.Standard	Pop	Guid	Guid	prelude	implemented	true	architecture/16-base-libraries.md
 type:106	Type	Pop.Standard	Pop	Iterable	Iterable<T>	prelude	implemented	true	architecture/decisions/0053-nominal-iteration-sequences-and-growable-lists.md
 type:107	Type	Pop.Standard	Pop	Iterator	Iterator<T>	prelude	implemented	true	architecture/decisions/0053-nominal-iteration-sequences-and-growable-lists.md
 type:108	Type	Pop.Standard	Pop	Equal	Equal<T>	prelude	implemented	true	architecture/16-base-libraries.md
@@ -217,3 +216,11 @@ api:157	Api	Pop.Standard	Pop.Uri	format	format(Uri.Value)->String	standard	imple
 api:158	Api	Pop.Standard	Pop.Uri	percentEncode	percentEncode(String)->String?	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
 api:159	Api	Pop.Standard	Pop.Uri	percentDecode	percentDecode(String)->String?	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
 api:160	Api	Pop.Standard	Pop.Uri	resolve	resolve(Uri.Value,Uri.Value)->Uri.Value	standard	implemented	false	architecture/decisions/0133-bounded-uri-reference-values.md
+api:161	Api	Pop.Standard	Pop.Guid	Value	record Value(UInt32,UInt32,UInt32,UInt32)	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:162	Api	Pop.Standard	Pop.Guid	newVersion4	newVersion4(Bytes)->Guid.Value?	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:163	Api	Pop.Standard	Pop.Guid	parse	parse(String)->Guid.Value?	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:164	Api	Pop.Standard	Pop.Guid	format	format(Guid.Value)->String	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:165	Api	Pop.Standard	Pop.Guid	fromBytes	fromBytes(Bytes)->Guid.Value?	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:166	Api	Pop.Standard	Pop.Guid	toBytes	toBytes(Guid.Value)->Bytes	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:167	Api	Pop.Standard	Pop.Guid	isNil	isNil(Guid.Value)->Boolean	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:168	Api	Pop.Standard	Pop.Guid	isVersion4	isVersion4(Guid.Value)->Boolean	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md

@@ -2258,6 +2258,43 @@ fn bounded_uri_references_follow_adr_0133_without_a_native_duplicate() {
 }
 
 #[test]
+fn bounded_guid_values_follow_adr_0134_without_a_prelude_or_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0134-bounded-guid-values.md"));
+    let guid = read_required(root.join("crates/libraries/standard/pop/src/guid.pop"));
+    let prelude = read_required(root.join("libraries/standard/bootstrap/prelude-types.tsv"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(!prelude.contains("\tGuid\t"));
+    assert!(!baseline.contains("type:105\tType\tPop.Standard\tPop\tGuid\t"));
+    assert_eq!(guid.matches("public record Value").count(), 1);
+    for function in [
+        "newVersion4",
+        "parse",
+        "format",
+        "fromBytes",
+        "toBytes",
+        "isNil",
+        "isVersion4",
+    ] {
+        assert_eq!(
+            guid.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Guid\t{function}\t")),
+            "Guid.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(!compiler.contains("Pop.Guid"));
+    assert!(!native.contains("Pop.Guid"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
@@ -2301,7 +2338,6 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "102\tSet\tPop.Standard\t1\tNominal\ttrue",
             "103\tRange\tPop.Standard\t1\tNominal\ttrue",
             "104\tTask\tPop.Standard\t1\tNominal\ttrue",
-            "105\tGuid\tPop.Standard\t0\tNominal\ttrue",
             "106\tIterable\tPop.Standard\t1\tInterface\ttrue",
             "107\tIterator\tPop.Standard\t1\tInterface\ttrue",
             "108\tEqual\tPop.Standard\t1\tInterface\ttrue",

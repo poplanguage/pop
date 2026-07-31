@@ -2348,6 +2348,79 @@ fn bounded_uri_references_parse_code_and_resolve() {
 }
 
 #[test]
+fn bounded_guid_values_round_trip_and_inject_version_four_bytes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/guid.pop",
+            include_str!("../../../../libraries/standard/pop/src/guid.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Guid\n\
+             public function verify(): Int\n\
+                 if local parsed = parse(\"00112233-4455-1677-8899-aabbccddeeff\") then\n\
+                     if format(parsed) ~= \"00112233-4455-1677-8899-aabbccddeeff\" or isVersion4(parsed) then\n\
+                         return 1\n\
+                     end\n\
+                     local bytes = toBytes(parsed)\n\
+                     if local roundTrip = fromBytes(bytes) then\n\
+                         if format(roundTrip) ~= format(parsed) then\n\
+                             return 3\n\
+                         end\n\
+                     else\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local uppercase = parse(\"00112233-4455-4677-8899-AABBCCDDEEFF\") then\n\
+                     if format(uppercase) ~= \"00112233-4455-4677-8899-aabbccddeeff\" then\n\
+                         return 4\n\
+                     end\n\
+                 else\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"\") ~= nil or parse(\"{00112233-4455-4677-8899-aabbccddeeff}\") ~= nil or parse(\"00112233445546778899aabbccddeeff\") ~= nil or parse(\"00112233-4455-4677-8899-aabbccddeefg\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local empty = Bytes.toBytes(Bytes.create())\n\
+                 if fromBytes(empty) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 local randomBuffer = Bytes.withCapacity(16)\n\
+                 for index = 0, 15 do\n\
+                     Bytes.write(randomBuffer, Byte(index))\n\
+                 end\n\
+                 local randomBytes = Bytes.toBytes(randomBuffer)\n\
+                 if local generated = newVersion4(randomBytes) then\n\
+                     if format(generated) ~= \"00010203-0405-4607-8809-0a0b0c0d0e0f\" or not isVersion4(generated) then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if newVersion4(empty) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nilValue: Value = { firstWord = UInt32(0), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 local unknownValue: Value = { firstWord = UInt32(1), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 if not isNil(nilValue) or isNil(unknownValue) or isVersion4(unknownValue) then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Guid consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Guid MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Guid execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

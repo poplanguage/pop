@@ -1,0 +1,299 @@
+namespace Pop.Guid
+
+--- <summary>
+--- Holds all 128 bits of one GUID in network-order words.
+--- </summary>
+public record Value
+    --- <summary>
+    --- Bytes one through four as one unsigned big-endian word.
+    --- </summary>
+    firstWord: UInt32
+
+    --- <summary>
+    --- Bytes five through eight as one unsigned big-endian word.
+    --- </summary>
+    secondWord: UInt32
+
+    --- <summary>
+    --- Bytes nine through twelve as one unsigned big-endian word.
+    --- </summary>
+    thirdWord: UInt32
+
+    --- <summary>
+    --- Bytes thirteen through sixteen as one unsigned big-endian word.
+    --- </summary>
+    fourthWord: UInt32
+end
+
+private function hexadecimalValue(point: UInt32): Int?
+    if point >= 48 and point <= 57 then
+        return Int(point - 48)
+    end
+    if point >= 65 and point <= 70 then
+        return Int(point - 55)
+    end
+    if point >= 97 and point <= 102 then
+        return Int(point - 87)
+    end
+    return nil
+end
+
+private function hexadecimalDigit(value: Int): Byte
+    if value < 10 then
+        return Byte(value + 48)
+    end
+    return Byte(value + 87)
+end
+
+private function readWord(bytes: Bytes.View, start: Int): UInt32
+    local first = Int(Bytes.get(bytes, start) ?? 0)
+    local second = Int(Bytes.get(bytes, start + 1) ?? 0)
+    local third = Int(Bytes.get(bytes, start + 2) ?? 0)
+    local fourth = Int(Bytes.get(bytes, start + 3) ?? 0)
+    return UInt32(first * 16777216 + second * 65536 + third * 256 + fourth)
+end
+
+private function readOwnedValue(bytes: Bytes): Value
+    local view = Bytes.view(bytes)
+    local value: Value = {
+        firstWord = readWord(view, 1),
+        secondWord = readWord(view, 5),
+        thirdWord = readWord(view, 9),
+        fourthWord = readWord(view, 13),
+    }
+    return value
+end
+
+--- <summary>
+--- Creates a version-four GUID from explicit random bytes.
+--- </summary>
+---
+--- <param name="randomBytes">
+--- Exactly 16 caller-supplied owned bytes. The caller owns their entropy
+--- policy.
+--- </param>
+---
+--- <returns>
+--- A version-four RFC-variant value, or nil for any other byte count.
+--- </returns>
+---
+--- <remarks>
+--- The caller owns entropy quality, blocking, acquisition failure, and
+--- security policy. Deterministic bytes are useful for tests but are not
+--- cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Value and does not retain the input.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Guid
+---
+--- private function guidExample(randomBytes: Bytes): Boolean
+---     return newVersion4(randomBytes) ~= nil
+--- end
+--- </code>
+--- </example>
+public function newVersion4(randomBytes: Bytes): Value?
+    local randomView = Bytes.view(randomBytes)
+    if Bytes.length(randomView) ~= 16 then
+        return nil
+    end
+    local second = Int(readWord(randomView, 5))
+    local third = Int(readWord(randomView, 9))
+    local generated: Value = {
+        firstWord = readWord(randomView, 1),
+        secondWord = UInt32((second / 65536) * 65536 + 16384 + second % 4096),
+        thirdWord = UInt32(2147483648 + third % 1073741824),
+        fourthWord = readWord(randomView, 13),
+    }
+    return generated
+end
+
+--- <summary>
+--- Parses one canonical-layout hexadecimal GUID.
+--- </summary>
+---
+--- <param name="text">
+--- Exactly 36 hexadecimal ASCII characters in the 8-4-4-4-12 layout.
+--- </param>
+---
+--- <returns>
+--- The exact 128-bit value, or nil for malformed text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one byte buffer, one temporary Bytes snapshot, and one Value.
+--- </allocation>
+public function parse(text: String): Value?
+    local output = Bytes.withCapacity(16)
+    local position = 0
+    local waiting = false
+    local high = 0
+    for rune in text do
+        position = position + 1
+        local point = Unicode.codePoint(rune)
+        local separator = position == 9 or position == 14 or position == 19 or position == 24
+        if separator then
+            if point ~= 45 or waiting then
+                return nil
+            end
+        else
+            local digit = hexadecimalValue(point)?
+            if waiting then
+                Bytes.write(output, Byte(high * 16 + digit))
+                waiting = false
+            else
+                high = digit
+                waiting = true
+            end
+        end
+    end
+    if position ~= 36 or waiting or Bytes.length(output) ~= 16 then
+        return nil
+    end
+    local owned = Bytes.toBytes(output)
+    local value = readOwnedValue(owned)
+    return value
+end
+
+--- <summary>
+--- Formats one GUID in canonical lowercase hexadecimal text.
+--- </summary>
+---
+--- <param name="value">
+--- The complete 128-bit value.
+--- </param>
+---
+--- <returns>
+--- Exactly 36 ASCII characters in the 8-4-4-4-12 layout.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates temporary bytes, one output buffer, and the returned String.
+--- </allocation>
+public function format(value: Value): String
+    local bytes = toBytes(value)
+    local view = Bytes.view(bytes)
+    local output = Bytes.withCapacity(36)
+    for index = 1, 16 do
+        if index == 5 or index == 7 or index == 9 or index == 11 then
+            Bytes.write(output, Byte(45))
+        end
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        Bytes.write(output, hexadecimalDigit(byte / 16))
+        Bytes.write(output, hexadecimalDigit(byte % 16))
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+--- <summary>
+--- Reads one GUID from exact network-order bytes.
+--- </summary>
+---
+--- <param name="bytes">
+--- An owned value containing exactly 16 bytes.
+--- </param>
+---
+--- <returns>
+--- The complete value, or nil when the input length is not 16.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Value and does not retain the input.
+--- </allocation>
+public function fromBytes(bytes: Bytes): Value?
+    local view = Bytes.view(bytes)
+    if Bytes.length(view) ~= 16 then
+        return nil
+    end
+    local value = readOwnedValue(bytes)
+    return value
+end
+
+--- <summary>
+--- Writes one GUID as independently owned network-order bytes.
+--- </summary>
+---
+--- <param name="value">
+--- The complete 128-bit value.
+--- </param>
+---
+--- <returns>
+--- Exactly 16 independently owned bytes.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one buffer and the returned Bytes snapshot.
+--- </allocation>
+public function toBytes(value: Value): Bytes
+    local output = Bytes.withCapacity(16)
+    Bytes.writeUInt32BigEndian(output, value.firstWord)
+    Bytes.writeUInt32BigEndian(output, value.secondWord)
+    Bytes.writeUInt32BigEndian(output, value.thirdWord)
+    Bytes.writeUInt32BigEndian(output, value.fourthWord)
+    return Bytes.toBytes(output)
+end
+
+--- <summary>
+--- Reports whether a GUID is the all-zero nil value.
+--- </summary>
+---
+--- <param name="value">
+--- The complete 128-bit value.
+--- </param>
+---
+--- <returns>
+--- True only when all 128 bits are zero.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isNil(value: Value): Boolean
+    if value.firstWord ~= UInt32(0) then
+        return false
+    end
+    if value.secondWord ~= UInt32(0) then
+        return false
+    end
+    if value.thirdWord ~= UInt32(0) then
+        return false
+    end
+    return value.fourthWord == UInt32(0)
+end
+
+--- <summary>
+--- Reports whether a GUID carries the version-four nibble.
+--- </summary>
+---
+--- <param name="value">
+--- The complete 128-bit value.
+--- </param>
+---
+--- <returns>
+--- True when the version nibble is four.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isVersion4(value: Value): Boolean
+    return (Int(value.secondWord) / 4096) % 16 == 4
+end

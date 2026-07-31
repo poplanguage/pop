@@ -255,6 +255,10 @@ transplanted into a Luau-shaped file.
 - ADR 0133 adds bounded owned ASCII URI references, component percent coding,
   and deterministic hierarchical resolution without scheme dispatch, host
   policy, or network capability.
+- ADR 0134 replaces the dormant bootstrap-only `Guid` prelude placeholder with
+  bounded ordinary GUID records, canonical text/network-byte interchange,
+  named nil/version-four inspection, and explicitly injected version-four
+  randomness.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

@@ -57,7 +57,7 @@ Rules:
 --- </summary>
 @Serializable(version = 1)
 public record PlayerSave
-    playerId: Guid
+    playerId: Guid.Value
     displayName: String
 end
 ```

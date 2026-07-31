@@ -5,7 +5,6 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 102	Set	Pop.Standard	1	Nominal	true
 103	Range	Pop.Standard	1	Nominal	true
 104	Task	Pop.Standard	1	Nominal	true
-105	Guid	Pop.Standard	0	Nominal	true
 106	Iterable	Pop.Standard	1	Interface	true
 107	Iterator	Pop.Standard	1	Interface	true
 108	Equal	Pop.Standard	1	Interface	true
