@@ -21,11 +21,55 @@ impl NativeAbiVersion {
     }
 }
 
-pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 26);
-pub const NATIVE_ABI_2_VERSION: NativeAbiVersion = NativeAbiVersion::new(2, 4);
+pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 27);
+pub const NATIVE_ABI_2_VERSION: NativeAbiVersion = NativeAbiVersion::new(2, 5);
 pub const ABI_SUPPORT_SYMBOL: &str = "pop_rt_supports_abi";
 pub const GC_SAFE_POINT_V2_SYMBOL: &str = "pop_rt_gc_safe_point_v2";
 pub const INVALID_HANDLE: u64 = 0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ChannelSendStatus {
+    Failure = 0,
+    Sent = 1,
+    Full = 2,
+    Closed = 3,
+}
+
+impl ChannelSendStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Sent,
+            2 => Self::Full,
+            3 => Self::Closed,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ChannelReceiveStatus {
+    Failure = 0,
+    Item = 1,
+    Empty = 2,
+    Closed = 3,
+}
+
+impl ChannelReceiveStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Item,
+            2 => Self::Empty,
+            3 => Self::Closed,
+            _ => return None,
+        })
+    }
+}
 
 /// Exact ABI 1.23/2.1 compiler-proven Text-view scalar-read shape.
 pub type TextViewGetRuneAbi = unsafe extern "C" fn(u64, u64, u64, u64, i64, *mut u32) -> u8;

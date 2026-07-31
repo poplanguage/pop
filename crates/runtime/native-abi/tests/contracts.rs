@@ -4,18 +4,19 @@ use pop_runtime_interface::RuntimeOperation;
 use pop_runtime_native_abi::{
     ABI_SUPPORT_SYMBOL, ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
-    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, AllocationSiteDescriptorAbi, CodecEventStatus,
-    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
-    ITERATION_MAKE_SYMBOL, IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
-    TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, symbol,
+    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, AllocationSiteDescriptorAbi, ChannelReceiveStatus,
+    ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
+    GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL, IterationCollectionKind,
+    NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi,
+    symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 26);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 27);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
-    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 4);
+    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
     assert_eq!(ABI_SUPPORT_SYMBOL, "pop_rt_supports_abi");
     assert_eq!(GC_SAFE_POINT_V2_SYMBOL, "pop_rt_gc_safe_point_v2");
@@ -23,6 +24,10 @@ fn abi_version_and_invalid_handle_are_explicit() {
 }
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the complete closed ABI symbol inventory is intentionally one uniqueness assertion"
+)]
 fn supported_symbols_are_unique_and_native() {
     let operations = [
         RuntimeOperation::AllocateObject,
@@ -113,6 +118,14 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::Resume,
         RuntimeOperation::TaskCancel,
         RuntimeOperation::TaskCancellationRequested,
+        RuntimeOperation::ChannelCreate,
+        RuntimeOperation::ChannelRetainSender,
+        RuntimeOperation::ChannelReleaseSender,
+        RuntimeOperation::ChannelRetainReceiver,
+        RuntimeOperation::ChannelReleaseReceiver,
+        RuntimeOperation::ChannelClose,
+        RuntimeOperation::ChannelTrySend,
+        RuntimeOperation::ChannelTryReceive,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
     ];
@@ -137,7 +150,45 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 26);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 27);
+}
+
+#[test]
+fn channel_abi_has_closed_send_and_receive_statuses() {
+    assert_eq!(
+        ChannelSendStatus::from_raw(0),
+        Some(ChannelSendStatus::Failure)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(1),
+        Some(ChannelSendStatus::Sent)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(2),
+        Some(ChannelSendStatus::Full)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(3),
+        Some(ChannelSendStatus::Closed)
+    );
+    assert_eq!(ChannelSendStatus::from_raw(4), None);
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(0),
+        Some(ChannelReceiveStatus::Failure)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(1),
+        Some(ChannelReceiveStatus::Item)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(2),
+        Some(ChannelReceiveStatus::Empty)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(3),
+        Some(ChannelReceiveStatus::Closed)
+    );
+    assert_eq!(ChannelReceiveStatus::from_raw(4), None);
 }
 
 #[test]

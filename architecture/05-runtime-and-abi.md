@@ -582,6 +582,15 @@ input does not allocate or mutate the source. ABI 1.11 through 1.25 and ABI 2.0
 through 2.3 remain immutable. The default facade supports ABI 1.11 through
 1.26; the production facade supports ABI 2.0 through 2.4.
 
+ADR 0146 advances the additive stable-token descriptor to ABI 1.27 and the
+production descriptor to ABI 2.5. Eight distinct bounded-channel operations
+create storage, retain/release directional endpoints, close senders, and
+perform non-suspending typed send/receive admission with closed statuses.
+Queued managed payloads are precise strong roots until receive or
+last-receiver cleanup; scalar payloads are never roots. ABI 1.11 through 1.26
+and ABI 2.0 through 2.4 remain immutable. The default facade supports ABI 1.11
+through 1.27; the production facade supports ABI 2.0 through 2.5.
+
 ADR 0103 establishes the ABI 2 production facade as a separate static build
 composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots

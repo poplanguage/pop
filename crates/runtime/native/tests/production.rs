@@ -5,20 +5,24 @@ use pop_runtime_native::{
     native_allocation_class, pop_rt_abi_major, pop_rt_abi_minor,
     pop_rt_allocate_initialized_object_at_site, pop_rt_allocate_object,
     pop_rt_attach_managed_thread, pop_rt_byte_buffer_create, pop_rt_byte_buffer_length,
-    pop_rt_byte_buffer_write_byte, pop_rt_detach_managed_thread, pop_rt_field_get,
-    pop_rt_field_set, pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_supports_abi,
-    request_abi_relocation,
+    pop_rt_byte_buffer_write_byte, pop_rt_channel_create, pop_rt_channel_release_receiver,
+    pop_rt_channel_release_sender, pop_rt_channel_try_receive, pop_rt_channel_try_send,
+    pop_rt_detach_managed_thread, pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2,
+    pop_rt_gc_stage, pop_rt_supports_abi, request_abi_relocation,
 };
-use pop_runtime_native_abi::AllocationSiteDescriptorAbi;
+use pop_runtime_native_abi::{
+    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus,
+};
 
 #[test]
 #[allow(unsafe_code)]
 fn production_facade_selects_abi_two_and_rewrites_a_forced_native_root() {
-    assert_eq!((pop_rt_abi_major(), pop_rt_abi_minor()), (2, 4));
+    assert_eq!((pop_rt_abi_major(), pop_rt_abi_minor()), (2, 5));
     assert_eq!(pop_rt_supports_abi(2, 0), 1);
     assert_eq!(pop_rt_supports_abi(1, 26), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 1);
     assert_eq!(pop_rt_supports_abi(2, 4), 1);
+    assert_eq!(pop_rt_supports_abi(2, 5), 1);
     assert_eq!(pop_rt_gc_stage(), 3);
 
     let binding = pop_rt_attach_managed_thread(1);
@@ -44,6 +48,28 @@ fn production_facade_selects_abi_two_and_rewrites_a_forced_native_root() {
         "the stale token must fail closed"
     );
     assert_eq!(pop_rt_field_get(roots[0], 1), 42);
+
+    let channel = pop_rt_channel_create(1);
+    assert_ne!(channel, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, roots[0], 1),
+        ChannelSendStatus::Sent as u8
+    );
+    assert!(request_abi_relocation());
+    // SAFETY: no caller root remains after ownership transfers to the channel.
+    assert_eq!(
+        unsafe { pop_rt_gc_safe_point_v2(93, std::ptr::null_mut(), 0) },
+        1
+    );
+    let mut received = 0;
+    // SAFETY: `received` is one writable output slot for the complete call.
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut received) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(pop_rt_field_get(received, 1), 42);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
 
     let buffer = pop_rt_byte_buffer_create(8);
     assert_ne!(buffer, 0);

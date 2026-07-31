@@ -168,6 +168,12 @@ last receiver returns queued values for precise root release. A zero-capacity
 channel is an explicit rendezvous channel whose send becomes ready only when a
 scheduler receiver can be paired.
 
+ADR 0146 maps the non-suspending portion to native ABI 1.27/2.5 with distinct
+directional operations and closed send/receive statuses. Queued managed values
+remain precise strong roots; scalar values do not become roots. Scheduler
+waiting and cancellation must build on, rather than bypass, this admission
+path.
+
 Send and receive may suspend and apply backpressure. `Task.select` uses a
 closed typed set of task, channel, or timer cases. It never returns an untyped
 tag/value bag. When several cases are ready, the scheduler chooses unless the

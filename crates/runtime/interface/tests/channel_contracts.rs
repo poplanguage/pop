@@ -77,3 +77,13 @@ fn zero_capacity_is_an_explicit_rendezvous_channel_until_waiters_are_paired() {
     assert_eq!(channel.try_send(41), Err(ChannelSendError::Full(41)));
     assert_eq!(channel.try_receive(), ChannelReceive::Empty);
 }
+
+#[test]
+fn logical_capacity_does_not_eagerly_allocate_the_declared_bound() {
+    let mut channel = ChannelLifecycle::bounded(ChannelId::new(12), u64::MAX);
+
+    assert_eq!(channel.capacity(), u64::MAX);
+    assert_eq!(channel.length(), 0);
+    assert_eq!(channel.try_send(43), Ok(()));
+    assert_eq!(channel.length(), 1);
+}

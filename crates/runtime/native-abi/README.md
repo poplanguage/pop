@@ -38,17 +38,20 @@ endian-write, and immutable-snapshot operations from
 ABI 1.26 appends checked UTF-8 Text-view encoding, Bytes-view decoding, and
 direct reusable-buffer decoding from
 [ADR 0118](../../../architecture/decisions/0118-checked-utf8-transcoding.md).
+ABI 1.27 appends bounded-channel construction, directional endpoint lifetime,
+close, and closed non-suspending send/receive statuses from
+[ADR 0146](../../../architecture/decisions/0146-native-bounded-channel-abi.md).
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the
 compatible ABI 2.1 descriptor for the same typed scalar-read adapter. ADR 0116
 adds the compatible ABI 2.2 closed String-iteration descriptor. ABI 2.3 adds
 the same reusable byte-buffer operations; ABI 2.4 adds checked UTF-8
-transcoding. ABI 2 owns the
+transcoding; ABI 2.5 adds the same bounded-channel operations. ABI 2 owns the
 separate `pop_rt_gc_safe_point_v2` writable-root spelling and the fixed
 `pop_rt_supports_abi` negotiation spelling; their presence never makes an
 incomplete facade advertise ABI 2 support. ADR 0103's separately built
-production facade is the complete ABI 2.4 composition; the default facade
+production facade is the complete ABI 2.5 composition; the default facade
 continues to reject it.
 
 It owns no heap, collector, exported function implementation, process-global

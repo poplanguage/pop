@@ -18,7 +18,8 @@ PLRI defines a typed `ChannelLifecycle<T>` identified by `ChannelId`. A bounded
 channel starts with one sender and one receiver, preserves admitted values in
 FIFO order, and never owns more than its declared capacity. Capacity zero is an
 explicit rendezvous channel: non-suspending send reports full until scheduler
-waiters are paired.
+waiters are paired. Capacity is a backend-neutral `u64` logical bound and does
+not require eager allocation of the complete bound.
 
 Non-suspending send returns the original exact `T` when the channel is full or
 closed. Non-suspending receive returns exactly item, empty, or closed. Closing

@@ -935,8 +935,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 26)"),
-        (&native_abi, "NativeAbiVersion::new(2, 4)"),
+        (&native_abi, "NativeAbiVersion::new(1, 27)"),
+        (&native_abi, "NativeAbiVersion::new(2, 5)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1778,8 +1778,8 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(adr.contains("- Status: accepted"));
     assert!(typed.contains("String,"));
     assert!(hir.contains("HirIterationSource::String"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 27)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(native_abi.contains("String = 4"));
     assert!(native_iteration.contains("scalar_array_values"));
     assert!(!native_iteration.contains("utf8_string_bytes"));
@@ -1812,8 +1812,8 @@ fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
     assert!(native_state.contains("ABI_BYTE_BUFFERS"));
     assert!(!native_buffer.contains("abi_lists"));
     assert!(!native_buffer.contains("FfiBuffer"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 27)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
     assert!(c.contains("is_byte_buffer_instruction"));
 }
@@ -1841,8 +1841,8 @@ fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
     assert!(interpreter.contains("String::from_utf8"));
     assert!(llvm.contains("RuntimeOperation::Utf8DecodeBuffer"));
     assert!(native.contains("pop_rt_byte_buffer_decode_utf8"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 26)"));
-    assert!(native_abi.contains("NativeAbiVersion::new(2, 4)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 27)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(c.contains("MirInstructionKind::Utf8DecodeBuffer"));
     for forbidden in ["Any", "Dynamic", "from_utf8_lossy", "runtime name"] {
         assert!(!adr.contains(forbidden), "ADR 0118 contains {forbidden}");
@@ -2645,12 +2645,55 @@ fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
         "endpoint_lifetimes_close",
         "last_receiver_release_returns_buffered_values",
         "zero_capacity_is_an_explicit_rendezvous",
+        "logical_capacity_does_not_eagerly_allocate",
     ] {
         assert!(tests.contains(behavior));
     }
     assert!(!channel.contains("Box<dyn"));
     assert!(!channel.contains("std::any::Any"));
     assert!(!channel.contains("HashMap"));
+    assert!(channel.contains("capacity: u64"));
+}
+
+#[test]
+fn native_bounded_channel_abi_follows_adr_0146_with_precise_roots() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0146-native-bounded-channel-abi.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let version = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/channel.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(version.contains("NativeAbiVersion::new(1, 27)"));
+    assert!(version.contains("NativeAbiVersion::new(2, 5)"));
+    for name in [
+        "ChannelCreate",
+        "ChannelRetainSender",
+        "ChannelReleaseSender",
+        "ChannelRetainReceiver",
+        "ChannelReleaseReceiver",
+        "ChannelClose",
+        "ChannelTrySend",
+        "ChannelTryReceive",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name}"))
+                .count(),
+            1
+        );
+    }
+    assert!(native.contains("runtime.retain_root"));
+    assert!(native.contains("runtime.resolve_root"));
+    assert!(native.contains("runtime.release_root"));
+    assert!(tests.contains("remain_precisely_rooted_until_receive"));
+    assert!(tests.contains("last_receiver_releases_queued_managed_payloads"));
+    assert!(tests.contains("rejects_unknown_payload_maps_without_mutation"));
+    assert!(!native.contains("Box<dyn"));
+    assert!(!native.contains("std::any::Any"));
 }
 
 #[test]

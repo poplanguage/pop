@@ -10,8 +10,9 @@ pub use symbol::{
     TEXT_VIEW_GET_RUNE_SYMBOL, symbol,
 };
 pub use version::{
-    ABI_SUPPORT_SYMBOL, AllocationSiteDescriptorAbi, CodecEventStatus, CodecEventTag,
-    CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
-    IterationCollectionKind, IterationStatus, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
-    NativeAbiVersion, NativeTaskStatus, StringFormatTag, TextViewGetRuneAbi,
+    ABI_SUPPORT_SYMBOL, AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus,
+    CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
+    GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, IterationCollectionKind, IterationStatus,
+    NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, NativeAbiVersion, NativeTaskStatus,
+    StringFormatTag, TextViewGetRuneAbi,
 };

@@ -13,23 +13,26 @@ use pop_runtime_native::{
     pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_write_byte,
     pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8, pop_rt_cancel_source_create,
     pop_rt_cancel_source_release, pop_rt_cancel_source_token, pop_rt_cancel_token_release,
-    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow,
-    pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length,
-    pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write,
-    pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set,
-    pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make,
-    pop_rt_iteration_next, pop_rt_list_add, pop_rt_list_create, pop_rt_list_get,
-    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create,
-    pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
-    pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
-    pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
-    pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested,
-    pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
+    pop_rt_channel_close, pop_rt_channel_create, pop_rt_channel_release_receiver,
+    pop_rt_channel_release_sender, pop_rt_channel_retain_receiver, pop_rt_channel_retain_sender,
+    pop_rt_channel_try_receive, pop_rt_channel_try_send, pop_rt_codec_read_event,
+    pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close,
+    pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open,
+    pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow,
+    pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2,
+    pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next,
+    pop_rt_list_add, pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked,
+    pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root,
+    pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat,
+    pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi,
+    pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set,
+    pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_text_view_encode_utf8,
+    pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
-    AllocationSiteDescriptorAbi, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
-    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, StringFormatTag,
-    TextViewGetRuneAbi,
+    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
+    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, IterationCollectionKind, IterationStatus,
+    StringFormatTag, TextViewGetRuneAbi,
 };
 use std::ffi::CString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -45,7 +48,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 26);
+    assert_eq!(pop_rt_abi_minor(), 27);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -63,10 +66,142 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 24), 1);
     assert_eq!(pop_rt_supports_abi(1, 25), 1);
     assert_eq!(pop_rt_supports_abi(1, 26), 1);
+    assert_eq!(pop_rt_supports_abi(1, 27), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
     assert_eq!(pop_rt_supports_abi(2, 4), 0);
+    assert_eq!(pop_rt_supports_abi(2, 5), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_bounded_channels_preserve_fifo_backpressure_and_directional_close() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(2);
+    assert_ne!(channel, 0);
+    assert_eq!(pop_rt_channel_retain_sender(channel), 1);
+    assert_eq!(pop_rt_channel_retain_receiver(channel), 1);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 11, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 13, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 17, 0),
+        ChannelSendStatus::Full as u8
+    );
+
+    let mut value = 0;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(value, 11);
+    assert_eq!(pop_rt_channel_close(channel), 1);
+    assert_eq!(pop_rt_channel_close(channel), 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 19, 0),
+        ChannelSendStatus::Closed as u8
+    );
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(value, 13);
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Closed as u8
+    );
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_channel_managed_payloads_remain_precisely_rooted_until_receive() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    let text = allocate_utf8_string_literal(b"rooted in channel");
+    assert_ne!(channel, 0);
+    assert_ne!(text, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, text, 1),
+        ChannelSendStatus::Sent as u8
+    );
+
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(71, &[]), 1);
+    let mut received = 0;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut received) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(received, text);
+    let needed = unsafe { pop_rt_string_read(received, std::ptr::null_mut(), 0) };
+    assert_eq!(needed, b"rooted in channel".len() as u64 + 1);
+
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(72, &[]), 1);
+    assert_eq!(pop_rt_retain_root(received), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_channel_rejects_unknown_payload_maps_without_mutation() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    assert_ne!(channel, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 43, 2),
+        ChannelSendStatus::Failure as u8
+    );
+    let mut value = 47;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Empty as u8
+    );
+    assert_eq!(value, 47);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+}
+
+#[test]
+fn native_channel_capacity_is_logical_and_does_not_eagerly_allocate_the_bound() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(u64::MAX);
+    assert_ne!(channel, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 53, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+}
+
+#[test]
+fn native_channel_last_receiver_releases_queued_managed_payloads() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    let text = allocate_utf8_string_literal(b"released with receiver");
+    assert_ne!(channel, 0);
+    assert_ne!(text, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, text, 1),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(73, &[]), 1);
+    assert_eq!(pop_rt_retain_root(text), 0);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
 }
 
 #[test]

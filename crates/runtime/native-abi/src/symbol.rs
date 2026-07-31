@@ -21,7 +21,7 @@ pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 /// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
 pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.26.
+/// Returns the native C symbol for an operation implemented through ABI 1.27.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -124,6 +124,14 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::Resume => Some("pop_rt_resume"),
         RuntimeOperation::TaskCancel => Some("pop_rt_task_cancel"),
         RuntimeOperation::TaskCancellationRequested => Some("pop_rt_task_cancellation_requested"),
+        RuntimeOperation::ChannelCreate => Some("pop_rt_channel_create"),
+        RuntimeOperation::ChannelRetainSender => Some("pop_rt_channel_retain_sender"),
+        RuntimeOperation::ChannelReleaseSender => Some("pop_rt_channel_release_sender"),
+        RuntimeOperation::ChannelRetainReceiver => Some("pop_rt_channel_retain_receiver"),
+        RuntimeOperation::ChannelReleaseReceiver => Some("pop_rt_channel_release_receiver"),
+        RuntimeOperation::ChannelClose => Some("pop_rt_channel_close"),
+        RuntimeOperation::ChannelTrySend => Some("pop_rt_channel_try_send"),
+        RuntimeOperation::ChannelTryReceive => Some("pop_rt_channel_try_receive"),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake
         | RuntimeOperation::CaptureLoad

@@ -319,7 +319,7 @@ Architecture CI should eventually verify:
   descriptors;
 - ADR 0118's exact checked UTF-8 overloads, malformed-data optional result,
   non-mutating direct buffer decode, interpreter/LLVM agreement, fail-closed C
-  behavior, and immutable ABI 1.26/2.4 descriptors;
+  behavior, and immutable ABI 1.27/2.5 descriptors;
 - ADR 0119's lowercase hexadecimal encoding, complete case-insensitive checked
   decoding, ordinary portable Pop implementation, reference metadata, and
   interpreter/LLVM agreement without compiler or native name recognition;
