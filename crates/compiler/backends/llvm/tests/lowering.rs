@@ -5633,6 +5633,57 @@ fn emitted_llvm_executes_canonical_ipv4_values() {
 }
 
 #[test]
+fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local base = parseIpv4(\"192.168.1.42\")?\n\
+                 local prefix = ipv4Prefix(base, 24)?\n\
+                 if formatIpv4(networkIpv4(prefix)) ~= \"192.168.1.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv4(prefix, parseIpv4(\"192.168.1.255\")?) or containsIpv4(prefix, parseIpv4(\"192.168.2.0\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseIpv4Socket(\"192.168.1.42:8080\")?\n\
+                 if formatIpv4Socket(endpoint) ~= \"192.168.1.42:8080\" then\n\
+                     return 3\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(8080) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv4Socket(\"192.168.1.42:080\") ~= nil or parseIpv4Socket(\"192.168.1.42:65536\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "ipv4-prefix-socket-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted IPv4 prefix/socket values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

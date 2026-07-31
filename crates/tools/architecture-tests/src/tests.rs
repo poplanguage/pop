@@ -2585,6 +2585,39 @@ fn canonical_ipv4_values_follow_adr_0143_without_socket_or_native_duplicates() {
 }
 
 #[test]
+fn ipv4_prefixes_and_endpoints_follow_adr_0144_without_transport_operations() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0144-ipv4-prefix-and-socket-address-values.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netIpv4Endpoint.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Ipv4Prefix",
+        "public record Ipv4SocketAddress",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "ipv4Prefix",
+        "networkIpv4",
+        "containsIpv4",
+        "ipv4Socket",
+        "parseIpv4Socket",
+        "formatIpv4Socket",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(!net.contains("public function connect("));
+    assert!(!net.contains("public function bind("));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

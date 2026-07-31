@@ -279,6 +279,8 @@ transplanted into a Luau-shaped file.
   formatting before schema adapters, dialects, or streaming I/O.
 - ADR 0143 adds canonical network-order `Net.Ipv4Address` values, strict dotted
   decimal parsing, octets, and named private/loopback inspection without I/O.
+- ADR 0144 adds typed `Net.Ipv4Prefix` containment/network projection and
+  canonical `Ipv4SocketAddress` values without socket authority.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

@@ -2878,6 +2878,66 @@ fn canonical_ipv4_values_parse_format_and_classify() {
 }
 
 #[test]
+fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local base = parseIpv4(\"192.168.1.42\")?\n\
+                 local prefix = ipv4Prefix(base, 24)?\n\
+                 if formatIpv4(networkIpv4(prefix)) ~= \"192.168.1.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv4(prefix, parseIpv4(\"192.168.1.255\")?) or containsIpv4(prefix, parseIpv4(\"192.168.2.0\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local all = ipv4Prefix(base, 0)?\n\
+                 local host = ipv4Prefix(base, 32)?\n\
+                 if not containsIpv4(all, parseIpv4(\"1.2.3.4\")?) or containsIpv4(host, parseIpv4(\"192.168.1.43\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseIpv4Socket(\"192.168.1.42:8080\")?\n\
+                 if formatIpv4Socket(endpoint) ~= \"192.168.1.42:8080\" then\n\
+                     return 4\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(8080) then\n\
+                     return 4\n\
+                 end\n\
+                 if ipv4Prefix(base, -1) ~= nil or ipv4Prefix(base, 33) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv4Socket(\"192.168.1.42:080\") ~= nil or parseIpv4Socket(\"192.168.1.42:65536\") ~= nil or parseIpv4Socket(\"192.168.1.42\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("IPv4 endpoint consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv4 endpoint MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("IPv4 endpoint execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
