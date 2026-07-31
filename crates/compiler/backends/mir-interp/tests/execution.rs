@@ -2960,6 +2960,75 @@ fn canonical_ipv6_values_parse_format_and_classify() {
 }
 
 #[test]
+fn ipv6_prefixes_and_socket_addresses_are_exact_values() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local base = parseIpv6(\"2001:db8:abcd:ffff::1\")?\n\
+                 local prefix = ipv6Prefix(base, 49)?\n\
+                 if formatIpv6(networkIpv6(prefix)) ~= \"2001:db8:abcd:8000::\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:9fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:7fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local all = ipv6Prefix(base, 0)?\n\
+                 local host = ipv6Prefix(base, 128)?\n\
+                 if not containsIpv6(all, parseIpv6(\"ffff::1\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 if containsIpv6(host, parseIpv6(\"2001:db8:abcd:ffff::2\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseIpv6Socket(\"[2001:db8::1]:443\")?\n\
+                 if formatIpv6Socket(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 4\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(443) then\n\
+                     return 4\n\
+                 end\n\
+                 if ipv6Prefix(base, -1) ~= nil or ipv6Prefix(base, 129) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv6Socket(\"2001:db8::1:443\") ~= nil or parseIpv6Socket(\"[2001:db8::1]:0443\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:65536\") ~= nil or parseIpv6Socket(\"[fe80::1%eth0]:80\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("IPv6 endpoint consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv6 endpoint MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("IPv6 endpoint execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

@@ -1,0 +1,315 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one IPv6 address and prefix length.
+--- </summary>
+public record Ipv6Prefix
+    --- <summary>
+    --- The address whose prefix bits identify the network.
+    --- </summary>
+    address: Ipv6Address
+
+    --- <summary>
+    --- The number of network bits from zero through 128.
+    --- </summary>
+    length: Int
+end
+
+--- <summary>
+--- Holds one IPv6 address and numeric port.
+--- </summary>
+public record Ipv6SocketAddress
+    --- <summary>
+    --- The exact IPv6 address.
+    --- </summary>
+    address: Ipv6Address
+
+    --- <summary>
+    --- The numeric port, including zero.
+    --- </summary>
+    port: UInt16
+end
+
+private function ipv6EndpointSegmentValue(address: Ipv6Address, index: Int): Int
+    local word = address.first
+    if index >= 3 and index <= 4 then
+        word = address.second
+    elseif index >= 5 and index <= 6 then
+        word = address.third
+    elseif index >= 7 then
+        word = address.fourth
+    end
+    if index % 2 == 1 then
+        return Int(word) / 65536
+    end
+    return Int(word) % 65536
+end
+
+private function ipv6PrefixSegment(address: Ipv6Address, index: Int, length: Int): Int
+    local value = ipv6EndpointSegmentValue(address, index)
+    local kept = length - (index - 1) * 16
+    if kept <= 0 then
+        return 0
+    end
+    if kept >= 16 then
+        return value
+    end
+    local blockSize = 1
+    local remaining = 16 - kept
+    while remaining > 0 do
+        blockSize = blockSize * 2
+        remaining = remaining - 1
+    end
+    return (value / blockSize) * blockSize
+end
+
+private function ipv6EndpointDecimal(value: Int): String
+    local digits = Bytes.create()
+    local divisor = 10000
+    local started = false
+    while divisor > 0 do
+        local digit = (value / divisor) % 10
+        if digit ~= 0 or started or divisor == 1 then
+            Bytes.write(digits, Byte(48 + digit))
+            started = true
+        end
+        divisor = divisor / 10
+    end
+    return Text.decodeUtf8(digits) ?? ""
+end
+
+--- <summary>
+--- Creates a validated IPv6 prefix.
+--- </summary>
+---
+--- <param name="address">
+--- The address whose host bits are preserved.
+--- </param>
+---
+--- <param name="length">
+--- The prefix length from zero through 128.
+--- </param>
+---
+--- <returns>
+--- The prefix, or nil for an invalid length.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv6Prefix on success.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Net
+---
+--- private function ipv6PrefixExample(): Boolean?
+---     local base = parseIpv6("2001:db8:abcd:ffff::1")?
+---     local prefix = ipv6Prefix(base, 49)?
+---     return formatIpv6(networkIpv6(prefix)) == "2001:db8:abcd:8000::"
+--- end
+--- </code>
+--- </example>
+public function ipv6Prefix(address: Ipv6Address, length: Int): Ipv6Prefix?
+    if length < 0 or length > 128 then
+        return nil
+    end
+    local prefix: Ipv6Prefix = { address = address, length = length }
+    return prefix
+end
+
+--- <summary>
+--- Returns the canonical network address of an IPv6 prefix.
+--- </summary>
+---
+--- <param name="prefix">
+--- The prefix to project.
+--- </param>
+---
+--- <returns>
+--- The address with host bits cleared.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv6Address.
+--- </allocation>
+public function networkIpv6(prefix: Ipv6Prefix): Ipv6Address
+    return ipv6(
+        UInt16(ipv6PrefixSegment(prefix.address, 1, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 2, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 3, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 4, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 5, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 6, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 7, prefix.length)),
+        UInt16(ipv6PrefixSegment(prefix.address, 8, prefix.length))
+    )
+end
+
+--- <summary>
+--- Reports whether an address belongs to an IPv6 prefix.
+--- </summary>
+---
+--- <param name="prefix">
+--- The prefix to inspect.
+--- </param>
+---
+--- <param name="address">
+--- The candidate address.
+--- </param>
+---
+--- <returns>
+--- True when both addresses share all prefix bits.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function containsIpv6(prefix: Ipv6Prefix, address: Ipv6Address): Boolean
+    local index = 1
+    while index <= 8 do
+        local expected = ipv6PrefixSegment(prefix.address, index, prefix.length)
+        local actual = ipv6PrefixSegment(address, index, prefix.length)
+        if expected ~= actual then
+            return false
+        end
+        index = index + 1
+    end
+    return true
+end
+
+--- <summary>
+--- Creates an IPv6 socket address value.
+--- </summary>
+---
+--- <param name="address">
+--- The exact IPv6 address.
+--- </param>
+---
+--- <param name="port">
+--- The numeric port, including zero.
+--- </param>
+---
+--- <returns>
+--- The address-plus-port value.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv6SocketAddress.
+--- </allocation>
+public function ipv6Socket(address: Ipv6Address, port: UInt16): Ipv6SocketAddress
+    local value: Ipv6SocketAddress = { address = address, port = port }
+    return value
+end
+
+--- <summary>
+--- Formats an IPv6 socket address canonically.
+--- </summary>
+---
+--- <param name="value">
+--- The address-plus-port value.
+--- </param>
+---
+--- <returns>
+--- Canonical bracketed address and decimal-port text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates address, decimal port, and result strings.
+--- </allocation>
+public function formatIpv6Socket(value: Ipv6SocketAddress): String
+    return "[" .. formatIpv6(value.address) .. "]:" .. ipv6EndpointDecimal(Int(value.port))
+end
+
+--- <summary>
+--- Parses canonical bracketed IPv6-address and numeric-port text.
+--- </summary>
+---
+--- <param name="text">
+--- Complete [address]:port text.
+--- </param>
+---
+--- <returns>
+--- The socket address, or nil for malformed or noncanonical input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one address buffer and the parsed values.
+--- </allocation>
+public function parseIpv6Socket(text: String): Ipv6SocketAddress?
+    local addressBuffer = Bytes.create()
+    local addressBytes = 0
+    local position = 0
+    local inAddress = false
+    local closedAddress = false
+    local sawPortSeparator = false
+    local port = 0
+    local portDigits = 0
+    local leadingZero = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if position == 0 then
+            if point ~= 91 then
+                return nil
+            end
+            inAddress = true
+        elseif inAddress then
+            if point == 93 then
+                if addressBytes == 0 then
+                    return nil
+                end
+                inAddress = false
+                closedAddress = true
+            else
+                if point > 127 then
+                    return nil
+                end
+                Bytes.write(addressBuffer, Byte(point))
+                addressBytes = addressBytes + 1
+            end
+        elseif not sawPortSeparator then
+            if not closedAddress or point ~= 58 then
+                return nil
+            end
+            sawPortSeparator = true
+        elseif point >= 48 and point <= 57 then
+            if portDigits == 0 then
+                leadingZero = point == 48
+            elseif leadingZero then
+                return nil
+            end
+            if portDigits >= 5 then
+                return nil
+            end
+            port = port * 10 + point - 48
+            if port > 65535 then
+                return nil
+            end
+            portDigits = portDigits + 1
+        else
+            return nil
+        end
+        position = position + 1
+    end
+    if inAddress or not closedAddress or not sawPortSeparator or portDigits == 0 then
+        return nil
+    end
+    local addressText = Text.decodeUtf8(addressBuffer) ?? ""
+    local address = parseIpv6(addressText)?
+    local value = ipv6Socket(address, UInt16(port))
+    if formatIpv6Socket(value) ~= text then
+        return nil
+    end
+    return value
+end

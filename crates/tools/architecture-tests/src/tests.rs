@@ -2659,6 +2659,55 @@ fn canonical_ipv6_values_follow_adr_0150_without_host_or_native_duplicates() {
 }
 
 #[test]
+fn ipv6_prefixes_and_endpoints_follow_adr_0151_without_transport_operations() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netIpv6Endpoint.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Ipv6Prefix",
+        "public record Ipv6SocketAddress",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "ipv6Prefix",
+        "networkIpv6",
+        "containsIpv6",
+        "ipv6Socket",
+        "parseIpv6Socket",
+        "formatIpv6Socket",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(net.contains("\"[\" .. formatIpv6(value.address) .. \"]:\""));
+    for forbidden in [
+        "Pop.Internal",
+        "Dynamic",
+        "Any",
+        "Dns.",
+        "Socket.",
+        "bind(",
+        "connect(",
+        "reflect",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!compiler.contains("Pop.Net.Ipv6Prefix"));
+    assert!(!native.contains("Ipv6Prefix"));
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(

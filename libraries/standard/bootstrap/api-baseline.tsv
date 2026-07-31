@@ -313,3 +313,11 @@ api:247	Api	Pop.Standard	Pop.Net	formatIpv6	formatIpv6(Net.Ipv6Address)->String	
 api:248	Api	Pop.Standard	Pop.Net	ipv6Segment	ipv6Segment(Net.Ipv6Address,Int)->UInt16?	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
 api:249	Api	Pop.Standard	Pop.Net	isIpv6Loopback	isIpv6Loopback(Net.Ipv6Address)->Boolean	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
 api:250	Api	Pop.Standard	Pop.Net	isIpv6Unspecified	isIpv6Unspecified(Net.Ipv6Address)->Boolean	standard	implemented	false	architecture/decisions/0150-canonical-ipv6-address-values.md
+api:251	Api	Pop.Standard	Pop.Net	Ipv6Prefix	record Ipv6Prefix(Net.Ipv6Address,Int)	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:252	Api	Pop.Standard	Pop.Net	Ipv6SocketAddress	record Ipv6SocketAddress(Net.Ipv6Address,UInt16)	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:253	Api	Pop.Standard	Pop.Net	ipv6Prefix	ipv6Prefix(Net.Ipv6Address,Int)->Net.Ipv6Prefix?	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:254	Api	Pop.Standard	Pop.Net	networkIpv6	networkIpv6(Net.Ipv6Prefix)->Net.Ipv6Address	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:255	Api	Pop.Standard	Pop.Net	containsIpv6	containsIpv6(Net.Ipv6Prefix,Net.Ipv6Address)->Boolean	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:256	Api	Pop.Standard	Pop.Net	ipv6Socket	ipv6Socket(Net.Ipv6Address,UInt16)->Net.Ipv6SocketAddress	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:257	Api	Pop.Standard	Pop.Net	parseIpv6Socket	parseIpv6Socket(String)->Net.Ipv6SocketAddress?	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md
+api:258	Api	Pop.Standard	Pop.Net	formatIpv6Socket	formatIpv6Socket(Net.Ipv6SocketAddress)->String	standard	implemented	false	architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md

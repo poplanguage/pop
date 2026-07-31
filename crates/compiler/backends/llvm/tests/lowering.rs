@@ -5773,6 +5773,63 @@ fn emitted_llvm_executes_canonical_ipv6_values() {
 }
 
 #[test]
+fn emitted_llvm_executes_ipv6_prefixes_and_socket_addresses() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local base = parseIpv6(\"2001:db8:abcd:ffff::1\")?\n\
+                 local prefix = ipv6Prefix(base, 49)?\n\
+                 if formatIpv6(networkIpv6(prefix)) ~= \"2001:db8:abcd:8000::\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:9fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:7fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseIpv6Socket(\"[2001:db8::1]:443\")?\n\
+                 if formatIpv6Socket(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 3\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(443) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:0443\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:65536\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "ipv6-prefix-socket-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted IPv6 prefix/socket values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

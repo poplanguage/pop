@@ -22,3 +22,28 @@ fn ipv4_prefix_and_socket_values_remain_pure_and_distinct() {
         );
     }
 }
+
+#[test]
+fn ipv6_prefix_and_socket_values_remain_pure_and_distinct() {
+    let source = include_str!("../pop/src/netIpv6Endpoint.pop");
+    for declaration in [
+        "public record Ipv6Prefix",
+        "public record Ipv6SocketAddress",
+        "public function ipv6Prefix(address: Ipv6Address, length: Int): Ipv6Prefix?",
+        "public function networkIpv6(prefix: Ipv6Prefix): Ipv6Address",
+        "public function containsIpv6(prefix: Ipv6Prefix, address: Ipv6Address): Boolean",
+        "public function ipv6Socket(address: Ipv6Address, port: UInt16): Ipv6SocketAddress",
+        "public function parseIpv6Socket(text: String): Ipv6SocketAddress?",
+        "public function formatIpv6Socket(value: Ipv6SocketAddress): String",
+    ] {
+        assert!(source.contains(declaration), "missing {declaration}");
+    }
+    for forbidden in [
+        "Dynamic", "Any", "Dns.", "Socket.", "bind(", "connect(", "runtime",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "forbidden host/dynamic surface: {forbidden}"
+        );
+    }
+}
