@@ -232,3 +232,12 @@ api:173	Api	Pop.Standard	Pop.Path	join	join(Path.Value,String)->Path.Value?	stan
 api:174	Api	Pop.Standard	Pop.Path	parent	parent(Path.Value)->Path.Value?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
 api:175	Api	Pop.Standard	Pop.Path	name	name(Path.Value)->String?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
 api:176	Api	Pop.Standard	Pop.Path	extension	extension(Path.Value)->String?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:177	Api	Pop.Standard	Pop.Time	Duration	record Duration(Int,Int)	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:178	Api	Pop.Standard	Pop.Time	fromSeconds	fromSeconds(Int)->Time.Duration	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:179	Api	Pop.Standard	Pop.Time	fromMilliseconds	fromMilliseconds(Int)->Time.Duration	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:180	Api	Pop.Standard	Pop.Time	fromNanoseconds	fromNanoseconds(Int)->Time.Duration	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:181	Api	Pop.Standard	Pop.Time	compare	compare(Time.Duration,Time.Duration)->Int	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:182	Api	Pop.Standard	Pop.Time	isZero	isZero(Time.Duration)->Boolean	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:183	Api	Pop.Standard	Pop.Time	isNegative	isNegative(Time.Duration)->Boolean	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:184	Api	Pop.Standard	Pop.Time	secondsPart	secondsPart(Time.Duration)->Int	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:185	Api	Pop.Standard	Pop.Time	nanosecondsPart	nanosecondsPart(Time.Duration)->Int	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md

@@ -262,6 +262,8 @@ transplanted into a Luau-shaped file.
 - ADR 0135 adds bounded portable lexical path records, deterministic
   dot/parent normalization, and component inspection without filesystem
   authority or native-encoding claims.
+- ADR 0136 adds canonical exact `Time.Duration` records and overflow-free unit
+  construction/comparison before any ambient clock, timer, or suspension.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

@@ -5244,6 +5244,52 @@ fn emitted_llvm_executes_bounded_portable_paths() {
 }
 
 #[test]
+fn emitted_llvm_executes_canonical_durations() {
+    let module = native_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function main(): Int\n\
+                 local positive = fromMilliseconds(1500)\n\
+                 if secondsPart(positive) ~= 1 or nanosecondsPart(positive) ~= 500000000 then\n\
+                     return 1\n\
+                 end\n\
+                 local negative = fromMilliseconds(-1)\n\
+                 if secondsPart(negative) ~= -1 or nanosecondsPart(negative) ~= 999000000 or not isNegative(negative) then\n\
+                     return 2\n\
+                 end\n\
+                 local finalNano = fromNanoseconds(-1)\n\
+                 if secondsPart(finalNano) ~= -1 or nanosecondsPart(finalNano) ~= 999999999 then\n\
+                     return 3\n\
+                 end\n\
+                 if not isZero(fromSeconds(0)) or compare(negative, positive) ~= -1 or compare(positive, negative) ~= 1 or compare(positive, fromNanoseconds(1500000000)) ~= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 local low = fromSeconds(-9000000000000000000)\n\
+                 local high = fromSeconds(9000000000000000000)\n\
+                 if compare(low, high) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "canonical-durations");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted canonical durations: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

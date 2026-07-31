@@ -33,7 +33,7 @@ Task	Pop.Standard	concurrencyNetwork	partial	architecture/22.2-system-network-se
 Telemetry	Pop.Standard	operations	planned	architecture/22.3-data-observability-tooling-catalog.md
 Terminal	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Text	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
-Time	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
+Time	Pop.Standard	formats	partial	architecture/22.1-core-and-portable-library-catalog.md
 Toml	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Unicode	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
 Uri	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md

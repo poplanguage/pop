@@ -2482,6 +2482,50 @@ fn bounded_portable_paths_normalize_and_inspect_lexically() {
 }
 
 #[test]
+fn canonical_durations_preserve_exact_signed_units() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int\n\
+                 local positive = fromMilliseconds(1500)\n\
+                 if secondsPart(positive) ~= 1 or nanosecondsPart(positive) ~= 500000000 then\n\
+                     return 1\n\
+                 end\n\
+                 local negative = fromMilliseconds(-1)\n\
+                 if secondsPart(negative) ~= -1 or nanosecondsPart(negative) ~= 999000000 or not isNegative(negative) then\n\
+                     return 2\n\
+                 end\n\
+                 local finalNano = fromNanoseconds(-1)\n\
+                 if secondsPart(finalNano) ~= -1 or nanosecondsPart(finalNano) ~= 999999999 then\n\
+                     return 3\n\
+                 end\n\
+                 if not isZero(fromSeconds(0)) or compare(negative, positive) ~= -1 or compare(positive, negative) ~= 1 or compare(positive, fromNanoseconds(1500000000)) ~= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 local low = fromSeconds(-9000000000000000000)\n\
+                 local high = fromSeconds(9000000000000000000)\n\
+                 if compare(low, high) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Time consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Time MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Time execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
