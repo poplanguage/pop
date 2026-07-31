@@ -3,6 +3,7 @@
 mod actor;
 mod adapter;
 mod allocation;
+mod atomic;
 mod channel;
 mod contract;
 mod failure;
@@ -17,6 +18,7 @@ mod task;
 pub use actor::*;
 pub use adapter::*;
 pub use allocation::*;
+pub use atomic::*;
 pub use channel::*;
 pub use contract::*;
 pub use failure::*;

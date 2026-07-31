@@ -2859,6 +2859,40 @@ fn immutable_network_facts_follow_adr_0155_without_host_query_authority() {
 }
 
 #[test]
+fn typed_atomic_state_follows_adr_0156_without_backend_or_pointer_leakage() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0156-typed-atomic-order-and-state-contract.md"),
+    );
+    let atomic = read_required(root.join("crates/runtime/interface/src/atomic.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/atomic_contracts.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "pub enum AtomicLoadOrder",
+        "pub enum AtomicStoreOrder",
+        "pub enum AtomicReadModifyWriteOrder",
+        "pub struct AtomicCompareExchangeOrder",
+        "pub struct AtomicInt",
+        "pub struct AtomicBoolean",
+    ] {
+        assert_eq!(atomic.matches(declaration).count(), 1);
+    }
+    assert!(tests.contains("typed_orders_reject_invalid_compare_exchange_failures"));
+    assert!(tests.contains("release_acquire_publication_is_visible_after_join"));
+    for forbidden in [
+        "llvm",
+        "inkwell",
+        "ManagedReference",
+        "*mut",
+        "Dynamic",
+        "Any",
+    ] {
+        assert!(!atomic.contains(forbidden));
+    }
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(
