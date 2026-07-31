@@ -2421,6 +2421,67 @@ fn bounded_guid_values_round_trip_and_inject_version_four_bytes() {
 }
 
 #[test]
+fn bounded_portable_paths_normalize_and_inspect_lexically() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/path.pop",
+            include_str!("../../../../libraries/standard/pop/src/path.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Path\n\
+             private function required(text: String): Value\n\
+                 return normalize(text) ?? { text = \"invalid\", absolute = false }\n\
+             end\n\
+             public function verify(): Int\n\
+                 if format(required(\"\")) ~= \".\" or format(required(\"/a//b/../c/.\")) ~= \"/a/c\" then\n\
+                     return 1\n\
+                 end\n\
+                 if format(required(\"../../a/../b\")) ~= \"../../b\" or format(required(\"/../../a\")) ~= \"/a\" then\n\
+                     return 2\n\
+                 end\n\
+                 if normalize(\"a\\\\b\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local base = required(\"/a/b\")\n\
+                 if not isAbsolute(base) or format(join(base, \"../c\") ?? required(\".\")) ~= \"/a/c\" or join(base, \"/c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local file = required(\"/a/archive.tar.gz\")\n\
+                 if format(parent(file) ?? required(\".\")) ~= \"/a\" or (name(file) ?? \"\") ~= \"archive.tar.gz\" or (extension(file) ?? \"\") ~= \"gz\" then\n\
+                     return 5\n\
+                 end\n\
+                 if extension(required(\".env\")) ~= nil or extension(required(\"name.\")) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parent(required(\"/\")) ~= nil or name(required(\".\")) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if format(required(\"dados/ação.txt\")) ~= \"dados/ação.txt\" then\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Path consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Path MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Path execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

@@ -2295,6 +2295,42 @@ fn bounded_guid_values_follow_adr_0134_without_a_prelude_or_native_duplicate() {
 }
 
 #[test]
+fn bounded_portable_paths_follow_adr_0135_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0135-bounded-portable-lexical-paths.md"));
+    let path = read_required(root.join("crates/libraries/standard/pop/src/path.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(path.matches("public record Value").count(), 1);
+    for function in [
+        "normalize",
+        "format",
+        "isAbsolute",
+        "join",
+        "parent",
+        "name",
+        "extension",
+    ] {
+        assert_eq!(
+            path.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Path\t{function}\t")),
+            "Path.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(path.contains("MAX_PATH_LENGTH = 4096"));
+    assert!(!compiler.contains("Pop.Path"));
+    assert!(!native.contains("Pop.Path"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

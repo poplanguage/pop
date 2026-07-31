@@ -224,3 +224,11 @@ api:165	Api	Pop.Standard	Pop.Guid	fromBytes	fromBytes(Bytes)->Guid.Value?	standa
 api:166	Api	Pop.Standard	Pop.Guid	toBytes	toBytes(Guid.Value)->Bytes	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
 api:167	Api	Pop.Standard	Pop.Guid	isNil	isNil(Guid.Value)->Boolean	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
 api:168	Api	Pop.Standard	Pop.Guid	isVersion4	isVersion4(Guid.Value)->Boolean	standard	implemented	false	architecture/decisions/0134-bounded-guid-values.md
+api:169	Api	Pop.Standard	Pop.Path	Value	record Value(String,Boolean)	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:170	Api	Pop.Standard	Pop.Path	normalize	normalize(String)->Path.Value?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:171	Api	Pop.Standard	Pop.Path	format	format(Path.Value)->String	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:172	Api	Pop.Standard	Pop.Path	isAbsolute	isAbsolute(Path.Value)->Boolean	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:173	Api	Pop.Standard	Pop.Path	join	join(Path.Value,String)->Path.Value?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:174	Api	Pop.Standard	Pop.Path	parent	parent(Path.Value)->Path.Value?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:175	Api	Pop.Standard	Pop.Path	name	name(Path.Value)->String?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md
+api:176	Api	Pop.Standard	Pop.Path	extension	extension(Path.Value)->String?	standard	implemented	false	architecture/decisions/0135-bounded-portable-lexical-paths.md

@@ -5181,6 +5181,69 @@ fn emitted_llvm_executes_bounded_guid_values() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_portable_paths() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/path.pop",
+            include_str!("../../../../libraries/standard/pop/src/path.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Path\n\
+             private function required(text: String): Value\n\
+                 return normalize(text) ?? { text = \"invalid\", absolute = false }\n\
+             end\n\
+             private function main(): Int\n\
+                 if format(required(\"\")) ~= \".\" or format(required(\"/a//b/../c/.\")) ~= \"/a/c\" then\n\
+                     return 1\n\
+                 end\n\
+                 if format(required(\"../../a/../b\")) ~= \"../../b\" or format(required(\"/../../a\")) ~= \"/a\" then\n\
+                     return 2\n\
+                 end\n\
+                 if normalize(\"a\\\\b\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local base = required(\"/a/b\")\n\
+                 if not isAbsolute(base) or format(join(base, \"../c\") ?? required(\".\")) ~= \"/a/c\" or join(base, \"/c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local file = required(\"/a/archive.tar.gz\")\n\
+                 if format(parent(file) ?? required(\".\")) ~= \"/a\" or (name(file) ?? \"\") ~= \"archive.tar.gz\" or (extension(file) ?? \"\") ~= \"gz\" then\n\
+                     return 5\n\
+                 end\n\
+                 if extension(required(\".env\")) ~= nil or extension(required(\"name.\")) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parent(required(\"/\")) ~= nil or name(required(\".\")) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if format(required(\"dados/ação.txt\")) ~= \"dados/ação.txt\" then\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-portable-paths");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded portable paths: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

@@ -21,7 +21,7 @@ Memory	Pop.Standard	host	planned	architecture/22.2-system-network-security-catal
 Metadata	Pop.Standard	formats	partial	architecture/22.3-data-observability-tooling-catalog.md
 Mime	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
 Net	Pop.Standard	concurrencyNetwork	planned	architecture/22.2-system-network-security-catalog.md
-Path	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
+Path	Pop.Standard	host	partial	architecture/22.2-system-network-security-catalog.md
 Platform	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Process	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Random	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md

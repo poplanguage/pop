@@ -259,6 +259,9 @@ transplanted into a Luau-shaped file.
   bounded ordinary GUID records, canonical text/network-byte interchange,
   named nil/version-four inspection, and explicitly injected version-four
   randomness.
+- ADR 0135 adds bounded portable lexical path records, deterministic
+  dot/parent normalization, and component inspection without filesystem
+  authority or native-encoding claims.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across
