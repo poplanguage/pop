@@ -5450,6 +5450,55 @@ fn emitted_llvm_executes_bounded_civil_time_values() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_locale_tags() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/locale.pop",
+            include_str!("../../../../libraries/standard/pop/src/locale.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Locale\n\
+             private function verify(): Int?\n\
+                 local portuguese = parse(\"pt-br\")?\n\
+                 local traditional = parse(\"zh-hant-tw\")?\n\
+                 if (format(portuguese) ?? \"\") ~= \"pt-BR\" or (format(traditional) ?? \"\") ~= \"zh-Hant-TW\" then\n\
+                     return 1\n\
+                 end\n\
+                 local other = parse(\"pt-PT\")?\n\
+                 if not sameLanguage(portuguese, other) or sameLanguage(portuguese, traditional) then\n\
+                     return 2\n\
+                 end\n\
+                 if parse(\"e\") ~= nil or parse(\"9n\") ~= nil or parse(\"en_\") ~= nil or parse(\"en--US\") ~= nil or parse(\"en-US-extra\") ~= nil or parse(\"é\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-locale-tags");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Locale tags: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

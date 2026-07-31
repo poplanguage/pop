@@ -2697,6 +2697,55 @@ fn bounded_civil_time_values_keep_local_and_offset_meanings_distinct() {
 }
 
 #[test]
+fn bounded_locale_tags_canonicalize_without_ambient_discovery() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/locale.pop",
+            include_str!("../../../../libraries/standard/pop/src/locale.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Locale\n\
+             public function verify(): Int?\n\
+                 local portuguese = parse(\"pt-br\")?\n\
+                 local traditional = parse(\"zh-hant-tw\")?\n\
+                 if (format(portuguese) ?? \"\") ~= \"pt-BR\" or (format(traditional) ?? \"\") ~= \"zh-Hant-TW\" then\n\
+                     return 1\n\
+                 end\n\
+                 local other = parse(\"pt-PT\")?\n\
+                 if not sameLanguage(portuguese, other) or sameLanguage(portuguese, traditional) then\n\
+                     return 2\n\
+                 end\n\
+                 if parse(\"e\") ~= nil or parse(\"9n\") ~= nil or parse(\"en_\") ~= nil or parse(\"en--US\") ~= nil or parse(\"en-US-extra\") ~= nil or parse(\"é\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local valid = parse(\"en\")?\n\
+                 local invalid: Tag = { language = \"e\", script = valid.script, region = valid.region }\n\
+                 if format(invalid) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Locale consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Locale MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Locale execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (

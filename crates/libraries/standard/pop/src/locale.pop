@@ -1,0 +1,279 @@
+namespace Pop.Locale
+
+private const MAX_LOCALE_TAG_LENGTH = 63
+
+--- <summary>
+--- Holds one bounded canonical language, script, and region tag.
+--- </summary>
+public record Tag
+    --- <summary>
+    --- The lowercase ASCII language subtag.
+    --- </summary>
+    language: String
+
+    --- <summary>
+    --- The optional title-cased ASCII script subtag.
+    --- </summary>
+    script: String?
+
+    --- <summary>
+    --- The optional uppercase-letter or three-digit region subtag.
+    --- </summary>
+    region: String?
+end
+
+private function byteLength(value: String): Int
+    return Bytes.length(Bytes.view(Text.encodeUtf8(value)))
+end
+
+private function allLetters(value: String): Boolean
+    local view = Bytes.view(Text.encodeUtf8(value))
+    local index = 1
+    while index <= Bytes.length(view) do
+        local point = Int(Bytes.get(view, index) ?? 0)
+        if not ((point >= 65 and point <= 90) or (point >= 97 and point <= 122)) then
+            return false
+        end
+        index = index + 1
+    end
+    return true
+end
+
+private function allDigits(value: String): Boolean
+    local view = Bytes.view(Text.encodeUtf8(value))
+    local index = 1
+    while index <= Bytes.length(view) do
+        local point = Int(Bytes.get(view, index) ?? 0)
+        if point < 48 or point > 57 then
+            return false
+        end
+        index = index + 1
+    end
+    return true
+end
+
+private function validLanguage(value: String): Boolean
+    local length = byteLength(value)
+    return length >= 2 and length <= 8 and allLetters(value)
+end
+
+private function validScript(value: String): Boolean
+    return byteLength(value) == 4 and allLetters(value)
+end
+
+private function validRegion(value: String): Boolean
+    local length = byteLength(value)
+    return (length == 2 and allLetters(value)) or (length == 3 and allDigits(value))
+end
+
+private function localeAsciiCase(value: String, uppercase: Boolean): String
+    local view = Bytes.view(Text.encodeUtf8(value))
+    local output = Bytes.withCapacity(Bytes.length(view))
+    local index = 1
+    while index <= Bytes.length(view) do
+        local point = Int(Bytes.get(view, index) ?? 0)
+        if uppercase and point >= 97 and point <= 122 then
+            point = point - 32
+        elseif not uppercase and point >= 65 and point <= 90 then
+            point = point + 32
+        end
+        Bytes.write(output, Byte(point))
+        index = index + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function canonicalScript(value: String): String
+    local view = Bytes.view(Text.encodeUtf8(value))
+    local output = Bytes.withCapacity(4)
+    local index = 1
+    while index <= 4 do
+        local point = Int(Bytes.get(view, index) ?? 0)
+        if index == 1 and point >= 97 and point <= 122 then
+            point = point - 32
+        elseif index > 1 and point >= 65 and point <= 90 then
+            point = point + 32
+        end
+        Bytes.write(output, Byte(point))
+        index = index + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function noSubtag(): String?
+    return nil
+end
+
+private function someSubtag(value: String): String?
+    return value
+end
+
+private function splitTag(text: String): List<String>?
+    local view = Bytes.view(Text.encodeUtf8(text))
+    local parts = List.create<<String>>()
+    local part = Bytes.create()
+    local index = 1
+    while index <= Bytes.length(view) do
+        local point = Int(Bytes.get(view, index) ?? 0)
+        if point > 127 then
+            return nil
+        end
+        if point == 45 then
+            List.add(parts, Text.decodeUtf8(part) ?? "")
+            Bytes.clear(part)
+        else
+            Bytes.write(part, Byte(point))
+        end
+        index = index + 1
+    end
+    List.add(parts, Text.decodeUtf8(part) ?? "")
+    return parts
+end
+
+private function localeTag(language: String, script: String?, region: String?): Tag
+    local value: Tag = {
+        language = language,
+        script = script,
+        region = region
+    }
+    return value
+end
+
+--- <summary>
+--- Parses one bounded language, optional script, and optional region tag.
+--- </summary>
+---
+--- <param name="text">
+--- The complete ASCII tag without surrounding whitespace.
+--- </param>
+---
+--- <returns>
+--- The canonical tag, or nil for malformed, unsupported, or oversized input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates bounded split storage and one owned Tag on success.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Locale
+---
+--- private function localeTagExample(): Boolean?
+---     local tag = parse("zh-hant-tw")?
+---     return (format(tag) ?? "") == "zh-Hant-TW"
+--- end
+--- </code>
+--- </example>
+public function parse(text: String): Tag?
+    local length = byteLength(text)
+    if length < 2 or length > MAX_LOCALE_TAG_LENGTH then
+        return nil
+    end
+    local parts = splitTag(text)?
+    local count = List.length(parts)
+    if count < 1 or count > 3 then
+        return nil
+    end
+    local language = List.get(parts, 1)
+    if not validLanguage(language) then
+        return nil
+    end
+    language = localeAsciiCase(language, false)
+    if count == 1 then
+        return localeTag(language, noSubtag(), noSubtag())
+    end
+    local second = List.get(parts, 2)
+    if validScript(second) then
+        local script = canonicalScript(second)
+        if count == 2 then
+            return localeTag(language, someSubtag(script), noSubtag())
+        end
+        local region = List.get(parts, 3)
+        if not validRegion(region) then
+            return nil
+        end
+        return localeTag(
+            language,
+            someSubtag(script),
+            someSubtag(localeAsciiCase(region, true))
+        )
+    end
+    if count == 2 and validRegion(second) then
+        return localeTag(
+            language,
+            noSubtag(),
+            someSubtag(localeAsciiCase(second, true))
+        )
+    end
+    return nil
+end
+
+--- <summary>
+--- Formats and revalidates one bounded locale tag.
+--- </summary>
+---
+--- <param name="tag">
+--- The tag to validate and format canonically.
+--- </param>
+---
+--- <returns>
+--- Canonical text, or nil when a manually initialized record is invalid.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one canonical String on success.
+--- </allocation>
+public function format(tag: Tag): String?
+    if not validLanguage(tag.language) then
+        return nil
+    end
+    local output = localeAsciiCase(tag.language, false)
+    if tag.script ~= nil then
+        local script = tag.script?
+        if not validScript(script) then
+            return nil
+        end
+        output = output .. "-" .. canonicalScript(script)
+    end
+    if tag.region ~= nil then
+        local region = tag.region?
+        if not validRegion(region) then
+            return nil
+        end
+        output = output .. "-" .. localeAsciiCase(region, true)
+    end
+    if byteLength(output) > MAX_LOCALE_TAG_LENGTH then
+        return nil
+    end
+    return output
+end
+
+--- <summary>
+--- Reports whether two tags name the same ASCII language.
+--- </summary>
+---
+--- <param name="left">
+--- The left tag.
+--- </param>
+---
+--- <param name="right">
+--- The right tag.
+--- </param>
+---
+--- <returns>
+--- True when the language subtags are equal ignoring ASCII case.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates two bounded canonical language strings.
+--- </allocation>
+public function sameLanguage(left: Tag, right: Tag): Boolean
+    return localeAsciiCase(left.language, false) == localeAsciiCase(right.language, false)
+end

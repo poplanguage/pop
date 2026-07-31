@@ -271,6 +271,8 @@ transplanted into a Luau-shaped file.
   validation/comparison without wall-clock, time-zone, or locale authority.
 - ADR 0139 keeps bounded `TimeOfDay`, `LocalDateTime`, fixed `UtcOffset`, and
   `OffsetDateTime` identities distinct before parsing, zones, or wall clocks.
+- ADR 0140 adds bounded canonical `Locale.Tag` language/script/region values
+  without ambient locale discovery, CLDR data, or negotiation.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

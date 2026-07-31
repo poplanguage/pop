@@ -264,3 +264,7 @@ api:205	Api	Pop.Standard	Pop.Time	localDateTime	localDateTime(Time.Date,Time.Tim
 api:206	Api	Pop.Standard	Pop.Time	utcOffset	utcOffset(Int)->Time.UtcOffset?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
 api:207	Api	Pop.Standard	Pop.Time	offsetDateTime	offsetDateTime(Time.LocalDateTime,Time.UtcOffset)->Time.OffsetDateTime?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
 api:208	Api	Pop.Standard	Pop.Time	isUtc	isUtc(Time.UtcOffset)->Boolean	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:209	Api	Pop.Standard	Pop.Locale	Tag	record Tag(String,String?,String?)	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
+api:210	Api	Pop.Standard	Pop.Locale	parse	parse(String)->Locale.Tag?	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
+api:211	Api	Pop.Standard	Pop.Locale	format	format(Locale.Tag)->String?	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
+api:212	Api	Pop.Standard	Pop.Locale	sameLanguage	sameLanguage(Locale.Tag,Locale.Tag)->Boolean	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md

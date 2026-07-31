@@ -2476,6 +2476,31 @@ fn bounded_civil_times_follow_adr_0139_without_host_or_native_duplicates() {
 }
 
 #[test]
+fn bounded_locale_tags_follow_adr_0140_without_ambient_or_native_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0140-bounded-locale-tags.md"));
+    let locale = read_required(root.join("crates/libraries/standard/pop/src/locale.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(locale.matches("public record Tag").count(), 1);
+    for function in ["parse", "format", "sameLanguage"] {
+        assert_eq!(
+            locale
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Locale\t{function}\t")));
+    }
+    assert!(locale.contains("MAX_LOCALE_TAG_LENGTH = 63"));
+    assert!(!compiler.contains("Pop.Locale"));
+    assert!(!native.contains("Pop.Locale"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
