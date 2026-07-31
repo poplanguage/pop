@@ -312,6 +312,22 @@ pub(crate) fn render_allocation_site_descriptors(
                         .collect::<Vec<_>>(),
                     Vec::new(),
                 ),
+                MirInstructionKind::ChannelCreate {
+                    allocation_site, ..
+                } => (*allocation_site, 2, Vec::new(), Vec::new()),
+                MirInstructionKind::ChannelTryReceive {
+                    allocation_site,
+                    element_map,
+                    ..
+                } => (
+                    *allocation_site,
+                    2,
+                    (*element_map == pop_runtime_interface::ArrayElementMap::ManagedReference)
+                        .then_some(1)
+                        .into_iter()
+                        .collect(),
+                    Vec::new(),
+                ),
                 _ => continue,
             };
             let symbol =
@@ -345,12 +361,16 @@ pub(crate) fn render_allocation_site_descriptors(
                     self_slots.len()
                 )
             });
+            let runtime_type = match instruction.kind() {
+                MirInstructionKind::ChannelCreate { endpoints, .. } => *endpoints,
+                _ => instruction.result_type(),
+            };
             let descriptor = format!(
                 "@{symbol} = private unnamed_addr constant {{ i32, i32, i32, i32, i8, [3 x i8], i32, i32, ptr }} {{ i32 {}, i32 {}, i32 {}, i32 {}, i8 {}, [3 x i8] zeroinitializer, i32 {slot_count}, i32 {}, ptr {reference_pointer} }}",
                 bubble.bubble().raw(),
                 owner.raw(),
                 site.raw(),
-                instruction.result_type().raw(),
+                runtime_type.raw(),
                 u8::from(!moving_nursery),
                 references.len()
             );
@@ -669,6 +689,30 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
         format!(
             "declare i8 @{}(i64, i64, i1) nounwind",
             native_runtime_symbol(RuntimeOperation::ListAdd)
+        ),
+        format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelCreate)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseSender)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseReceiver)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelClose)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelTrySend)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelTryReceive)
         ),
         format!(
             "declare i64 @{}(i64) nounwind",

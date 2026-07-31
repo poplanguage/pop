@@ -2981,6 +2981,125 @@ impl Verifier<'_> {
                     self.verify_expression_type(nil, expression);
                 }
             }
+            HirExpressionKind::ChannelCreate { capacity, element } => {
+                self.verify_expression(capacity, visible);
+                self.verify_type(*element, expression.span());
+                if self.arena.source_type("UInt64") != Some(capacity.type_id())
+                    || !self.is_optional_channel_endpoints(expression.type_id(), *element)
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelTrySend {
+                sender,
+                value,
+                element,
+            } => {
+                self.verify_expression(sender, visible);
+                self.verify_expression(value, visible);
+                self.verify_type(*element, expression.span());
+                self.verify_expression_type(*element, value);
+                if !self.is_builtin_definition(
+                    sender.type_id(),
+                    pop_types::CHANNEL_SENDER_TYPE_ID,
+                    &[*element],
+                ) || !self.is_builtin_definition(
+                    expression.type_id(),
+                    pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID,
+                    &[],
+                ) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelTryReceive { receiver, element } => {
+                self.verify_expression(receiver, visible);
+                self.verify_type(*element, expression.span());
+                if !self.is_builtin_definition(
+                    receiver.type_id(),
+                    pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                    &[*element],
+                ) || !self.is_builtin_definition(
+                    expression.type_id(),
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelClose {
+                endpoint,
+                direction,
+            } => {
+                self.verify_expression(endpoint, visible);
+                let definition = match direction {
+                    pop_types::ChannelDirection::Sender => pop_types::CHANNEL_SENDER_TYPE_ID,
+                    pop_types::ChannelDirection::Receiver => pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                };
+                if self
+                    .builtin_element(endpoint.type_id(), definition)
+                    .is_none()
+                    || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelSendOutcomeTest { outcome, .. } => {
+                self.verify_expression(outcome, visible);
+                if !self.is_builtin_definition(
+                    outcome.type_id(),
+                    pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID,
+                    &[],
+                ) || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+                self.verify_expression(outcome, visible);
+                self.verify_type(*element, expression.span());
+                if !self.is_builtin_definition(
+                    outcome.type_id(),
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) || !self.is_optional_type(expression.type_id(), *element)
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+                self.verify_expression(outcome, visible);
+                if self
+                    .builtin_element(
+                        outcome.type_id(),
+                        pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    )
+                    .is_none()
+                    || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
             HirExpressionKind::ByteBufferCreate { capacity, .. } => {
                 if let Some(capacity) = capacity {
                     self.verify_expression(capacity, visible);
@@ -5864,13 +5983,71 @@ impl Verifier<'_> {
     fn list_element_type(&self, type_id: TypeId) -> Option<TypeId> {
         let schema = pop_types::embedded_bootstrap_schema().ok()?;
         let list = schema.iteration_protocol()?.list();
+        self.builtin_element(type_id, list)
+    }
+
+    fn builtin_element(&self, type_id: TypeId, definition: BuiltinTypeId) -> Option<TypeId> {
         match self.arena.get(type_id)? {
             SemanticType::Builtin {
-                definition,
+                definition: found,
                 arguments,
-            } if *definition == list && arguments.len() == 1 => Some(arguments[0]),
+            } if *found == definition && arguments.len() == 1 => Some(arguments[0]),
             _ => None,
         }
+    }
+
+    fn is_builtin_definition(
+        &self,
+        type_id: TypeId,
+        definition: BuiltinTypeId,
+        arguments: &[TypeId],
+    ) -> bool {
+        matches!(
+            self.arena.get(type_id),
+            Some(SemanticType::Builtin {
+                definition: found,
+                arguments: found_arguments,
+            }) if *found == definition && found_arguments == arguments
+        )
+    }
+
+    fn is_optional_type(&self, type_id: TypeId, value: TypeId) -> bool {
+        let nil = self.arena.source_type("nil");
+        matches!(
+            self.arena.get(type_id),
+            Some(SemanticType::Union(members))
+                if members.len() == 2
+                    && members.contains(&value)
+                    && nil.is_some_and(|nil| members.contains(&nil))
+        )
+    }
+
+    fn is_optional_channel_endpoints(&self, type_id: TypeId, element: TypeId) -> bool {
+        let Some(SemanticType::Union(members)) = self.arena.get(type_id) else {
+            return false;
+        };
+        let Some(nil) = self.arena.source_type("nil") else {
+            return false;
+        };
+        let Some(endpoints) = members.iter().copied().find(|member| *member != nil) else {
+            return false;
+        };
+        let Some(SemanticType::Tuple(elements)) = self.arena.get(endpoints) else {
+            return false;
+        };
+        members.len() == 2
+            && members.contains(&nil)
+            && elements.len() == 2
+            && self.is_builtin_definition(
+                elements[0],
+                pop_types::CHANNEL_SENDER_TYPE_ID,
+                &[element],
+            )
+            && self.is_builtin_definition(
+                elements[1],
+                pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                &[element],
+            )
     }
 
     fn verify_list_get(
@@ -6693,7 +6870,21 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
                 collect_cell_captures(capacity, written);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            collect_cell_captures(capacity, written);
+        }
         HirExpressionKind::ListLength { list } => collect_cell_captures(list, written),
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            collect_cell_captures(receiver, written);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            collect_cell_captures(endpoint, written);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            collect_cell_captures(outcome, written);
+        }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
         | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
@@ -6706,6 +6897,10 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
         }
         HirExpressionKind::ListAdd { list, value } => {
             collect_cell_captures(list, written);
+            collect_cell_captures(value, written);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            collect_cell_captures(sender, written);
             collect_cell_captures(value, written);
         }
         HirExpressionKind::ByteBufferReserve {

@@ -793,6 +793,9 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             ));
             return None;
         };
+        if path.as_slice() == ["Channel", "bounded"] {
+            return self.check_channel_bounded(type_arguments, arguments, span);
+        }
         if matches!(path.as_slice(), [ffi, handle, operation]
             if ffi == "Ffi" && handle == "Handle"
                 && matches!(operation.as_str(), "open" | "get" | "close"))

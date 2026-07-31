@@ -92,6 +92,40 @@ fn trap(kind: TrapKind) -> ExecutionError {
 }
 
 #[test]
+fn bounded_channels_preserve_fifo_backpressure_close_and_typed_outcomes() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         public function exercise(): Int\n\
+             if local endpoints = Channel.bounded<<Int>>(UInt64(1)) then\n\
+                 local sender = endpoints[1]\n\
+                 local receiver = endpoints[2]\n\
+                 local firstSend = Channel.trySend(sender, 41)\n\
+                 local fullSend = Channel.trySend(sender, 42)\n\
+                 local firstReceive = Channel.tryReceive(receiver)\n\
+                 local secondSend = Channel.trySend(sender, 43)\n\
+                 local secondReceive = Channel.tryReceive(receiver)\n\
+                 local closedSender = Channel.close(sender)\n\
+                 local closedReceive = Channel.tryReceive(receiver)\n\
+                 if not Channel.sendAccepted(firstSend) or not Channel.sendFull(fullSend) or not Channel.sendAccepted(secondSend) or not closedSender or not Channel.receiveClosed(closedReceive) then\n\
+                     return -1\n\
+                 end\n\
+                 return (Channel.received(firstReceive) ?? 0) + (Channel.received(secondReceive) ?? 0)\n\
+             end\n\
+             return -2\n\
+         end\n",
+        "exercise",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Channel MIR");
+
+    assert_eq!(
+        interpreter.call(function, &[]).expect("Channel execution"),
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("84", IntegerKind::Int64).expect("Int")
+        )]
+    );
+}
+
+#[test]
 fn async_tasks_stay_cold_until_await_and_resume_with_the_exact_completion() {
     let (mir, types) = executable_source(
         "namespace Main\n\

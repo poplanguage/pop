@@ -24,6 +24,7 @@ pub(crate) fn validate_bubble(
                         | MirInstructionKind::Utf8DecodeBuffer { .. }
                 ) || is_view_instruction(instruction.kind())
                     || is_byte_buffer_instruction(instruction.kind())
+                    || is_channel_instruction(instruction.kind())
             }) {
                 return Err(CBackendError::UnsupportedInstruction {
                     function: function.function(),
@@ -69,6 +70,19 @@ pub(crate) fn validate_bubble(
         }
     }
     Ok(())
+}
+
+fn is_channel_instruction(kind: &MirInstructionKind) -> bool {
+    matches!(
+        kind,
+        MirInstructionKind::ChannelCreate { .. }
+            | MirInstructionKind::ChannelTrySend { .. }
+            | MirInstructionKind::ChannelTryReceive { .. }
+            | MirInstructionKind::ChannelClose { .. }
+            | MirInstructionKind::ChannelSendOutcomeTest { .. }
+            | MirInstructionKind::ChannelReceiveItem { .. }
+            | MirInstructionKind::ChannelReceiveOutcomeTest { .. }
+    )
 }
 
 fn is_byte_buffer_instruction(kind: &MirInstructionKind) -> bool {

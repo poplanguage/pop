@@ -3518,6 +3518,34 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
                 remap_aggregate_expression(capacity, instances);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            remap_aggregate_expression(capacity, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            remap_aggregate_expression(sender, instances);
+            remap_aggregate_expression(value, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            remap_aggregate_expression(receiver, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            remap_aggregate_expression(endpoint, instances);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            remap_aggregate_expression(outcome, instances);
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            remap_aggregate_expression(outcome, instances);
+            *element = instances.type_id(*element);
+        }
         HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 remap_aggregate_expression(capacity, instances);
@@ -4180,6 +4208,24 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             if let Some(capacity) = capacity {
                 collect_expression_calls(capacity, calls);
             }
+        }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            collect_expression_calls(capacity, calls);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            collect_expression_calls(sender, calls);
+            collect_expression_calls(value, calls);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            collect_expression_calls(receiver, calls);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            collect_expression_calls(endpoint, calls);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            collect_expression_calls(outcome, calls);
         }
         HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
@@ -4981,6 +5027,34 @@ fn specialize_expression(
             if let Some(capacity) = capacity {
                 specialize_expression(capacity, substitutions, instances, arena)?;
             }
+        }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            specialize_expression(capacity, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            specialize_expression(sender, substitutions, instances, arena)?;
+            specialize_expression(value, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            specialize_expression(receiver, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            specialize_expression(endpoint, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            specialize_expression(outcome, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            specialize_expression(outcome, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
         }
         HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
@@ -5863,6 +5937,35 @@ pub enum HirExpressionKind {
     ListAdd {
         list: Box<HirExpression>,
         value: Box<HirExpression>,
+    },
+    ChannelCreate {
+        capacity: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelTrySend {
+        sender: Box<HirExpression>,
+        value: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelTryReceive {
+        receiver: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelClose {
+        endpoint: Box<HirExpression>,
+        direction: pop_types::ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: Box<HirExpression>,
+        expected: pop_types::ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: Box<HirExpression>,
+        expected: pop_types::ChannelReceiveOutcomeKind,
     },
     ByteBufferCreate {
         capacity: Option<Box<HirExpression>>,

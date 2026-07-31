@@ -174,6 +174,12 @@ remain precise strong roots; scalar values do not become roots. Scheduler
 waiting and cancellation must build on, rather than bypass, this admission
 path.
 
+ADR 0147 fixes the first public directional surface: opaque
+`Channel.Sender<T>`/`Receiver<T>`, closed named send/receive outcomes, a checked
+bounded constructor, non-suspending try operations, idempotent directional
+close, and typed inspection functions. Ordinary endpoint copies alias one
+directional group rather than silently creating a new producer/consumer.
+
 Send and receive may suspend and apply backpressure. `Task.select` uses a
 closed typed set of task, channel, or timer cases. It never returns an untyped
 tag/value bag. When several cases are ready, the scheduler chooses unless the

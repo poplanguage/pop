@@ -24,3 +24,7 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 122	Bytes.View	Pop.Standard	0	View	false
 123	Text.View	Pop.Standard	0	View	false
 124	Bytes.Buffer	Pop.Standard	0	Nominal	false
+125	Channel.Sender	Pop.Standard	1	Nominal	false
+126	Channel.Receiver	Pop.Standard	1	Nominal	false
+127	Channel.SendOutcome	Pop.Standard	0	Nominal	false
+128	Channel.ReceiveOutcome	Pop.Standard	1	Nominal	false

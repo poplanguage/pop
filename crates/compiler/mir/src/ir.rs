@@ -2021,6 +2021,40 @@ pub enum MirInstructionKind {
         value: ValueId,
         element_map: ArrayElementMap,
     },
+    ChannelCreate {
+        capacity: ValueId,
+        element: TypeId,
+        endpoints: TypeId,
+        allocation_site: AllocationSiteId,
+    },
+    ChannelTrySend {
+        sender: ValueId,
+        value: ValueId,
+        element: TypeId,
+        element_map: ArrayElementMap,
+    },
+    ChannelTryReceive {
+        receiver: ValueId,
+        element: TypeId,
+        element_map: ArrayElementMap,
+        allocation_site: AllocationSiteId,
+    },
+    ChannelClose {
+        endpoint: ValueId,
+        direction: pop_types::ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: ValueId,
+        expected: pop_types::ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: ValueId,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: ValueId,
+        expected: pop_types::ChannelReceiveOutcomeKind,
+    },
     ByteBufferCreate {
         capacity: Option<ValueId>,
         allocation_site: AllocationSiteId,

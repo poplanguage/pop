@@ -2697,6 +2697,70 @@ fn native_bounded_channel_abi_follows_adr_0146_with_precise_roots() {
 }
 
 #[test]
+fn directional_channel_api_follows_adr_0147_across_verified_ir_and_backends() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0147-directional-bounded-channel-api.md"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter =
+        read_required(root.join("crates/compiler/backends/mir-interp/src/interpreter.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for identity in [
+        "Channel.Sender",
+        "Channel.Receiver",
+        "Channel.SendOutcome",
+        "Channel.ReceiveOutcome",
+    ] {
+        assert!(baseline.contains(identity), "missing {identity}");
+    }
+    for operation in [
+        "ChannelCreate",
+        "ChannelTrySend",
+        "ChannelTryReceive",
+        "ChannelClose",
+        "ChannelSendOutcomeTest",
+        "ChannelReceiveItem",
+        "ChannelReceiveOutcomeTest",
+    ] {
+        assert!(typed.contains(operation));
+        assert!(hir.contains(operation));
+        assert!(mir.contains(operation));
+        assert!(interpreter.contains(operation));
+        assert!(llvm.contains(operation));
+        assert!(c.contains(operation));
+    }
+    for source_name in [
+        "bounded",
+        "trySend",
+        "tryReceive",
+        "close",
+        "closeReceiver",
+        "sendAccepted",
+        "sendFull",
+        "sendClosed",
+        "received",
+        "receiveEmpty",
+        "receiveClosed",
+    ] {
+        assert!(
+            baseline.contains(&format!("\tPop.Channel\t{source_name}\t")),
+            "missing Channel.{source_name}"
+        );
+    }
+    for forbidden in ["Box<dyn", "std::any::Any", "Dynamic"] {
+        assert!(!typed.contains(forbidden));
+        assert!(!mir.contains(forbidden));
+    }
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
@@ -2762,6 +2826,11 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "122\tBytes.View\tPop.Standard\t0\tView\tfalse",
             "123\tText.View\tPop.Standard\t0\tView\tfalse",
             "124\tBytes.Buffer\tPop.Standard\t0\tNominal\tfalse",
+            // ADR 0147 appends the non-prelude directional Channel identities.
+            "125\tChannel.Sender\tPop.Standard\t1\tNominal\tfalse",
+            "126\tChannel.Receiver\tPop.Standard\t1\tNominal\tfalse",
+            "127\tChannel.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
+            "128\tChannel.ReceiveOutcome\tPop.Standard\t1\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

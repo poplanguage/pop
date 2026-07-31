@@ -242,6 +242,70 @@ fn structured_task_intrinsics_reject_nominal_authority_and_owner_mismatches() {
 }
 
 #[test]
+fn directional_channel_intrinsics_preserve_exact_generic_endpoints_and_outcomes() {
+    let create = check_function(
+        "namespace Example\n\
+         public function create(): (Channel.Sender<Int>, Channel.Receiver<Int>)?\n\
+             return Channel.bounded<<Int>>(UInt64(2))\n\
+         end\n",
+        "create",
+    );
+    assert!(
+        create.result.diagnostics().is_empty(),
+        "{}",
+        create.result.diagnostic_snapshot()
+    );
+
+    let send = check_function(
+        "namespace Example\n\
+         public function send(sender: Channel.Sender<Int>): Boolean\n\
+             local outcome: Channel.SendOutcome = Channel.trySend(sender, 42)\n\
+             return Channel.sendAccepted(outcome) or Channel.sendFull(outcome) or Channel.sendClosed(outcome)\n\
+         end\n",
+        "send",
+    );
+    assert!(
+        send.result.diagnostics().is_empty(),
+        "{}",
+        send.result.diagnostic_snapshot()
+    );
+
+    let receive = check_function(
+        "namespace Example\n\
+         public function receive(receiver: Channel.Receiver<String>): String?\n\
+             local outcome: Channel.ReceiveOutcome<String> = Channel.tryReceive(receiver)\n\
+             if Channel.receiveEmpty(outcome) or Channel.receiveClosed(outcome) then\n\
+                 return nil\n\
+             end\n\
+             return Channel.received(outcome)\n\
+         end\n",
+        "receive",
+    );
+    assert!(
+        receive.result.diagnostics().is_empty(),
+        "{}",
+        receive.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn directional_channel_intrinsics_reject_endpoint_and_payload_mismatches() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function invalid(receiver: Channel.Receiver<Int>, sender: Channel.Sender<String>): Boolean\n\
+             local first = Channel.trySend(receiver, 42)\n\
+             local second = Channel.trySend(sender, 42)\n\
+             return Channel.close(receiver) or Channel.receiveEmpty(first) or Channel.sendAccepted(second)\n\
+         end\n",
+        "invalid",
+    );
+
+    let snapshot = fixture.result.diagnostic_snapshot();
+    assert!(fixture.result.body().is_none(), "{snapshot}");
+    assert!(snapshot.matches("POP2003").count() >= 3, "{snapshot}");
+}
+
+#[test]
 fn await_requires_async_context_and_exact_task_operand() {
     let outside = check_function(
         "namespace Example\n\

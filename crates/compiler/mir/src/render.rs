@@ -1037,6 +1037,92 @@ fn dump_instruction(output: &mut String, instruction: &MirInstructionKind) {
             let map = array_element_map_name(*element_map);
             let _ = write!(output, "listAdd {map} v{} v{}", list.raw(), value.raw());
         }
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            element,
+            endpoints,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "channelCreate site#{} t{} t{} v{}",
+                allocation_site.raw(),
+                element.raw(),
+                endpoints.raw(),
+                capacity.raw()
+            );
+        }
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+            element_map,
+        } => {
+            let map = array_element_map_name(*element_map);
+            let _ = write!(
+                output,
+                "channelTrySend {map} t{} v{} v{}",
+                element.raw(),
+                sender.raw(),
+                value.raw()
+            );
+        }
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element,
+            element_map,
+            allocation_site,
+        } => {
+            let map = array_element_map_name(*element_map);
+            let _ = write!(
+                output,
+                "channelTryReceive site#{} {map} t{} v{}",
+                allocation_site.raw(),
+                element.raw(),
+                receiver.raw()
+            );
+        }
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let direction = match direction {
+                pop_types::ChannelDirection::Sender => "sender",
+                pop_types::ChannelDirection::Receiver => "receiver",
+            };
+            let _ = write!(output, "channelClose {direction} v{}", endpoint.raw());
+        }
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelSendOutcomeKind::Accepted => "accepted",
+                pop_types::ChannelSendOutcomeKind::Full => "full",
+                pop_types::ChannelSendOutcomeKind::Closed => "closed",
+            };
+            let _ = write!(
+                output,
+                "channelSendOutcomeTest {expected} v{}",
+                outcome.raw()
+            );
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            let _ = write!(
+                output,
+                "channelReceiveItem t{} v{}",
+                element.raw(),
+                outcome.raw()
+            );
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelReceiveOutcomeKind::Empty => "empty",
+                pop_types::ChannelReceiveOutcomeKind::Closed => "closed",
+            };
+            let _ = write!(
+                output,
+                "channelReceiveOutcomeTest {expected} v{}",
+                outcome.raw()
+            );
+        }
         MirInstructionKind::ByteBufferCreate {
             capacity,
             allocation_site,

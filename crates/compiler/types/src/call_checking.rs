@@ -423,6 +423,26 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .check_task_invocation(path, arguments, span)
                     .map(CheckedInvocation::Value);
             }
+            if matches!(path.as_slice(), [channel, operation]
+            if channel == "Channel"
+                && matches!(
+                    operation.as_str(),
+                    "trySend"
+                        | "tryReceive"
+                        | "close"
+                        | "closeReceiver"
+                        | "sendAccepted"
+                        | "sendFull"
+                        | "sendClosed"
+                        | "received"
+                        | "receiveEmpty"
+                        | "receiveClosed"
+                ))
+            {
+                return self
+                    .check_channel_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
             if let Some(checked) = self.check_standard_invocation(path, arguments, span) {
                 return Some(CheckedInvocation::Call(checked));
             }
@@ -2920,6 +2940,267 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 arguments,
             })
             .ok()
+    }
+
+    fn channel_builtin_type(&mut self, name: &str, arguments: Vec<TypeId>) -> Option<TypeId> {
+        let definition = self.resolver.schema().type_by_source_name(name)?.id();
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition,
+                arguments,
+            })
+            .ok()
+    }
+
+    fn channel_element(
+        &mut self,
+        type_id: TypeId,
+        definition: pop_foundation::BuiltinTypeId,
+        expected: &str,
+        span: SourceSpan,
+    ) -> Option<TypeId> {
+        let element = match self.resolver.arena().get(type_id) {
+            Some(SemanticType::Builtin {
+                definition: found,
+                arguments,
+            }) if *found == definition && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        };
+        if element.is_none() {
+            self.diagnostics.push(type_diagnostics::type_mismatch(
+                span,
+                expected,
+                self.type_name(type_id),
+                span,
+            ));
+        }
+        element
+    }
+
+    pub(crate) fn check_channel_bounded(
+        &mut self,
+        type_arguments: &[pop_syntax::TypeSyntax],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if type_arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_type_arity(
+                span,
+                "Channel.bounded",
+                1,
+                type_arguments.len(),
+            ));
+            return None;
+        }
+        if arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Channel.bounded",
+                1,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let signature = self.signature_stack.last()?.clone();
+        let (resolved, diagnostics) =
+            self.resolver
+                .resolve_annotation(self.module, &type_arguments[0], &signature);
+        self.diagnostics.extend(diagnostics);
+        let element = resolved?.type_id()?;
+        let capacity_type = self.resolver.arena().source_type("UInt64")?;
+        let capacity = self.check_expression_expected(
+            &arguments[0],
+            Some(ExpectedExpressionType::plain(capacity_type)),
+        )?;
+        self.require_same_type(
+            capacity_type,
+            capacity.type_id(),
+            capacity.span(),
+            arguments[0].span(),
+        );
+        let sender = self.channel_builtin_type("Channel.Sender", vec![element])?;
+        let receiver = self.channel_builtin_type("Channel.Receiver", vec![element])?;
+        let endpoints = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Tuple(vec![sender, receiver]))
+            .ok()?;
+        let result = self.resolver.arena_mut().optional(endpoints).ok()?;
+        Some(TypedExpression {
+            kind: TypedExpressionKind::ChannelCreate {
+                capacity: Box::new(capacity),
+                element,
+            },
+            type_id: result,
+            span,
+        })
+    }
+
+    fn check_channel_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let operation = path.get(1)?.as_str();
+        let expected_arity = usize::from(operation == "trySend") + 1;
+        if arguments.len() != expected_arity {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                format!("Channel.{operation}"),
+                expected_arity,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let boolean = self.resolver.arena().source_type("Boolean")?;
+        let sender_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Channel.Sender")?
+            .id();
+        let receiver_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Channel.Receiver")?
+            .id();
+        let send_outcome = self.channel_builtin_type("Channel.SendOutcome", Vec::new())?;
+        match operation {
+            "trySend" => {
+                let sender = self.check_expression(&arguments[0])?;
+                let element = self.channel_element(
+                    sender.type_id(),
+                    sender_definition,
+                    "Channel.Sender<T>",
+                    arguments[0].span(),
+                )?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(element)),
+                )?;
+                self.require_same_type(element, value.type_id(), value.span(), arguments[1].span());
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelTrySend {
+                        sender: Box::new(sender),
+                        value: Box::new(value),
+                        element,
+                    },
+                    type_id: send_outcome,
+                    span,
+                })
+            }
+            "tryReceive" | "closeReceiver" => {
+                let receiver = self.check_expression(&arguments[0])?;
+                let element = self.channel_element(
+                    receiver.type_id(),
+                    receiver_definition,
+                    "Channel.Receiver<T>",
+                    arguments[0].span(),
+                )?;
+                if operation == "closeReceiver" {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelClose {
+                            endpoint: Box::new(receiver),
+                            direction: crate::ChannelDirection::Receiver,
+                        },
+                        type_id: boolean,
+                        span,
+                    })
+                } else {
+                    let outcome =
+                        self.channel_builtin_type("Channel.ReceiveOutcome", vec![element])?;
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelTryReceive {
+                            receiver: Box::new(receiver),
+                            element,
+                        },
+                        type_id: outcome,
+                        span,
+                    })
+                }
+            }
+            "close" => {
+                let sender = self.check_expression(&arguments[0])?;
+                self.channel_element(
+                    sender.type_id(),
+                    sender_definition,
+                    "Channel.Sender<T>",
+                    arguments[0].span(),
+                )?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelClose {
+                        endpoint: Box::new(sender),
+                        direction: crate::ChannelDirection::Sender,
+                    },
+                    type_id: boolean,
+                    span,
+                })
+            }
+            "sendAccepted" | "sendFull" | "sendClosed" => {
+                let outcome = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(send_outcome)),
+                )?;
+                self.require_same_type(
+                    send_outcome,
+                    outcome.type_id(),
+                    outcome.span(),
+                    arguments[0].span(),
+                );
+                let expected = match operation {
+                    "sendAccepted" => crate::ChannelSendOutcomeKind::Accepted,
+                    "sendFull" => crate::ChannelSendOutcomeKind::Full,
+                    _ => crate::ChannelSendOutcomeKind::Closed,
+                };
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelSendOutcomeTest {
+                        outcome: Box::new(outcome),
+                        expected,
+                    },
+                    type_id: boolean,
+                    span,
+                })
+            }
+            "received" | "receiveEmpty" | "receiveClosed" => {
+                let outcome = self.check_expression(&arguments[0])?;
+                let outcome_definition = self
+                    .resolver
+                    .schema()
+                    .type_by_source_name("Channel.ReceiveOutcome")?
+                    .id();
+                let element = self.channel_element(
+                    outcome.type_id(),
+                    outcome_definition,
+                    "Channel.ReceiveOutcome<T>",
+                    arguments[0].span(),
+                )?;
+                if operation == "received" {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelReceiveItem {
+                            outcome: Box::new(outcome),
+                            element,
+                        },
+                        type_id: self.resolver.arena_mut().optional(element).ok()?,
+                        span,
+                    })
+                } else {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelReceiveOutcomeTest {
+                            outcome: Box::new(outcome),
+                            expected: if operation == "receiveEmpty" {
+                                crate::ChannelReceiveOutcomeKind::Empty
+                            } else {
+                                crate::ChannelReceiveOutcomeKind::Closed
+                            },
+                        },
+                        type_id: boolean,
+                        span,
+                    })
+                }
+            }
+            _ => None,
+        }
     }
 
     fn task_argument(

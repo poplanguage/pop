@@ -396,6 +396,25 @@ impl TypedExpression {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelDirection {
+    Sender,
+    Receiver,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelSendOutcomeKind {
+    Accepted,
+    Full,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelReceiveOutcomeKind {
+    Empty,
+    Closed,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypedExpressionKind {
     Integer(IntegerValue),
@@ -475,6 +494,35 @@ pub enum TypedExpressionKind {
     ListAdd {
         list: Box<TypedExpression>,
         value: Box<TypedExpression>,
+    },
+    ChannelCreate {
+        capacity: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelTrySend {
+        sender: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelTryReceive {
+        receiver: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelClose {
+        endpoint: Box<TypedExpression>,
+        direction: ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: Box<TypedExpression>,
+        expected: ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: Box<TypedExpression>,
+        expected: ChannelReceiveOutcomeKind,
     },
     ByteBufferCreate {
         capacity: Option<Box<TypedExpression>>,

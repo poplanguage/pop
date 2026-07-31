@@ -20,17 +20,18 @@ use pop_mir::{
     MirBubble, MirCancellationMode, MirDeclarationKind, MirFfiLayout, MirFfiValueClass,
     MirGeneratedCodecAdapter, MirGeneratedCodecMemberId, MirInstruction, MirInstructionKind,
     MirSuspendOperation, MirTaskDispatch, MirTerminator, MirUnwindAction, MirVerificationError,
-    verify_mir_bubble,
+    is_managed_reference_type_id, verify_mir_bubble,
 };
 use pop_runtime_interface::{
     AllocationClass, ArrayAllocationRequest, BarrierKind, CancellationObservation,
-    CancellationTokenId, FfiBufferBorrowId, FfiBufferOpenFailure, FfiBufferOpenRequest,
-    FfiBytesBorrowId, FfiCallbackCloseFailure, FfiCallbackLifetime, FfiCallbackOpenFailure,
-    FfiCallbackOpenRequest, FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId,
-    FfiCallbackThread, ForeignAddress, ForeignCallMode, ManagedReference, ObjectAllocationRequest,
-    ObjectMap, ObjectSlot, PinHandle, RootHandle, RootPublication, RootSlot, RuntimeAdapter,
-    RuntimeFailure, RuntimeTypeId, SchedulerId, StackMap, TableAllocationRequest, TaskGroupExit,
-    TaskGroupId, TaskGroupLifecycle, TaskId, TaskLifecycle, TaskOwner, TaskPollCompletion,
+    CancellationTokenId, ChannelId, ChannelLifecycle, ChannelReceive, ChannelSendError,
+    FfiBufferBorrowId, FfiBufferOpenFailure, FfiBufferOpenRequest, FfiBytesBorrowId,
+    FfiCallbackCloseFailure, FfiCallbackLifetime, FfiCallbackOpenFailure, FfiCallbackOpenRequest,
+    FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId, FfiCallbackThread,
+    ForeignAddress, ForeignCallMode, ManagedReference, ObjectAllocationRequest, ObjectMap,
+    ObjectSlot, PinHandle, RootHandle, RootPublication, RootSlot, RuntimeAdapter, RuntimeFailure,
+    RuntimeTypeId, SchedulerId, StackMap, TableAllocationRequest, TaskGroupExit, TaskGroupId,
+    TaskGroupLifecycle, TaskId, TaskLifecycle, TaskOwner, TaskPollCompletion,
     TaskState as RuntimeTaskState, Trap, TrapKind, UnwindReason, WriteBarrier,
 };
 use pop_types::{
@@ -59,20 +60,7 @@ fn push_codec_event(
 }
 
 fn managed_type(arena: &TypeArena, type_id: TypeId) -> bool {
-    matches!(
-        arena.get(type_id),
-        Some(
-            SemanticType::Primitive(PrimitiveType::String)
-                | SemanticType::Tuple(_)
-                | SemanticType::Array(_)
-                | SemanticType::Table { .. }
-                | SemanticType::Class { .. }
-                | SemanticType::Interface { .. }
-                | SemanticType::Builtin { .. }
-                | SemanticType::Function { .. }
-                | SemanticType::ErrorUnion { .. }
-        )
-    )
+    is_managed_reference_type_id(type_id, Some(arena))
 }
 
 fn ffi_pointer(value: &MirValue) -> Result<ForeignAddress, ExecutionError> {
@@ -1533,6 +1521,13 @@ enum PrivateValue {
     CancellationSource(Rc<RefCell<CancellationState>>),
     CancellationToken(Rc<RefCell<CancellationState>>),
     TaskGroup(Rc<RefCell<InterpreterTaskGroup>>),
+    Channel(Rc<RefCell<ChannelLifecycle<InterpreterChannelValue>>>),
+}
+
+#[derive(Clone, Debug)]
+struct InterpreterChannelValue {
+    value: RuntimeValue,
+    root: Option<RootHandle>,
 }
 
 #[derive(Clone)]
@@ -2996,9 +2991,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 let tuple = MirValue::Tuple(
                     elements
                         .iter()
-                        .map(|element| {
-                            value(values, *element).map(RuntimeValue::observed_visible)
-                        })
+                        .map(|element| value(values, *element).map(RuntimeValue::observed_visible))
                         .collect::<Result<_, _>>()?,
                 );
                 let Some(SemanticType::Tuple(element_types)) =
@@ -3691,6 +3684,202 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     return Err(ExecutionError::TypeMismatch);
                 }
                 MirValue::Nil
+            }
+            MirInstructionKind::ChannelCreate {
+                capacity,
+                endpoints,
+                ..
+            } => {
+                let MirValue::Integer(capacity) = value(values, *capacity)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(capacity) = capacity.unsigned() else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let channel = self.fresh_private_symbol();
+                self.private_values.insert(
+                    channel,
+                    PrivateValue::Channel(Rc::new(RefCell::new(ChannelLifecycle::bounded(
+                        ChannelId::new(u64::from(channel.raw())),
+                        capacity,
+                    )))),
+                );
+                let reference = match self.runtime.allocate_object(&ObjectAllocationRequest::new(
+                    RuntimeTypeId::new(endpoints.raw()),
+                    AllocationClass::NurseryEligible,
+                    ObjectMap::new(2, Vec::new())
+                        .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                )) {
+                    Ok(reference) => reference,
+                    Err(_) => {
+                        self.private_values.remove(&channel);
+                        return Ok(RuntimeValue::visible(MirValue::Nil));
+                    }
+                };
+                return Ok(RuntimeValue::managed(
+                    MirValue::Tuple(vec![
+                        MirValue::ChannelSender(channel),
+                        MirValue::ChannelReceiver(channel),
+                    ]),
+                    reference,
+                ));
+            }
+            MirInstructionKind::ChannelTrySend {
+                sender,
+                value: sent,
+                ..
+            } => {
+                let MirValue::ChannelSender(channel) = value(values, *sender)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let channel = match self.private_values.get(&channel) {
+                    Some(PrivateValue::Channel(channel)) => Rc::clone(channel),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                let sent = value(values, *sent)?.clone();
+                let root = sent
+                    .reference
+                    .map(|reference| self.runtime.retain_root(reference))
+                    .transpose()
+                    .map_err(ExecutionError::Runtime)?;
+                let queued = InterpreterChannelValue { value: sent, root };
+                let outcome = match channel.borrow_mut().try_send(queued) {
+                    Ok(()) => pop_types::ChannelSendOutcomeKind::Accepted,
+                    Err(ChannelSendError::Full(unsent)) => {
+                        if let Some(root) = unsent.root {
+                            self.runtime
+                                .release_root(root)
+                                .map_err(ExecutionError::Runtime)?;
+                        }
+                        pop_types::ChannelSendOutcomeKind::Full
+                    }
+                    Err(ChannelSendError::Closed(unsent)) => {
+                        if let Some(root) = unsent.root {
+                            self.runtime
+                                .release_root(root)
+                                .map_err(ExecutionError::Runtime)?;
+                        }
+                        pop_types::ChannelSendOutcomeKind::Closed
+                    }
+                };
+                MirValue::ChannelSendOutcome(outcome)
+            }
+            MirInstructionKind::ChannelTryReceive {
+                receiver,
+                element_map,
+                ..
+            } => {
+                let MirValue::ChannelReceiver(channel) = value(values, *receiver)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let channel = match self.private_values.get(&channel) {
+                    Some(PrivateValue::Channel(channel)) => Rc::clone(channel),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                let references = (*element_map
+                    == pop_runtime_interface::ArrayElementMap::ManagedReference)
+                    .then_some(ObjectSlot::new(1))
+                    .into_iter()
+                    .collect();
+                let reference = self
+                    .runtime
+                    .allocate_object(&ObjectAllocationRequest::new(
+                        RuntimeTypeId::new(instruction.result_type().raw()),
+                        AllocationClass::NurseryEligible,
+                        ObjectMap::new(2, references)
+                            .map_err(|_| ExecutionError::InvalidControlFlow)?,
+                    ))
+                    .map_err(ExecutionError::Runtime)?;
+                let (received, closed) = match channel.borrow_mut().try_receive() {
+                    ChannelReceive::Item(mut received) => {
+                        if let Some(root) = received.root {
+                            let relocated = self
+                                .runtime
+                                .resolve_root(root)
+                                .map_err(ExecutionError::Runtime)?;
+                            received
+                                .value
+                                .install_relocated_reference(Some(relocated))?;
+                            self.runtime
+                                .release_root(root)
+                                .map_err(ExecutionError::Runtime)?;
+                        }
+                        (Some(Box::new(received.value.observed_visible())), false)
+                    }
+                    ChannelReceive::Empty => (None, false),
+                    ChannelReceive::Closed => (None, true),
+                };
+                return Ok(RuntimeValue::managed(
+                    MirValue::ChannelReceiveOutcome {
+                        value: received,
+                        closed,
+                    },
+                    reference,
+                ));
+            }
+            MirInstructionKind::ChannelClose {
+                endpoint,
+                direction,
+            } => {
+                let channel_symbol = match (&value(values, *endpoint)?.visible, direction) {
+                    (MirValue::ChannelSender(channel), pop_types::ChannelDirection::Sender)
+                    | (MirValue::ChannelReceiver(channel), pop_types::ChannelDirection::Receiver) => {
+                        *channel
+                    }
+                    _ => return Err(ExecutionError::TypeMismatch),
+                };
+                let channel = match self.private_values.get(&channel_symbol) {
+                    Some(PrivateValue::Channel(channel)) => Rc::clone(channel),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                let changed = match direction {
+                    pop_types::ChannelDirection::Sender => channel.borrow_mut().close(),
+                    pop_types::ChannelDirection::Receiver => {
+                        let was_open = channel.borrow().receiver_count() != 0;
+                        let discarded = channel.borrow_mut().release_receiver();
+                        let changed = was_open && channel.borrow().receiver_count() == 0;
+                        for discarded in discarded {
+                            if let Some(root) = discarded.root {
+                                self.runtime
+                                    .release_root(root)
+                                    .map_err(ExecutionError::Runtime)?;
+                            }
+                        }
+                        changed
+                    }
+                };
+                MirValue::Boolean(changed)
+            }
+            MirInstructionKind::ChannelSendOutcomeTest { outcome, expected } => {
+                let MirValue::ChannelSendOutcome(found) = value(values, *outcome)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                MirValue::Boolean(found == *expected)
+            }
+            MirInstructionKind::ChannelReceiveItem { outcome, .. } => {
+                let MirValue::ChannelReceiveOutcome {
+                    value: received, ..
+                } = &value(values, *outcome)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                received
+                    .as_ref()
+                    .map_or(MirValue::Nil, |received| (**received).clone())
+            }
+            MirInstructionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+                let MirValue::ChannelReceiveOutcome {
+                    value: received,
+                    closed,
+                } = &value(values, *outcome)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let matches = match expected {
+                    pop_types::ChannelReceiveOutcomeKind::Empty => received.is_none() && !closed,
+                    pop_types::ChannelReceiveOutcomeKind::Closed => received.is_none() && *closed,
+                };
+                MirValue::Boolean(matches)
             }
             MirInstructionKind::BooleanNot { operand } => match &value(values, *operand)?.visible {
                 MirValue::Boolean(value) => MirValue::Boolean(!value),
@@ -4786,7 +4975,8 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         PrivateValue::Task(_)
                         | PrivateValue::CancellationSource(_)
                         | PrivateValue::CancellationToken(_)
-                        | PrivateValue::TaskGroup(_),
+                        | PrivateValue::TaskGroup(_)
+                        | PrivateValue::Channel(_),
                     ) => Err(ExecutionError::TypeMismatch),
                     None => Err(ExecutionError::TypeMismatch),
                 }

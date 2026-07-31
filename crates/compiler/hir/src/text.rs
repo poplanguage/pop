@@ -958,6 +958,59 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             output.push(' ');
             dump_expression(output, value, arena);
         }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            let _ = write!(
+                output,
+                "channel.create element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, capacity, arena);
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            let _ = write!(
+                output,
+                "channel.trySend element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, sender, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            let _ = write!(
+                output,
+                "channel.tryReceive element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, receiver, arena);
+        }
+        HirExpressionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let _ = write!(output, "channel.close {direction:?} ");
+            dump_expression(output, endpoint, arena);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let _ = write!(output, "channel.sendOutcomeIs {expected:?} ");
+            dump_expression(output, outcome, arena);
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            let _ = write!(
+                output,
+                "channel.received element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, outcome, arena);
+        }
+        HirExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let _ = write!(output, "channel.receiveOutcomeIs {expected:?} ");
+            dump_expression(output, outcome, arena);
+        }
         HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             output.push_str("byteBufferCreate");
             if let Some(capacity) = capacity {

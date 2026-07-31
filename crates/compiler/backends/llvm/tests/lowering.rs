@@ -112,6 +112,97 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
 }
 
 #[test]
+fn directional_channels_lower_to_exact_native_abi_and_valid_llvm_ir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/channel.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             if local endpoints = Channel.bounded<<Int>>(UInt64(1)) then\n\
+                 local sender = endpoints[1]\n\
+                 local receiver = endpoints[2]\n\
+                 local sent = Channel.trySend(sender, 41)\n\
+                 local received = Channel.tryReceive(receiver)\n\
+                 local closed = Channel.close(sender)\n\
+                 local finished = Channel.tryReceive(receiver)\n\
+                 if Channel.sendAccepted(sent) and closed and Channel.receiveClosed(finished) then\n\
+                     if local textEndpoints = Channel.bounded<<String>>(UInt64(1)) then\n\
+                         local textSender = textEndpoints[1]\n\
+                         local textReceiver = textEndpoints[2]\n\
+                         local textSent = Channel.trySend(textSender, \"rooted\")\n\
+                         local textReceived = Channel.tryReceive(textReceiver)\n\
+                         if Channel.sendAccepted(textSent) then\n\
+                             return (Channel.received(received) ?? 0) + Text.length(Text.view(Channel.received(textReceived) ?? \"\"))\n\
+                         end\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return -1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Channel MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Channel lowering");
+    let text = module.to_string();
+
+    for symbol in [
+        "pop_rt_channel_create",
+        "pop_rt_channel_try_send",
+        "pop_rt_channel_try_receive",
+        "pop_rt_channel_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    assert!(
+        text.contains("i32 1, ptr @pop_allocation_site")
+            || text.contains("constant [1 x i32] [i32 1]"),
+        "managed receive outcomes need an exact payload root map: {text}"
+    );
+    assert!(!text.to_ascii_lowercase().contains("dynamic"), "{text}");
+    let input = std::env::temp_dir().join("pop-backend-llvm-channel.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-channel.bc");
+    fs::write(&input, &text).expect("write Channel LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Channel IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "channel");
+    assert_eq!(
+        executed.status.code(),
+        Some(47),
+        "native Channel execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
 fn llvm_lowers_foreign_calls_with_exact_abi_and_balanced_transitions() {
     let ffi = BubbleId::from_raw(9);
     let source = SourceFile::new(

@@ -298,6 +298,24 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
                 finalize_expression_captures(capacity, written);
             }
         }
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            finalize_expression_captures(capacity, written);
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            finalize_expression_captures(sender, written);
+            finalize_expression_captures(value, written);
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            finalize_expression_captures(receiver, written);
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            finalize_expression_captures(endpoint, written);
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            finalize_expression_captures(outcome, written);
+        }
         TypedExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 finalize_expression_captures(capacity, written);

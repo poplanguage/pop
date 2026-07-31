@@ -1174,6 +1174,52 @@ fn lower_expression(
             list: Box::new(lower_expression(list, interface_slots)),
             value: Box::new(lower_expression(value, interface_slots)),
         },
+        TypedExpressionKind::ChannelCreate { capacity, element } => {
+            HirExpressionKind::ChannelCreate {
+                capacity: Box::new(lower_expression(capacity, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => HirExpressionKind::ChannelTrySend {
+            sender: Box::new(lower_expression(sender, interface_slots)),
+            value: Box::new(lower_expression(value, interface_slots)),
+            element: *element,
+        },
+        TypedExpressionKind::ChannelTryReceive { receiver, element } => {
+            HirExpressionKind::ChannelTryReceive {
+                receiver: Box::new(lower_expression(receiver, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => HirExpressionKind::ChannelClose {
+            endpoint: Box::new(lower_expression(endpoint, interface_slots)),
+            direction: *direction,
+        },
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            HirExpressionKind::ChannelSendOutcomeTest {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                expected: *expected,
+            }
+        }
+        TypedExpressionKind::ChannelReceiveItem { outcome, element } => {
+            HirExpressionKind::ChannelReceiveItem {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            HirExpressionKind::ChannelReceiveOutcomeTest {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                expected: *expected,
+            }
+        }
         TypedExpressionKind::ByteBufferCreate {
             capacity,
             allocation_site,
@@ -2277,6 +2323,24 @@ fn first_unknown_interface_expression(
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            first_unknown_interface_expression(capacity, slots)
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            first_unknown_interface_expression(sender, slots)
+                .or_else(|| first_unknown_interface_expression(value, slots))
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            first_unknown_interface_expression(receiver, slots)
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            first_unknown_interface_expression(endpoint, slots)
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            first_unknown_interface_expression(outcome, slots)
+        }
         TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
             .as_deref()
             .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
@@ -2729,6 +2793,24 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(first_compile_time_only_expression),
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            first_compile_time_only_expression(capacity)
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            first_compile_time_only_expression(sender)
+                .or_else(|| first_compile_time_only_expression(value))
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            first_compile_time_only_expression(receiver)
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            first_compile_time_only_expression(endpoint)
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            first_compile_time_only_expression(outcome)
+        }
         TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
             .as_deref()
             .and_then(first_compile_time_only_expression),

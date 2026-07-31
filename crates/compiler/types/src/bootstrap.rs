@@ -463,6 +463,14 @@ pub const BYTES_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(122);
 pub const TEXT_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(123);
 /// Stable compiler-known identity of the reusable mutable `Bytes.Buffer`.
 pub const BYTES_BUFFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(124);
+/// Stable compiler-known identity of directional `Channel.Sender<T>`.
+pub const CHANNEL_SENDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(125);
+/// Stable compiler-known identity of directional `Channel.Receiver<T>`.
+pub const CHANNEL_RECEIVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(126);
+/// Stable compiler-known identity of closed `Channel.SendOutcome`.
+pub const CHANNEL_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(127);
+/// Stable compiler-known identity of closed `Channel.ReceiveOutcome<T>`.
+pub const CHANNEL_RECEIVE_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(128);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1160,6 +1168,31 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
             2,
             "invalid trusted byte buffer type contract",
         ));
+    }
+    for (id, source_name, arity) in [
+        (CHANNEL_SENDER_TYPE_ID, "Channel.Sender", 1),
+        (CHANNEL_RECEIVER_TYPE_ID, "Channel.Receiver", 1),
+        (CHANNEL_SEND_OUTCOME_TYPE_ID, "Channel.SendOutcome", 0),
+        (CHANNEL_RECEIVE_OUTCOME_TYPE_ID, "Channel.ReceiveOutcome", 1),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required channel type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != arity
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted channel type contract",
+            ));
+        }
     }
     Ok(())
 }

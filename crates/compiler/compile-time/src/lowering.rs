@@ -506,6 +506,15 @@ fn unsupported_compile_time_construct(
             UnsupportedCompileTimeConstruct::ArrayAccess
         }
         TypedExpressionKind::ListAdd { .. } => UnsupportedCompileTimeConstruct::Mutation,
+        TypedExpressionKind::ChannelCreate { .. }
+        | TypedExpressionKind::ChannelTrySend { .. }
+        | TypedExpressionKind::ChannelTryReceive { .. }
+        | TypedExpressionKind::ChannelClose { .. }
+        | TypedExpressionKind::ChannelSendOutcomeTest { .. }
+        | TypedExpressionKind::ChannelReceiveItem { .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
         TypedExpressionKind::Record { .. } => UnsupportedCompileTimeConstruct::Record,
         TypedExpressionKind::ClassConstruct { .. } => {
             UnsupportedCompileTimeConstruct::ClassConstruction

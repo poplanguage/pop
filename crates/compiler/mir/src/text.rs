@@ -2150,6 +2150,94 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
             element_map: parse_array_element_map(element_map, line)?,
         });
     }
+    if let Some(rest) = text.strip_prefix("channelCreate ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel creation"));
+        }
+        return Ok(MirInstructionKind::ChannelCreate {
+            allocation_site: AllocationSiteId::from_raw(parse_hash(parts[0], "site#", line)?),
+            element: TypeId::from_raw(parse_prefixed(parts[1], 't', line)?),
+            endpoints: TypeId::from_raw(parse_prefixed(parts[2], 't', line)?),
+            capacity: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelTrySend ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel send"));
+        }
+        return Ok(MirInstructionKind::ChannelTrySend {
+            element_map: parse_array_element_map(parts[0], line)?,
+            element: TypeId::from_raw(parse_prefixed(parts[1], 't', line)?),
+            sender: ValueId::from_raw(parse_prefixed(parts[2], 'v', line)?),
+            value: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelTryReceive ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel receive"));
+        }
+        return Ok(MirInstructionKind::ChannelTryReceive {
+            allocation_site: AllocationSiteId::from_raw(parse_hash(parts[0], "site#", line)?),
+            element_map: parse_array_element_map(parts[1], line)?,
+            element: TypeId::from_raw(parse_prefixed(parts[2], 't', line)?),
+            receiver: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelClose ") {
+        let (direction, endpoint) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel close"))?;
+        let direction = match direction {
+            "sender" => pop_types::ChannelDirection::Sender,
+            "receiver" => pop_types::ChannelDirection::Receiver,
+            _ => return Err(error(line, "channel direction")),
+        };
+        return Ok(MirInstructionKind::ChannelClose {
+            endpoint: ValueId::from_raw(parse_prefixed(endpoint, 'v', line)?),
+            direction,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelSendOutcomeTest ") {
+        let (expected, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel send outcome test"))?;
+        let expected = match expected {
+            "accepted" => pop_types::ChannelSendOutcomeKind::Accepted,
+            "full" => pop_types::ChannelSendOutcomeKind::Full,
+            "closed" => pop_types::ChannelSendOutcomeKind::Closed,
+            _ => return Err(error(line, "channel send outcome")),
+        };
+        return Ok(MirInstructionKind::ChannelSendOutcomeTest {
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+            expected,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelReceiveItem ") {
+        let (element, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel received item"))?;
+        return Ok(MirInstructionKind::ChannelReceiveItem {
+            element: TypeId::from_raw(parse_prefixed(element, 't', line)?),
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelReceiveOutcomeTest ") {
+        let (expected, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel receive outcome test"))?;
+        let expected = match expected {
+            "empty" => pop_types::ChannelReceiveOutcomeKind::Empty,
+            "closed" => pop_types::ChannelReceiveOutcomeKind::Closed,
+            _ => return Err(error(line, "channel receive outcome")),
+        };
+        return Ok(MirInstructionKind::ChannelReceiveOutcomeTest {
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+            expected,
+        });
+    }
     if let Some(rest) = text.strip_prefix("byteBufferCreate ") {
         let (site, capacity) = rest
             .split_once(' ')

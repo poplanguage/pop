@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use pop_runtime_interface::{
-    ChannelId, ChannelLifecycle, ChannelReceive, ChannelSendError, ManagedReference, RootHandle,
-    RuntimeAdapter,
+    ChannelId, ChannelLifecycle, ChannelReceive, ChannelSendError, ChannelState, ManagedReference,
+    RootHandle, RuntimeAdapter,
 };
 use pop_runtime_native_abi::{ChannelReceiveStatus, ChannelSendStatus};
 
@@ -129,7 +129,7 @@ pub extern "C" fn pop_rt_channel_release_receiver(channel: u64) -> u8 {
             return 0;
         }
         let values = record.release_receiver();
-        let remove = record.sender_count() == 0 && record.receiver_count() == 0;
+        let remove = record.state() == ChannelState::Closed;
         if remove {
             registry.remove(&channel);
         }
@@ -144,10 +144,15 @@ pub extern "C" fn pop_rt_channel_close(channel: u64) -> u8 {
     let Ok(mut registry) = channels().lock() else {
         return 0;
     };
-    let Some(channel) = registry.get_mut(&channel) else {
+    let Some(record) = registry.get_mut(&channel) else {
         return 0;
     };
-    u8::from(channel.close())
+    let closed = record.close();
+    let remove = record.state() == ChannelState::Closed;
+    if remove {
+        registry.remove(&channel);
+    }
+    u8::from(closed)
 }
 
 #[allow(unsafe_code)]

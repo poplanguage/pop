@@ -2677,8 +2677,22 @@ fn visit_expression_closures(
                 visit_expression_closures(capacity, parameters, locals);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            visit_expression_closures(capacity, parameters, locals);
+        }
         HirExpressionKind::ListLength { list } => {
             visit_expression_closures(list, parameters, locals);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            visit_expression_closures(receiver, parameters, locals);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            visit_expression_closures(endpoint, parameters, locals);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            visit_expression_closures(outcome, parameters, locals);
         }
         HirExpressionKind::ByteBufferLength { buffer }
         | HirExpressionKind::ByteBufferClear { buffer }
@@ -2692,6 +2706,10 @@ fn visit_expression_closures(
         }
         HirExpressionKind::ListAdd { list, value } => {
             visit_expression_closures(list, parameters, locals);
+            visit_expression_closures(value, parameters, locals);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            visit_expression_closures(sender, parameters, locals);
             visit_expression_closures(value, parameters, locals);
         }
         HirExpressionKind::ByteBufferReserve {
@@ -5598,6 +5616,58 @@ impl<'hir> FunctionBuilder<'hir> {
                 value: self.lower_expression(value),
                 element_map: list_element_map(self.arena, list.type_id()),
             },
+            HirExpressionKind::ChannelCreate { capacity, element } => {
+                MirInstructionKind::ChannelCreate {
+                    capacity: self.lower_expression(capacity),
+                    element: *element,
+                    endpoints: optional_inner_type(self.arena, expression.type_id())
+                        .expect("verified Channel creation has one endpoint tuple"),
+                    allocation_site: self.fresh_generated_allocation_site(),
+                }
+            }
+            HirExpressionKind::ChannelTrySend {
+                sender,
+                value,
+                element,
+            } => MirInstructionKind::ChannelTrySend {
+                sender: self.lower_expression(sender),
+                value: self.lower_expression(value),
+                element: *element,
+                element_map: value_element_map(self.arena, *element),
+            },
+            HirExpressionKind::ChannelTryReceive { receiver, element } => {
+                MirInstructionKind::ChannelTryReceive {
+                    receiver: self.lower_expression(receiver),
+                    element: *element,
+                    element_map: value_element_map(self.arena, *element),
+                    allocation_site: self.fresh_generated_allocation_site(),
+                }
+            }
+            HirExpressionKind::ChannelClose {
+                endpoint,
+                direction,
+            } => MirInstructionKind::ChannelClose {
+                endpoint: self.lower_expression(endpoint),
+                direction: *direction,
+            },
+            HirExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+                MirInstructionKind::ChannelSendOutcomeTest {
+                    outcome: self.lower_expression(outcome),
+                    expected: *expected,
+                }
+            }
+            HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+                MirInstructionKind::ChannelReceiveItem {
+                    outcome: self.lower_expression(outcome),
+                    element: *element,
+                }
+            }
+            HirExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+                MirInstructionKind::ChannelReceiveOutcomeTest {
+                    outcome: self.lower_expression(outcome),
+                    expected: *expected,
+                }
+            }
             HirExpressionKind::ByteBufferCreate {
                 capacity,
                 allocation_site,
@@ -7081,6 +7151,14 @@ pub(crate) fn array_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElem
     }
 }
 
+pub(crate) fn value_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElementMap {
+    if is_managed_reference_type_id(type_id, Some(arena)) {
+        ArrayElementMap::ManagedReference
+    } else {
+        ArrayElementMap::Scalar
+    }
+}
+
 pub(crate) fn list_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElementMap {
     let list = pop_types::embedded_bootstrap_schema()
         .ok()
@@ -7207,6 +7285,9 @@ pub fn is_managed_reference_type_id(type_id: TypeId, arena: Option<&TypeArena>) 
                 && *definition != pop_types::TEXT_VIEW_TYPE_ID
                 && *definition != pop_types::FFI_NULL_POINTER_ERROR_TYPE_ID
                 && *definition != pop_types::FFI_ALLOCATION_ERROR_TYPE_ID
+                && *definition != pop_types::CHANNEL_SENDER_TYPE_ID
+                && *definition != pop_types::CHANNEL_RECEIVER_TYPE_ID
+                && *definition != pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID
         }
         Some(
             SemanticType::Primitive(PrimitiveType::String)
@@ -7403,6 +7484,26 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
             MirEffect::MayUnwind,
             MirEffect::GcSafePoint,
         ]),
+        MirInstructionKind::ChannelCreate { .. } | MirInstructionKind::ChannelTryReceive { .. } => {
+            MirEffectSummary::from_effects([
+                MirEffect::Allocates,
+                MirEffect::Synchronizes,
+                MirEffect::MayUnwind,
+                MirEffect::GcSafePoint,
+            ])
+        }
+        MirInstructionKind::ChannelTrySend { element_map, .. } => {
+            let effects =
+                MirEffectSummary::from_effects([MirEffect::Synchronizes, MirEffect::MayUnwind]);
+            if *element_map == ArrayElementMap::ManagedReference {
+                effects.with(MirEffect::WritesManagedReference)
+            } else {
+                effects
+            }
+        }
+        MirInstructionKind::ChannelClose { .. } => {
+            MirEffectSummary::from_effects([MirEffect::Synchronizes, MirEffect::MayUnwind])
+        }
         MirInstructionKind::ListAdd { element_map, .. } => {
             let effects = MirEffectSummary::from_effects([
                 MirEffect::Allocates,
@@ -7556,6 +7657,9 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ArrayLength { .. }
         | MirInstructionKind::ListGet { .. }
         | MirInstructionKind::ListLength { .. }
+        | MirInstructionKind::ChannelSendOutcomeTest { .. }
+        | MirInstructionKind::ChannelReceiveItem { .. }
+        | MirInstructionKind::ChannelReceiveOutcomeTest { .. }
         | MirInstructionKind::ByteBufferLength { .. }
         | MirInstructionKind::ByteBufferClear { .. }
         | MirInstructionKind::FloatAdd { .. }

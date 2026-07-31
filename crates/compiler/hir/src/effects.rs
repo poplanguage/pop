@@ -1317,6 +1317,12 @@ fn visit_expression_children_mut(
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::ArrayLength { array: base }
         | HirExpressionKind::ListLength { list: base }
+        | HirExpressionKind::ChannelCreate { capacity: base, .. }
+        | HirExpressionKind::ChannelTryReceive { receiver: base, .. }
+        | HirExpressionKind::ChannelClose { endpoint: base, .. }
+        | HirExpressionKind::ChannelSendOutcomeTest { outcome: base, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome: base, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome: base, .. }
         | HirExpressionKind::ByteBufferLength { buffer: base }
         | HirExpressionKind::ByteBufferClear { buffer: base }
         | HirExpressionKind::ByteBufferMaterialize { buffer: base, .. }
@@ -1401,6 +1407,11 @@ fn visit_expression_children_mut(
         | HirExpressionKind::ListAdd {
             list: length,
             value: initial_value,
+        }
+        | HirExpressionKind::ChannelTrySend {
+            sender: length,
+            value: initial_value,
+            ..
         }
         | HirExpressionKind::ByteBufferReserve {
             buffer: length,

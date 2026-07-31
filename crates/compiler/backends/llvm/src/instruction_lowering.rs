@@ -7,7 +7,9 @@
 use pop_foundation::{BubbleId, FieldId, FunctionId, SymbolId, TypeId, ValueId};
 use pop_mir::{MirFfiLayoutCatalog, MirInstructionKind, MirTerminator};
 use pop_runtime_interface::{ArrayElementMap, RuntimeOperation};
-use pop_runtime_native_abi::{IterationCollectionKind, IterationStatus};
+use pop_runtime_native_abi::{
+    ChannelReceiveStatus, ChannelSendStatus, IterationCollectionKind, IterationStatus,
+};
 use pop_types::{FloatKind, IntegerKind, PrimitiveType, SemanticType, TypeArena};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1043,6 +1045,66 @@ pub(crate) fn lower_instruction(
             value_types,
             types,
         )?,
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            allocation_site,
+            ..
+        } => lower_channel_create(
+            &result,
+            *capacity,
+            value_types,
+            types,
+            &allocation_site_symbol(bubble, owner, *allocation_site),
+        )?,
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element_map,
+            ..
+        } => lower_channel_try_send(&result, *sender, *value, *element_map, value_types, types)?,
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element_map,
+            allocation_site,
+            ..
+        } => lower_channel_try_receive(
+            &result,
+            *receiver,
+            *element_map,
+            value_types,
+            types,
+            &allocation_site_symbol(bubble, owner, *allocation_site),
+        )?,
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => lower_channel_close(&result, *endpoint, *direction),
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelSendOutcomeKind::Accepted => 0,
+                pop_types::ChannelSendOutcomeKind::Full => 1,
+                pop_types::ChannelSendOutcomeKind::Closed => 2,
+            };
+            format!("{result} = icmp eq i64 %v{}, {expected}", outcome.raw())
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            lower_channel_receive_item(&result, *outcome, *element, types)?
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelReceiveOutcomeKind::Empty => 1,
+                pop_types::ChannelReceiveOutcomeKind::Closed => 2,
+            };
+            [
+                format!(
+                    "{result}_tag = call i64 @{}(i64 %v{}, i64 1)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    outcome.raw()
+                ),
+                format!("{result} = icmp eq i64 {result}_tag, {expected}"),
+            ]
+            .join("\n")
+        }
         MirInstructionKind::ByteBufferCreate { capacity, .. } => {
             lower_byte_buffer_create(&result, *capacity)
         }
@@ -3183,6 +3245,254 @@ pub(crate) fn lower_list_mutation(
         "  unreachable".to_owned(),
         format!("{label}_continue:"),
         format!("  {result} = add i64 0, 0"),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_create(
+    result: &str,
+    capacity: ValueId,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let label = result.trim_start_matches('%');
+    let handle = format!("{result}_handle");
+    let available = format!("{result}_available");
+    let endpoints = format!("{result}_endpoints");
+    let absent = format!("{result}_absent_value");
+    let allocation_failed = format!("{result}_allocation_failed_value");
+    let endpoints_available = format!("{result}_endpoints_available");
+    let present = format!("{result}_present");
+    let mut lines = vec![
+        format!(
+            "{handle} = call i64 @{}(i64 %v{})",
+            native_runtime_symbol(RuntimeOperation::ChannelCreate),
+            capacity.raw()
+        ),
+        format!("{available} = icmp ne i64 {handle}, 0"),
+        format!("br i1 {available}, label %{label}_create, label %{label}_absent"),
+        format!("{label}_absent:"),
+        format!("{absent} = insertvalue {{ i1, i64 }} zeroinitializer, i1 false, 0"),
+        format!("br label %{label}_continue"),
+        format!("{label}_create:"),
+    ];
+    lines.extend(
+        lower_initialized_values(
+            &endpoints,
+            vec![
+                ObjectInitializer::Rendered(handle.clone()),
+                ObjectInitializer::Rendered(handle.clone()),
+            ],
+            values,
+            types,
+            descriptor,
+        )?
+        .lines()
+        .map(str::to_owned),
+    );
+    lines.extend([
+        format!("{endpoints_available} = icmp ne i64 {endpoints}, 0"),
+        format!(
+            "br i1 {endpoints_available}, label %{label}_ready, label %{label}_cleanup"
+        ),
+        format!("{label}_cleanup:"),
+        format!(
+            "call i8 @{}(i64 {handle})",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseSender)
+        ),
+        format!(
+            "call i8 @{}(i64 {handle})",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseReceiver)
+        ),
+        format!(
+            "{allocation_failed} = insertvalue {{ i1, i64 }} zeroinitializer, i1 false, 0"
+        ),
+        format!("br label %{label}_continue"),
+        format!("{label}_ready:"),
+        format!(
+            "{present} = insertvalue {{ i1, i64 }} {{ i1 true, i64 undef }}, i64 {endpoints}, 1"
+        ),
+        format!("br label %{label}_continue"),
+        format!("{label}_continue:"),
+        format!(
+            "{result} = phi {{ i1, i64 }} [ {absent}, %{label}_absent ], [ {allocation_failed}, %{label}_cleanup ], [ {present}, %{label}_ready ]"
+        ),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_try_send(
+    result: &str,
+    sender: ValueId,
+    value: ValueId,
+    element_map: ArrayElementMap,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let value_type = *values
+        .get(&value)
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+    let (mut lines, stored) =
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
+    let label = result.trim_start_matches('%');
+    lines.extend([
+        format!(
+            "{result}_status = call i8 @{}(i64 %v{}, i64 {stored}, i8 {})",
+            native_runtime_symbol(RuntimeOperation::ChannelTrySend),
+            sender.raw(),
+            u8::from(element_map == ArrayElementMap::ManagedReference),
+        ),
+        format!(
+            "{result}_success = icmp ne i8 {result}_status, {}",
+            ChannelSendStatus::Failure as u8
+        ),
+        format!("br i1 {result}_success, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_continue:"),
+        format!("{result}_wide = zext i8 {result}_status to i64"),
+        format!(
+            "{result} = sub i64 {result}_wide, {}",
+            ChannelSendStatus::Sent as u8
+        ),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_try_receive(
+    result: &str,
+    receiver: ValueId,
+    _element_map: ArrayElementMap,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let label = result.trim_start_matches('%');
+    let output = format!("{result}_output");
+    let status = format!("{result}_status");
+    let valid = format!("{result}_valid");
+    let tag = format!("{result}_tag");
+    let payload = format!("{result}_payload");
+    let mut lines = lower_initialized_values(
+        result,
+        vec![
+            ObjectInitializer::Rendered("0".to_owned()),
+            ObjectInitializer::Rendered("0".to_owned()),
+        ],
+        values,
+        types,
+        descriptor,
+    )?
+    .lines()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    lines.extend([
+        format!("{output} = alloca i64"),
+        format!("store i64 0, ptr {output}"),
+        format!(
+            "{status} = call i8 @{}(i64 %v{}, ptr {output})",
+            native_runtime_symbol(RuntimeOperation::ChannelTryReceive),
+            receiver.raw()
+        ),
+        format!(
+            "{valid} = icmp ne i8 {status}, {}",
+            ChannelReceiveStatus::Failure as u8
+        ),
+        format!("br i1 {valid}, label %{label}_received, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_received:"),
+        format!("{result}_status_wide = zext i8 {status} to i64"),
+        format!(
+            "{tag} = sub i64 {result}_status_wide, {}",
+            ChannelReceiveStatus::Item as u8
+        ),
+        format!("{payload} = load i64, ptr {output}"),
+        format!(
+            "{result}_tag_stored = call i8 @{}(i64 {result}, i64 1, i64 {tag})",
+            native_runtime_symbol(RuntimeOperation::FieldSet)
+        ),
+        format!(
+            "{result}_payload_stored = call i8 @{}(i64 {result}, i64 2, i64 {payload})",
+            native_runtime_symbol(RuntimeOperation::FieldSet)
+        ),
+        format!("{result}_tag_valid = icmp ne i8 {result}_tag_stored, 0"),
+        format!("{result}_payload_valid = icmp ne i8 {result}_payload_stored, 0"),
+        format!("{result}_stored = and i1 {result}_tag_valid, {result}_payload_valid"),
+        format!("br i1 {result}_stored, label %{label}_continue, label %{label}_store_trap"),
+        format!("{label}_store_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_continue:"),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_close(
+    result: &str,
+    endpoint: ValueId,
+    direction: pop_types::ChannelDirection,
+) -> String {
+    let operation = match direction {
+        pop_types::ChannelDirection::Sender => RuntimeOperation::ChannelClose,
+        pop_types::ChannelDirection::Receiver => RuntimeOperation::ChannelReleaseReceiver,
+    };
+    [
+        format!(
+            "{result}_status = call i8 @{}(i64 %v{})",
+            native_runtime_symbol(operation),
+            endpoint.raw()
+        ),
+        format!("{result} = trunc i8 {result}_status to i1"),
+    ]
+    .join("\n")
+}
+
+fn lower_channel_receive_item(
+    result: &str,
+    outcome: ValueId,
+    element: TypeId,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let element_type = llvm_type(element, types)?;
+    let tag = format!("{result}_tag");
+    let present = format!("{result}_present");
+    let partial = format!("{result}_partial");
+    let payload = format!("{result}_payload");
+    let mut lines = vec![
+        format!(
+            "{tag} = call i64 @{}(i64 %v{}, i64 1)",
+            native_runtime_symbol(RuntimeOperation::FieldGet),
+            outcome.raw()
+        ),
+        format!("{present} = icmp eq i64 {tag}, 0"),
+    ];
+    lines.extend(lower_runtime_slot_load_named(
+        &payload,
+        element,
+        &format!("%v{}", outcome.raw()),
+        2,
+        types,
+    )?);
+    lines.extend([
+        format!(
+            "{partial} = insertvalue {{ i1, {element_type} }} zeroinitializer, i1 {present}, 0"
+        ),
+        format!(
+            "{result} = insertvalue {{ i1, {element_type} }} {partial}, {element_type} {payload}, 1"
+        ),
     ]);
     Ok(lines.join("\n"))
 }

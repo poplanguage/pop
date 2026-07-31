@@ -121,6 +121,22 @@ fn experimental_c_backend_rejects_reusable_byte_buffers_without_a_fallback() {
 }
 
 #[test]
+fn experimental_c_backend_rejects_directional_channels_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function create(): (Channel.Sender<Int>, Channel.Receiver<Int>)?\n\
+             return Channel.bounded<<Int>>(UInt64(1))\n\
+         end\n",
+    );
+    assert!(mir.dump().contains("channelCreate"));
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn experimental_c_backend_rejects_checked_utf8_without_a_fallback() {
     let (mir, types) = lower(
         "namespace Main\n\

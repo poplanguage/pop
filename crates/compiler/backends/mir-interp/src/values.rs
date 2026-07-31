@@ -40,6 +40,13 @@ pub enum MirValue {
     CancellationSource(SymbolId),
     CancellationToken(SymbolId),
     TaskGroup(SymbolId),
+    ChannelSender(SymbolId),
+    ChannelReceiver(SymbolId),
+    ChannelSendOutcome(pop_types::ChannelSendOutcomeKind),
+    ChannelReceiveOutcome {
+        value: Option<Box<Self>>,
+        closed: bool,
+    },
     FfiHandle(u64),
     FfiBuffer(ManagedReference),
     Bytes(ManagedReference),

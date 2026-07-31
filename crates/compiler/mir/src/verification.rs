@@ -22,7 +22,7 @@ use crate::lowering::{
     array_element_map, expected_safe_point_roots, expected_suspend_frame_slots,
     is_managed_reference_type_id, iteration_object_map, list_element_map,
     local_instruction_effects, table_element_maps, task_group_object_map, task_object_map,
-    terminator_effects,
+    terminator_effects, value_element_map,
 };
 use crate::render::{float_kind_text, integer_kind_text};
 use crate::{
@@ -374,6 +374,12 @@ pub(crate) fn instruction_allocation_site(kind: &MirInstructionKind) -> Option<A
             allocation_site, ..
         }
         | MirInstructionKind::TupleMake {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ChannelCreate {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ChannelTryReceive {
             allocation_site, ..
         }
         | MirInstructionKind::ViewMaterialize {
@@ -4954,6 +4960,142 @@ fn verify_instruction_types(
                 errors,
             );
         }
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            element,
+            endpoints,
+            ..
+        } => {
+            if let Some(unsigned) = arena.source_type("UInt64") {
+                verify_operand_type(instruction.result(), *capacity, unsigned, values, errors);
+            }
+            let sender = builtin_instance(arena, pop_types::CHANNEL_SENDER_TYPE_ID, &[*element]);
+            let receiver =
+                builtin_instance(arena, pop_types::CHANNEL_RECEIVER_TYPE_ID, &[*element]);
+            let expected_endpoints = sender.zip(receiver).and_then(|(sender, receiver)| {
+                arena.find(&SemanticType::Tuple(vec![sender, receiver]))
+            });
+            if expected_endpoints != Some(*endpoints)
+                || !is_optional_of(arena, instruction.result_type(), *endpoints)
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+            element_map,
+        } => {
+            if let Some(sender_type) =
+                builtin_instance(arena, pop_types::CHANNEL_SENDER_TYPE_ID, &[*element])
+            {
+                verify_operand_type(instruction.result(), *sender, sender_type, values, errors);
+            }
+            verify_operand_type(instruction.result(), *value, *element, values, errors);
+            if *element_map != value_element_map(arena, *element)
+                || builtin_type(arena, pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID)
+                    != Some(instruction.result_type())
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element,
+            element_map,
+            ..
+        } => {
+            if let Some(receiver_type) =
+                builtin_instance(arena, pop_types::CHANNEL_RECEIVER_TYPE_ID, &[*element])
+            {
+                verify_operand_type(
+                    instruction.result(),
+                    *receiver,
+                    receiver_type,
+                    values,
+                    errors,
+                );
+            }
+            if *element_map != value_element_map(arena, *element)
+                || builtin_instance(
+                    arena,
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) != Some(instruction.result_type())
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let definition = match direction {
+                pop_types::ChannelDirection::Sender => pop_types::CHANNEL_SENDER_TYPE_ID,
+                pop_types::ChannelDirection::Receiver => pop_types::CHANNEL_RECEIVER_TYPE_ID,
+            };
+            let valid_endpoint = values
+                .get(endpoint)
+                .and_then(|endpoint| builtin_element(arena, *endpoint, definition))
+                .is_some();
+            if !valid_endpoint || arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, .. } => {
+            if let Some(outcome_type) = builtin_type(arena, pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID)
+            {
+                verify_operand_type(instruction.result(), *outcome, outcome_type, values, errors);
+            }
+            if arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            if let Some(outcome_type) = builtin_instance(
+                arena,
+                pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                &[*element],
+            ) {
+                verify_operand_type(instruction.result(), *outcome, outcome_type, values, errors);
+            }
+            if !is_optional_of(arena, instruction.result_type(), *element) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            let valid_outcome = values
+                .get(outcome)
+                .and_then(|outcome| {
+                    builtin_element(arena, *outcome, pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID)
+                })
+                .is_some();
+            if !valid_outcome || arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
         MirInstructionKind::ByteBufferCreate { capacity, .. } => {
             if byte_buffer_type(arena) != Some(instruction.result_type()) {
                 errors.push(MirVerificationError::InvalidInstructionType {
@@ -5301,11 +5443,19 @@ fn list_element_type(arena: &TypeArena, type_id: TypeId) -> Option<TypeId> {
         .ok()?
         .iteration_protocol()?
         .list();
+    builtin_element(arena, type_id, list)
+}
+
+fn builtin_element(
+    arena: &TypeArena,
+    type_id: TypeId,
+    definition: BuiltinTypeId,
+) -> Option<TypeId> {
     match arena.get(type_id)? {
         SemanticType::Builtin {
-            definition,
+            definition: found,
             arguments,
-        } if *definition == list && arguments.len() == 1 => Some(arguments[0]),
+        } if *found == definition && arguments.len() == 1 => Some(arguments[0]),
         _ => None,
     }
 }
@@ -5325,9 +5475,17 @@ fn range_element_type(arena: &TypeArena, type_id: TypeId) -> Option<TypeId> {
 }
 
 fn builtin_type(arena: &TypeArena, definition: BuiltinTypeId) -> Option<TypeId> {
+    builtin_instance(arena, definition, &[])
+}
+
+fn builtin_instance(
+    arena: &TypeArena,
+    definition: BuiltinTypeId,
+    arguments: &[TypeId],
+) -> Option<TypeId> {
     arena.find(&SemanticType::Builtin {
         definition,
-        arguments: Vec::new(),
+        arguments: arguments.to_vec(),
     })
 }
 
@@ -7507,6 +7665,12 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
         | MirInstructionKind::ByteBufferCreate { capacity, .. } => {
             capacity.iter().copied().collect()
         }
+        MirInstructionKind::ChannelCreate { capacity, .. } => vec![*capacity],
+        MirInstructionKind::ChannelTryReceive { receiver, .. } => vec![*receiver],
+        MirInstructionKind::ChannelClose { endpoint, .. } => vec![*endpoint],
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, .. }
+        | MirInstructionKind::ChannelReceiveItem { outcome, .. }
+        | MirInstructionKind::ChannelReceiveOutcomeTest { outcome, .. } => vec![*outcome],
         MirInstructionKind::ByteBufferLength { buffer }
         | MirInstructionKind::ByteBufferClear { buffer }
         | MirInstructionKind::ByteBufferMaterialize { buffer, .. }
@@ -7638,6 +7802,7 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
             list, index, value, ..
         } => vec![*list, *index, *value],
         MirInstructionKind::ListAdd { list, value, .. } => vec![*list, *value],
+        MirInstructionKind::ChannelTrySend { sender, value, .. } => vec![*sender, *value],
         MirInstructionKind::TableSet {
             table, key, value, ..
         } => vec![*table, *key, *value],
