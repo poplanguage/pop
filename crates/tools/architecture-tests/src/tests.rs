@@ -2436,6 +2436,46 @@ fn bounded_gregorian_dates_follow_adr_0138_without_host_or_native_duplicates() {
 }
 
 #[test]
+fn bounded_civil_times_follow_adr_0139_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0139-bounded-civil-time-values.md"));
+    let time = read_required(root.join("crates/libraries/standard/pop/src/timeDateTime.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record TimeOfDay",
+        "public record LocalDateTime",
+        "public record UtcOffset",
+        "public record OffsetDateTime",
+    ] {
+        assert_eq!(time.matches(declaration).count(), 1);
+    }
+    for function in [
+        "timeOfDay",
+        "localDateTime",
+        "utcOffset",
+        "offsetDateTime",
+        "isUtc",
+    ] {
+        assert_eq!(
+            time.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(time.contains("MAX_UTC_OFFSET_SECONDS = 64800"));
+    assert!(!compiler.contains("Time.OffsetDateTime"));
+    assert!(!native.contains("Time.OffsetDateTime"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

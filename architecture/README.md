@@ -269,6 +269,8 @@ transplanted into a Luau-shaped file.
   clocks, timers, and suspension remain later PLRI contracts.
 - ADR 0138 adds bounded proleptic-Gregorian `Time.Date` values and pure calendar
   validation/comparison without wall-clock, time-zone, or locale authority.
+- ADR 0139 keeps bounded `TimeOfDay`, `LocalDateTime`, fixed `UtcOffset`, and
+  `OffsetDateTime` identities distinct before parsing, zones, or wall clocks.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

@@ -5395,6 +5395,61 @@ fn emitted_llvm_executes_bounded_gregorian_dates() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_civil_time_values() {
+    let module = native_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/timeDateTime.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDateTime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local day = date(2024, 2, 29)?\n\
+                 local time = timeOfDay(23, 59, 59, 999999999)?\n\
+                 local localValue = localDateTime(day, time)?\n\
+                 local offset = utcOffset(-18000)?\n\
+                 local complete = offsetDateTime(localValue, offset)?\n\
+                 if complete.dateTime.date.day ~= 29 or complete.dateTime.time.hour ~= 23 or complete.offset.seconds ~= -18000 then\n\
+                     return 1\n\
+                 end\n\
+                 local zero = utcOffset(0)?\n\
+                 if not isUtc(zero) or isUtc(offset) then\n\
+                     return 2\n\
+                 end\n\
+                 if timeOfDay(-1, 0, 0, 0) ~= nil or timeOfDay(24, 0, 0, 0) ~= nil or timeOfDay(0, 60, 0, 0) ~= nil or timeOfDay(0, 0, 60, 0) ~= nil or timeOfDay(0, 0, 0, 1000000000) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if utcOffset(-64801) ~= nil or utcOffset(64801) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local invalidOffset: UtcOffset = { seconds = 64801 }\n\
+                 if offsetDateTime(localValue, invalidOffset) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-civil-time-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded civil Time values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

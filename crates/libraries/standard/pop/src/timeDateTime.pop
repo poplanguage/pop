@@ -1,0 +1,247 @@
+namespace Pop.Time
+
+private const MAX_CIVIL_NANOSECOND = 999999999
+private const MAX_UTC_OFFSET_SECONDS = 64800
+
+--- <summary>
+--- Holds one bounded 24-hour civil time of day.
+--- </summary>
+public record TimeOfDay
+    --- <summary>
+    --- The hour from zero through 23.
+    --- </summary>
+    hour: Int
+
+    --- <summary>
+    --- The minute from zero through 59.
+    --- </summary>
+    minute: Int
+
+    --- <summary>
+    --- The second from zero through 59.
+    --- </summary>
+    second: Int
+
+    --- <summary>
+    --- The nanosecond from zero through 999,999,999.
+    --- </summary>
+    nanosecond: Int
+end
+
+--- <summary>
+--- Holds a civil date and time without offset or zone meaning.
+--- </summary>
+public record LocalDateTime
+    --- <summary>
+    --- The bounded Gregorian civil date.
+    --- </summary>
+    date: Date
+
+    --- <summary>
+    --- The bounded civil time of day.
+    --- </summary>
+    time: TimeOfDay
+end
+
+--- <summary>
+--- Holds one fixed signed offset from UTC in seconds.
+--- </summary>
+public record UtcOffset
+    --- <summary>
+    --- The signed offset from -64,800 through 64,800 seconds.
+    --- </summary>
+    seconds: Int
+end
+
+--- <summary>
+--- Holds one local civil date-time with a fixed UTC offset.
+--- </summary>
+public record OffsetDateTime
+    --- <summary>
+    --- The local civil date and time.
+    --- </summary>
+    dateTime: LocalDateTime
+
+    --- <summary>
+    --- The fixed UTC offset.
+    --- </summary>
+    offset: UtcOffset
+end
+
+private function validCivilDate(value: Date): Boolean
+    local length = daysInMonth(value.year, value.month) ?? 0
+    return value.day >= 1 and value.day <= length
+end
+
+private function validCivilTime(value: TimeOfDay): Boolean
+    return value.hour >= 0 and value.hour <= 23 and value.minute >= 0 and value.minute <= 59 and value.second >= 0 and value.second <= 59 and value.nanosecond >= 0 and value.nanosecond <= MAX_CIVIL_NANOSECOND
+end
+
+private function validUtcOffset(value: UtcOffset): Boolean
+    return value.seconds >= -MAX_UTC_OFFSET_SECONDS and value.seconds <= MAX_UTC_OFFSET_SECONDS
+end
+
+--- <summary>
+--- Creates a bounded 24-hour civil time of day.
+--- </summary>
+---
+--- <param name="hour">
+--- The hour from zero through 23.
+--- </param>
+---
+--- <param name="minute">
+--- The minute from zero through 59.
+--- </param>
+---
+--- <param name="second">
+--- The second from zero through 59.
+--- </param>
+---
+--- <param name="nanosecond">
+--- The nanosecond from zero through 999,999,999.
+--- </param>
+---
+--- <returns>
+--- The time of day, or nil when any field is outside its valid range.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one TimeOfDay for valid fields.
+--- </allocation>
+public function timeOfDay(hour: Int, minute: Int, second: Int, nanosecond: Int): TimeOfDay?
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59 or nanosecond < 0 or nanosecond > MAX_CIVIL_NANOSECOND then
+        return nil
+    end
+    local value: TimeOfDay = {
+        hour = hour,
+        minute = minute,
+        second = second,
+        nanosecond = nanosecond
+    }
+    return value
+end
+
+--- <summary>
+--- Creates an offset-free local civil date-time.
+--- </summary>
+---
+--- <param name="date">
+--- The bounded Gregorian date.
+--- </param>
+---
+--- <param name="time">
+--- The bounded time of day.
+--- </param>
+---
+--- <returns>
+--- The local date-time, or nil when a manually initialized input is invalid.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one LocalDateTime for valid inputs.
+--- </allocation>
+public function localDateTime(date: Date, time: TimeOfDay): LocalDateTime?
+    if not validCivilDate(date) or not validCivilTime(time) then
+        return nil
+    end
+    local value: LocalDateTime = { date = date, time = time }
+    return value
+end
+
+--- <summary>
+--- Creates a bounded fixed offset from UTC.
+--- </summary>
+---
+--- <param name="seconds">
+--- The signed offset from -64,800 through 64,800 seconds.
+--- </param>
+---
+--- <returns>
+--- The fixed offset, or nil when the value is outside its valid range.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one UtcOffset for a valid value.
+--- </allocation>
+public function utcOffset(seconds: Int): UtcOffset?
+    if seconds < -MAX_UTC_OFFSET_SECONDS or seconds > MAX_UTC_OFFSET_SECONDS then
+        return nil
+    end
+    local value: UtcOffset = { seconds = seconds }
+    return value
+end
+
+private function validLocalDateTime(value: LocalDateTime): Boolean
+    return validCivilDate(value.date) and validCivilTime(value.time)
+end
+
+--- <summary>
+--- Creates a civil date-time carrying one fixed UTC offset.
+--- </summary>
+---
+--- <param name="dateTime">
+--- The offset-free local civil date-time.
+--- </param>
+---
+--- <param name="offset">
+--- The fixed UTC offset.
+--- </param>
+---
+--- <returns>
+--- The offset date-time, or nil when a manually initialized input is invalid.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one OffsetDateTime for valid inputs.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Time
+---
+--- private function fixedOffsetExample(): Boolean?
+---     local day = date(2024, 2, 29)?
+---     local noon = timeOfDay(12, 0, 0, 0)?
+---     local localValue = localDateTime(day, noon)?
+---     local offset = utcOffset(0)?
+---     local complete = offsetDateTime(localValue, offset)?
+---     return isUtc(complete.offset)
+--- end
+--- </code>
+--- </example>
+public function offsetDateTime(dateTime: LocalDateTime, offset: UtcOffset): OffsetDateTime?
+    if not validLocalDateTime(dateTime) or not validUtcOffset(offset) then
+        return nil
+    end
+    local value: OffsetDateTime = { dateTime = dateTime, offset = offset }
+    return value
+end
+
+--- <summary>
+--- Reports whether a fixed offset is exactly UTC.
+--- </summary>
+---
+--- <param name="offset">
+--- The fixed offset to inspect.
+--- </param>
+---
+--- <returns>
+--- True only when the signed offset seconds are zero.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isUtc(offset: UtcOffset): Boolean
+    return offset.seconds == 0
+end

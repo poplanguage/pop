@@ -255,3 +255,12 @@ api:196	Api	Pop.Standard	Pop.Time	date	date(Int,Int,Int)->Time.Date?	standard	im
 api:197	Api	Pop.Standard	Pop.Time	isLeapYear	isLeapYear(Int)->Boolean	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
 api:198	Api	Pop.Standard	Pop.Time	daysInMonth	daysInMonth(Int,Int)->Int?	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
 api:199	Api	Pop.Standard	Pop.Time	compareDates	compareDates(Time.Date,Time.Date)->Int	standard	implemented	false	architecture/decisions/0138-bounded-gregorian-date-values.md
+api:200	Api	Pop.Standard	Pop.Time	TimeOfDay	record TimeOfDay(Int,Int,Int,Int)	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:201	Api	Pop.Standard	Pop.Time	LocalDateTime	record LocalDateTime(Time.Date,Time.TimeOfDay)	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:202	Api	Pop.Standard	Pop.Time	UtcOffset	record UtcOffset(Int)	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:203	Api	Pop.Standard	Pop.Time	OffsetDateTime	record OffsetDateTime(Time.LocalDateTime,Time.UtcOffset)	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:204	Api	Pop.Standard	Pop.Time	timeOfDay	timeOfDay(Int,Int,Int,Int)->Time.TimeOfDay?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:205	Api	Pop.Standard	Pop.Time	localDateTime	localDateTime(Time.Date,Time.TimeOfDay)->Time.LocalDateTime?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:206	Api	Pop.Standard	Pop.Time	utcOffset	utcOffset(Int)->Time.UtcOffset?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:207	Api	Pop.Standard	Pop.Time	offsetDateTime	offsetDateTime(Time.LocalDateTime,Time.UtcOffset)->Time.OffsetDateTime?	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md
+api:208	Api	Pop.Standard	Pop.Time	isUtc	isUtc(Time.UtcOffset)->Boolean	standard	implemented	false	architecture/decisions/0139-bounded-civil-time-values.md

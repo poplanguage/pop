@@ -2639,6 +2639,64 @@ fn bounded_gregorian_dates_validate_and_compare_exactly() {
 }
 
 #[test]
+fn bounded_civil_time_values_keep_local_and_offset_meanings_distinct() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/timeDateTime.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDateTime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local day = date(2024, 2, 29)?\n\
+                 local time = timeOfDay(23, 59, 59, 999999999)?\n\
+                 local localValue = localDateTime(day, time)?\n\
+                 local offset = utcOffset(-18000)?\n\
+                 local complete = offsetDateTime(localValue, offset)?\n\
+                 if complete.dateTime.date.day ~= 29 or complete.dateTime.time.hour ~= 23 or complete.offset.seconds ~= -18000 then\n\
+                     return 1\n\
+                 end\n\
+                 local zero = utcOffset(0)?\n\
+                 if not isUtc(zero) or isUtc(offset) then\n\
+                     return 2\n\
+                 end\n\
+                 if timeOfDay(-1, 0, 0, 0) ~= nil or timeOfDay(24, 0, 0, 0) ~= nil or timeOfDay(0, 60, 0, 0) ~= nil or timeOfDay(0, 0, 60, 0) ~= nil or timeOfDay(0, 0, 0, 1000000000) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if utcOffset(-64801) ~= nil or utcOffset(64801) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local invalidTime: TimeOfDay = { hour = 24, minute = 0, second = 0, nanosecond = 0 }\n\
+                 if localDateTime(day, invalidTime) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local invalidOffset: UtcOffset = { seconds = 64801 }\n\
+                 if offsetDateTime(localValue, invalidOffset) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("civil Time consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified civil Time MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("civil Time execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
