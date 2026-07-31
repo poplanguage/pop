@@ -2366,6 +2366,48 @@ fn canonical_durations_follow_adr_0136_without_clock_or_native_duplicates() {
 }
 
 #[test]
+fn deterministic_test_clocks_follow_adr_0137_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0137-deterministic-test-clock-values.md"));
+    let clock = read_required(root.join("crates/libraries/standard/pop/src/timeClock.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Instant",
+        "public record Deadline",
+        "public class TestClock",
+    ] {
+        assert_eq!(clock.matches(declaration).count(), 1);
+    }
+    for function in [
+        "instant",
+        "testClock",
+        "now",
+        "advance",
+        "deadlineAfter",
+        "isExpired",
+    ] {
+        assert_eq!(
+            clock
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(clock.contains("MAX_TEST_CLOCK_SECONDS = 2147483646"));
+    assert!(!compiler.contains("Time.TestClock"));
+    assert!(!native.contains("Time.TestClock"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

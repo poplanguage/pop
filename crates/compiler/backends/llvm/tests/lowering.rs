@@ -5290,6 +5290,63 @@ fn emitted_llvm_executes_canonical_durations() {
 }
 
 #[test]
+fn emitted_llvm_executes_deterministic_test_clocks() {
+    let module = native_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/timeClock.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeClock.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local start = instant(10, 900000000)?\n\
+                 local clock = testClock(start)?\n\
+                 if not advance(clock, fromMilliseconds(200)) then\n\
+                     return 1\n\
+                 end\n\
+                 local after = now(clock)\n\
+                 if after.seconds ~= 11 or after.nanoseconds ~= 100000000 then\n\
+                     return 2\n\
+                 end\n\
+                 local deadline = deadlineAfter(clock, fromMilliseconds(500))?\n\
+                 if isExpired(clock, deadline) or not advance(clock, fromMilliseconds(500)) or not isExpired(clock, deadline) then\n\
+                     return 3\n\
+                 end\n\
+                 if advance(clock, fromNanoseconds(-1)) then\n\
+                     return 4\n\
+                 end\n\
+                 local nearEnd = instant(2147483646, 999999999)?\n\
+                 local finalClock = testClock(nearEnd)?\n\
+                 if advance(finalClock, fromNanoseconds(1)) or deadlineAfter(finalClock, fromNanoseconds(1)) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if instant(-1, 0) ~= nil or instant(0, -1) ~= nil or instant(0, 1000000000) ~= nil or instant(2147483647, 0) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-test-clocks");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic test clocks: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

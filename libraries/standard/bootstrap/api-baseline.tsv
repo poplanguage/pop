@@ -241,3 +241,12 @@ api:182	Api	Pop.Standard	Pop.Time	isZero	isZero(Time.Duration)->Boolean	standard
 api:183	Api	Pop.Standard	Pop.Time	isNegative	isNegative(Time.Duration)->Boolean	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
 api:184	Api	Pop.Standard	Pop.Time	secondsPart	secondsPart(Time.Duration)->Int	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
 api:185	Api	Pop.Standard	Pop.Time	nanosecondsPart	nanosecondsPart(Time.Duration)->Int	standard	implemented	false	architecture/decisions/0136-canonical-duration-values.md
+api:186	Api	Pop.Standard	Pop.Time	Instant	record Instant(Int,Int)	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:187	Api	Pop.Standard	Pop.Time	Deadline	record Deadline(Time.Instant)	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:188	Api	Pop.Standard	Pop.Time	TestClock	class TestClock(private Int,private Int)	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:189	Api	Pop.Standard	Pop.Time	instant	instant(Int,Int)->Time.Instant?	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:190	Api	Pop.Standard	Pop.Time	testClock	testClock(Time.Instant)->Time.TestClock?	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:191	Api	Pop.Standard	Pop.Time	now	now(Time.TestClock)->Time.Instant	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:192	Api	Pop.Standard	Pop.Time	advance	advance(Time.TestClock,Time.Duration)->Boolean	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:193	Api	Pop.Standard	Pop.Time	deadlineAfter	deadlineAfter(Time.TestClock,Time.Duration)->Time.Deadline?	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md
+api:194	Api	Pop.Standard	Pop.Time	isExpired	isExpired(Time.TestClock,Time.Deadline)->Boolean	standard	implemented	false	architecture/decisions/0137-deterministic-test-clock-values.md

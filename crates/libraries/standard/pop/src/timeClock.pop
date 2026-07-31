@@ -1,0 +1,276 @@
+namespace Pop.Time
+
+private const MAX_TEST_CLOCK_SECONDS = 2147483646
+private const TEST_CLOCK_NANOS_PER_SECOND = 1000000000
+
+--- <summary>
+--- Holds one bounded monotonic test-time position.
+--- </summary>
+public record Instant
+    --- <summary>
+    --- Whole seconds from the test timeline origin.
+    --- </summary>
+    seconds: Int
+
+    --- <summary>
+    --- Subsecond nanoseconds from zero through 999,999,999.
+    --- </summary>
+    nanoseconds: Int
+end
+
+--- <summary>
+--- Holds one inclusive monotonic test-time deadline.
+--- </summary>
+public record Deadline
+    --- <summary>
+    --- The instant at which the deadline becomes expired.
+    --- </summary>
+    instant: Instant
+end
+
+--- <summary>
+--- Holds one explicitly injected deterministic monotonic test clock.
+--- </summary>
+---
+--- <remarks>
+--- The clock is mutable, is not thread-safe, and never reads host time.
+--- </remarks>
+public class TestClock
+    --- <summary>
+    --- Whole seconds at the current test-time position.
+    --- </summary>
+    private seconds: Int
+
+    --- <summary>
+    --- Subsecond nanoseconds at the current test-time position.
+    --- </summary>
+    private nanoseconds: Int
+end
+
+private function validInstantParts(seconds: Int, nanoseconds: Int): Boolean
+    return seconds >= 0 and seconds <= MAX_TEST_CLOCK_SECONDS and nanoseconds >= 0 and nanoseconds < TEST_CLOCK_NANOS_PER_SECOND
+end
+
+private function validDuration(duration: Duration): Boolean
+    return duration.seconds >= 0 and duration.nanoseconds >= 0 and duration.nanoseconds < TEST_CLOCK_NANOS_PER_SECOND
+end
+
+private function snapshot(seconds: Int, nanoseconds: Int): Instant
+    local value: Instant = { seconds = seconds, nanoseconds = nanoseconds }
+    return value
+end
+
+private function addedInstant(
+    seconds: Int,
+    nanoseconds: Int,
+    duration: Duration
+): Instant?
+    if not validInstantParts(seconds, nanoseconds) or not validDuration(duration) then
+        return nil
+    end
+    local nanoSum = nanoseconds + duration.nanoseconds
+    local carry = nanoSum / TEST_CLOCK_NANOS_PER_SECOND
+    local remaining = MAX_TEST_CLOCK_SECONDS - seconds
+    if duration.seconds > remaining then
+        return nil
+    end
+    if duration.seconds == remaining and carry > 0 then
+        return nil
+    end
+    return snapshot(
+        seconds + duration.seconds + carry,
+        nanoSum % TEST_CLOCK_NANOS_PER_SECOND
+    )
+end
+
+--- <summary>
+--- Creates a bounded monotonic test-time instant.
+--- </summary>
+---
+--- <param name="seconds">
+--- Whole seconds from zero through 2,147,483,646.
+--- </param>
+---
+--- <param name="nanoseconds">
+--- Subsecond nanoseconds from zero through 999,999,999.
+--- </param>
+---
+--- <returns>
+--- The instant, or nil when either field is outside its valid range.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Instant for valid fields.
+--- </allocation>
+public function instant(seconds: Int, nanoseconds: Int): Instant?
+    if not validInstantParts(seconds, nanoseconds) then
+        return nil
+    end
+    return snapshot(seconds, nanoseconds)
+end
+
+--- <summary>
+--- Creates an explicitly injected deterministic test clock.
+--- </summary>
+---
+--- <param name="start">
+--- The initial monotonic instant.
+--- </param>
+---
+--- <returns>
+--- A new test clock, or nil when a manually initialized instant is invalid.
+--- </returns>
+---
+--- <remarks>
+--- The returned clock is mutable, is not thread-safe, and never reads host
+--- time.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates exactly one TestClock for a valid start.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Time
+---
+--- private function deterministicDeadlineExample(): Boolean?
+---     local beginning = instant(0, 0)?
+---     local clock = testClock(beginning)?
+---     local deadline = deadlineAfter(clock, fromMilliseconds(10))?
+---     return advance(clock, fromMilliseconds(10)) and isExpired(clock, deadline)
+--- end
+--- </code>
+--- </example>
+public function testClock(start: Instant): TestClock?
+    if not validInstantParts(start.seconds, start.nanoseconds) then
+        return nil
+    end
+    local clock: TestClock = TestClock {
+        seconds = start.seconds,
+        nanoseconds = start.nanoseconds
+    }
+    return clock
+end
+
+--- <summary>
+--- Returns the current immutable test-time snapshot.
+--- </summary>
+---
+--- <param name="clock">
+--- The deterministic clock to inspect.
+--- </param>
+---
+--- <returns>
+--- The exact current monotonic instant.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Instant snapshot.
+--- </allocation>
+public function now(clock: TestClock): Instant
+    return snapshot(clock.seconds, clock.nanoseconds)
+end
+
+--- <summary>
+--- Advances a deterministic clock by an exact nonnegative duration.
+--- </summary>
+---
+--- <param name="clock">
+--- The deterministic clock to mutate on success.
+--- </param>
+---
+--- <param name="duration">
+--- The exact nonnegative canonical duration to add.
+--- </param>
+---
+--- <returns>
+--- True on success; false without mutation for invalid or overflowing input.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function advance(clock: TestClock, duration: Duration): Boolean
+    if not validInstantParts(clock.seconds, clock.nanoseconds) or not validDuration(duration) then
+        return false
+    end
+    local nanoSum = clock.nanoseconds + duration.nanoseconds
+    local carry = nanoSum / TEST_CLOCK_NANOS_PER_SECOND
+    local remaining = MAX_TEST_CLOCK_SECONDS - clock.seconds
+    if duration.seconds > remaining then
+        return false
+    end
+    if duration.seconds == remaining and carry > 0 then
+        return false
+    end
+    clock.seconds = clock.seconds + duration.seconds + carry
+    clock.nanoseconds = nanoSum % TEST_CLOCK_NANOS_PER_SECOND
+    return true
+end
+
+--- <summary>
+--- Creates an inclusive deadline after the current test-time position.
+--- </summary>
+---
+--- <param name="clock">
+--- The deterministic clock to inspect without mutation.
+--- </param>
+---
+--- <param name="duration">
+--- The exact nonnegative canonical duration until expiry.
+--- </param>
+---
+--- <returns>
+--- The deadline, or nil for invalid or overflowing input.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates an Instant and Deadline on success.
+--- </allocation>
+public function deadlineAfter(clock: TestClock, duration: Duration): Deadline?
+    local target = addedInstant(clock.seconds, clock.nanoseconds, duration)?
+    local deadline: Deadline = { instant = target }
+    return deadline
+end
+
+--- <summary>
+--- Reports whether an inclusive deadline has been reached.
+--- </summary>
+---
+--- <param name="clock">
+--- The deterministic clock to inspect.
+--- </param>
+---
+--- <param name="deadline">
+--- The deadline to compare with the current instant.
+--- </param>
+---
+--- <returns>
+--- True when the current instant is equal to or later than the deadline.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isExpired(clock: TestClock, deadline: Deadline): Boolean
+    if clock.seconds > deadline.instant.seconds then
+        return true
+    end
+    if clock.seconds < deadline.instant.seconds then
+        return false
+    end
+    return clock.nanoseconds >= deadline.instant.nanoseconds
+end

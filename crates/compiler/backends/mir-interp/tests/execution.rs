@@ -2526,6 +2526,73 @@ fn canonical_durations_preserve_exact_signed_units() {
 }
 
 #[test]
+fn deterministic_test_clocks_advance_and_expire_exactly() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/timeClock.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeClock.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local start = instant(10, 900000000)?\n\
+                 local clock = testClock(start)?\n\
+                 local before = now(clock)\n\
+                 if before.seconds ~= 10 or before.nanoseconds ~= 900000000 then\n\
+                     return 1\n\
+                 end\n\
+                 if not advance(clock, fromMilliseconds(200)) then\n\
+                     return 2\n\
+                 end\n\
+                 local after = now(clock)\n\
+                 if after.seconds ~= 11 or after.nanoseconds ~= 100000000 then\n\
+                     return 3\n\
+                 end\n\
+                 local deadline = deadlineAfter(clock, fromMilliseconds(500))?\n\
+                 if isExpired(clock, deadline) then\n\
+                     return 4\n\
+                 end\n\
+                 if not advance(clock, fromMilliseconds(500)) or not isExpired(clock, deadline) then\n\
+                     return 5\n\
+                 end\n\
+                 if advance(clock, fromNanoseconds(-1)) then\n\
+                     return 6\n\
+                 end\n\
+                 local unchanged = now(clock)\n\
+                 if unchanged.seconds ~= 11 or unchanged.nanoseconds ~= 600000000 then\n\
+                     return 7\n\
+                 end\n\
+                 local nearEnd = instant(2147483646, 999999999)?\n\
+                 local finalClock = testClock(nearEnd)?\n\
+                 if advance(finalClock, fromNanoseconds(1)) or deadlineAfter(finalClock, fromNanoseconds(1)) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if instant(-1, 0) ~= nil or instant(0, -1) ~= nil or instant(0, 1000000000) ~= nil or instant(2147483647, 0) ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 local invalid: Instant = { seconds = -1, nanoseconds = 0 }\n\
+                 if testClock(invalid) ~= nil then\n\
+                     return 10\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("TestClock consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified TestClock MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("TestClock execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
