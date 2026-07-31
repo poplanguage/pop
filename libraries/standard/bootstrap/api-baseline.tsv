@@ -332,3 +332,9 @@ api:266	Api	Pop.Standard	Pop.Net	networkAddress	networkAddress(Net.Prefix)->Net.
 api:267	Api	Pop.Standard	Pop.Net	containsAddress	containsAddress(Net.Prefix,Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
 api:268	Api	Pop.Standard	Pop.Net	parseSocketAddress	parseSocketAddress(String)->Net.SocketAddress?	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
 api:269	Api	Pop.Standard	Pop.Net	formatSocketAddress	formatSocketAddress(Net.SocketAddress)->String	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:270	Api	Pop.Standard	Pop.Net	InterfaceId	record InterfaceId(UInt32)	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md
+api:271	Api	Pop.Standard	Pop.Net	ScopedIpv6Address	record ScopedIpv6Address(Net.Ipv6Address,Net.InterfaceId)	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md
+api:272	Api	Pop.Standard	Pop.Net	interfaceId	interfaceId(UInt32)->Net.InterfaceId?	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md
+api:273	Api	Pop.Standard	Pop.Net	scopedIpv6	scopedIpv6(Net.Ipv6Address,Net.InterfaceId)->Net.ScopedIpv6Address	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md
+api:274	Api	Pop.Standard	Pop.Net	parseScopedIpv6	parseScopedIpv6(String)->Net.ScopedIpv6Address?	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md
+api:275	Api	Pop.Standard	Pop.Net	formatScopedIpv6	formatScopedIpv6(Net.ScopedIpv6Address)->String	standard	implemented	false	architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md

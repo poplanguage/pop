@@ -5951,6 +5951,52 @@ fn emitted_llvm_executes_closed_prefix_and_socket_unions() {
 }
 
 #[test]
+fn emitted_llvm_executes_numeric_interface_scope() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local scoped = parseScopedIpv6(\"fe80::1%3\")?\n\
+                 if formatScopedIpv6(scoped) ~= \"fe80::1%3\" then\n\
+                     return 1\n\
+                 end\n\
+                 if scoped.interfaceId.index ~= UInt32(3) then\n\
+                     return 2\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%0\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%4294967296\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "numeric-interface-scope");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted numeric interface scope: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

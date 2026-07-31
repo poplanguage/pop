@@ -1,0 +1,181 @@
+namespace Pop.Net
+
+--- <summary>
+--- Identifies one host network interface by numeric index.
+--- </summary>
+public record InterfaceId
+    --- <summary>
+    --- The nonzero platform interface index.
+    --- </summary>
+    index: UInt32
+end
+
+--- <summary>
+--- Holds an IPv6 address with an explicit interface scope.
+--- </summary>
+public record ScopedIpv6Address
+    --- <summary>
+    --- The exact IPv6 address.
+    --- </summary>
+    address: Ipv6Address
+
+    --- <summary>
+    --- The explicit numeric interface identity.
+    --- </summary>
+    interfaceId: InterfaceId
+end
+
+private function interfaceDecimal(value: Int): String
+    local output = Bytes.create()
+    local divisor = 1000000000
+    local started = false
+    while divisor > 0 do
+        local digit = (value / divisor) % 10
+        if digit ~= 0 or started or divisor == 1 then
+            Bytes.write(output, Byte(48 + digit))
+            started = true
+        end
+        divisor = divisor / 10
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+--- <summary>
+--- Creates a validated numeric network-interface identity.
+--- </summary>
+---
+--- <param name="index">
+--- The nonzero interface index.
+--- </param>
+---
+--- <returns>
+--- The identity, or nil when index is zero.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one InterfaceId on success.
+--- </allocation>
+public function interfaceId(index: UInt32): InterfaceId?
+    if index == UInt32(0) then
+        return nil
+    end
+    local identity: InterfaceId = { index = index }
+    return identity
+end
+
+--- <summary>
+--- Attaches an explicit interface scope to an IPv6 address.
+--- </summary>
+---
+--- <param name="address">
+--- The exact IPv6 address.
+--- </param>
+---
+--- <param name="identity">
+--- The explicit network-interface identity.
+--- </param>
+---
+--- <returns>
+--- The scoped IPv6 value.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one ScopedIpv6Address.
+--- </allocation>
+public function scopedIpv6(address: Ipv6Address, identity: InterfaceId): ScopedIpv6Address
+    local value: ScopedIpv6Address = { address = address, interfaceId = identity }
+    return value
+end
+
+--- <summary>
+--- Formats a scoped IPv6 address canonically.
+--- </summary>
+---
+--- <param name="value">
+--- The scoped address to format.
+--- </param>
+---
+--- <returns>
+--- Canonical IPv6 text, percent, and decimal interface index.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates address, index, and result strings.
+--- </allocation>
+public function formatScopedIpv6(value: ScopedIpv6Address): String
+    return formatIpv6(value.address) .. "%" .. interfaceDecimal(Int(value.interfaceId.index))
+end
+
+--- <summary>
+--- Parses canonical numeric-interface scoped IPv6 text.
+--- </summary>
+---
+--- <param name="text">
+--- Complete canonical address%index text.
+--- </param>
+---
+--- <returns>
+--- The scoped value, or nil for invalid or noncanonical input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one address buffer and the parsed values.
+--- </allocation>
+public function parseScopedIpv6(text: String): ScopedIpv6Address?
+    local addressBuffer = Bytes.create()
+    local addressBytes = 0
+    local sawPercent = false
+    local index = 0
+    local indexDigits = 0
+    local leadingZero = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if point == 37 then
+            if sawPercent or addressBytes == 0 then
+                return nil
+            end
+            sawPercent = true
+        elseif not sawPercent then
+            if point > 127 then
+                return nil
+            end
+            Bytes.write(addressBuffer, Byte(point))
+            addressBytes = addressBytes + 1
+        elseif point >= 48 and point <= 57 then
+            if indexDigits == 0 then
+                leadingZero = point == 48
+            elseif leadingZero then
+                return nil
+            end
+            if indexDigits >= 10 then
+                return nil
+            end
+            index = index * 10 + point - 48
+            if index > 4294967295 then
+                return nil
+            end
+            indexDigits = indexDigits + 1
+        else
+            return nil
+        end
+    end
+    if not sawPercent or indexDigits == 0 or index == 0 then
+        return nil
+    end
+    local addressText = Text.decodeUtf8(addressBuffer) ?? ""
+    local address = parseIpv6(addressText)?
+    local identity = interfaceId(UInt32(index))?
+    local value = scopedIpv6(address, identity)
+    if formatScopedIpv6(value) ~= text then
+        return nil
+    end
+    return value
+end

@@ -3156,6 +3156,51 @@ fn closed_prefix_and_socket_unions_preserve_exact_families() {
 }
 
 #[test]
+fn numeric_interface_scope_is_canonical_and_bounded() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local scoped = parseScopedIpv6(\"fe80::1%3\")?\n\
+                 if formatScopedIpv6(scoped) ~= \"fe80::1%3\" then\n\
+                     return 1\n\
+                 end\n\
+                 if scoped.interfaceId.index ~= UInt32(3) then\n\
+                     return 2\n\
+                 end\n\
+                 local maximum = parseScopedIpv6(\"::1%4294967295\")?\n\
+                 if maximum.interfaceId.index ~= UInt32(4294967295) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%0\") ~= nil or parseScopedIpv6(\"fe80::1%03\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%4294967296\") ~= nil or parseScopedIpv6(\"fe80::1%eth0\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("scope consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified scope MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("scope execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

@@ -2771,6 +2771,45 @@ fn closed_prefix_and_socket_unions_follow_adr_0153_without_family_erasure() {
 }
 
 #[test]
+fn numeric_interface_scope_follows_adr_0154_without_ambient_host_lookup() {
+    let root = repository_root();
+    let adr = read_required(root.join(
+        "architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md",
+    ));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netScope.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public record InterfaceId").count(), 1);
+    assert_eq!(net.matches("public record ScopedIpv6Address").count(), 1);
+    for function in [
+        "interfaceId",
+        "scopedIpv6",
+        "parseScopedIpv6",
+        "formatScopedIpv6",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in [
+        "Dynamic",
+        "Any",
+        "lookup",
+        "interfaces(",
+        "Dns.",
+        "Socket.",
+        "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!native.contains("ScopedIpv6Address"));
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(
