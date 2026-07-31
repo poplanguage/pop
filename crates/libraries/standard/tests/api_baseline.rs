@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 326);
+    assert_eq!(baseline.entries().len(), 332);
 
     let prelude_names = baseline
         .entries()
@@ -343,6 +343,12 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Net", "formatAddress"),
             ("Pop.Net", "isAddressLoopback"),
             ("Pop.Net", "isAddressUnspecified"),
+            ("Pop.Net", "Prefix"),
+            ("Pop.Net", "SocketAddress"),
+            ("Pop.Net", "networkAddress"),
+            ("Pop.Net", "containsAddress"),
+            ("Pop.Net", "parseSocketAddress"),
+            ("Pop.Net", "formatSocketAddress"),
         ]
     );
 }

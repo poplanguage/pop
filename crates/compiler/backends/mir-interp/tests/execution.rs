@@ -3088,6 +3088,74 @@ fn closed_ip_address_union_preserves_family_and_classification() {
 }
 
 #[test]
+fn closed_prefix_and_socket_unions_preserve_exact_families() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local ipv4Value = parseIpv4(\"10.2.3.4\")?\n\
+                 local prefix = Prefix.Ipv4(ipv4Prefix(ipv4Value, 8)?)\n\
+                 if formatAddress(networkAddress(prefix)) ~= \"10.0.0.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsAddress(prefix, parseAddress(\"10.255.0.1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsAddress(prefix, parseAddress(\"::1\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseSocketAddress(\"[2001:db8::1]:443\")?\n\
+                 if formatSocketAddress(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parseSocketAddress(\"2001:db8::1:443\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("family-value consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified family-value MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("family-value execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
     let (mir, types) = executable_modules(&[
         (

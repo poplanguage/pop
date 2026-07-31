@@ -1,0 +1,158 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one exact IPv4 or IPv6 network prefix.
+--- </summary>
+public union Prefix
+    --- <summary>
+    --- Holds an IPv4 prefix.
+    --- </summary>
+    Ipv4(value: Ipv4Prefix)
+
+    --- <summary>
+    --- Holds an IPv6 prefix.
+    --- </summary>
+    Ipv6(value: Ipv6Prefix)
+end
+
+--- <summary>
+--- Holds one exact IPv4 or IPv6 socket address.
+--- </summary>
+public union SocketAddress
+    --- <summary>
+    --- Holds an IPv4 address and port.
+    --- </summary>
+    Ipv4(value: Ipv4SocketAddress)
+
+    --- <summary>
+    --- Holds an IPv6 address and port.
+    --- </summary>
+    Ipv6(value: Ipv6SocketAddress)
+end
+
+--- <summary>
+--- Returns a prefix's canonical network address.
+--- </summary>
+---
+--- <param name="prefix">
+--- The family-preserving prefix.
+--- </param>
+---
+--- <returns>
+--- The network address in the same family.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates the address and union result values.
+--- </allocation>
+public function networkAddress(prefix: Prefix): Address
+    match prefix
+    when Prefix.Ipv4(value) then
+        return Address.Ipv4(networkIpv4(value))
+    when Prefix.Ipv6(value) then
+        return Address.Ipv6(networkIpv6(value))
+    end
+end
+
+private function containsIpv4Address(prefix: Ipv4Prefix, address: Address): Boolean
+    match address
+    when Address.Ipv4(candidate) then
+        return containsIpv4(prefix, candidate)
+    when Address.Ipv6(_) then
+        return false
+    end
+end
+
+private function containsIpv6Address(prefix: Ipv6Prefix, address: Address): Boolean
+    match address
+    when Address.Ipv4(_) then
+        return false
+    when Address.Ipv6(candidate) then
+        return containsIpv6(prefix, candidate)
+    end
+end
+
+--- <summary>
+--- Reports whether an address belongs to a same-family prefix.
+--- </summary>
+---
+--- <param name="prefix">
+--- The prefix to inspect.
+--- </param>
+---
+--- <param name="address">
+--- The candidate address.
+--- </param>
+---
+--- <returns>
+--- True for same-family containment; false for mismatch or exclusion.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function containsAddress(prefix: Prefix, address: Address): Boolean
+    match prefix
+    when Prefix.Ipv4(value) then
+        return containsIpv4Address(value, address)
+    when Prefix.Ipv6(value) then
+        return containsIpv6Address(value, address)
+    end
+end
+
+--- <summary>
+--- Parses one canonical IPv4 or bracketed IPv6 socket address.
+--- </summary>
+---
+--- <param name="text">
+--- Complete canonical address-and-port text.
+--- </param>
+---
+--- <returns>
+--- The family-preserving socket address, or nil for invalid input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the selected endpoint and union values on success.
+--- </allocation>
+public function parseSocketAddress(text: String): SocketAddress?
+    if local ipv4Value = parseIpv4Socket(text) then
+        return SocketAddress.Ipv4(ipv4Value)
+    end
+    if local ipv6Value = parseIpv6Socket(text) then
+        return SocketAddress.Ipv6(ipv6Value)
+    end
+    return nil
+end
+
+--- <summary>
+--- Formats a socket address in its family's canonical spelling.
+--- </summary>
+---
+--- <param name="value">
+--- The family-preserving socket address.
+--- </param>
+---
+--- <returns>
+--- Canonical IPv4 address:port or bracketed IPv6 [address]:port text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates the canonical result string.
+--- </allocation>
+public function formatSocketAddress(value: SocketAddress): String
+    match value
+    when SocketAddress.Ipv4(ipv4Value) then
+        return formatIpv4Socket(ipv4Value)
+    when SocketAddress.Ipv6(ipv6Value) then
+        return formatIpv6Socket(ipv6Value)
+    end
+end

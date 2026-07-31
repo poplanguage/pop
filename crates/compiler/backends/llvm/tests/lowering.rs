@@ -5887,6 +5887,70 @@ fn emitted_llvm_executes_closed_ip_address_union() {
 }
 
 #[test]
+fn emitted_llvm_executes_closed_prefix_and_socket_unions() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local ipv4Value = parseIpv4(\"10.2.3.4\")?\n\
+                 local prefix = Prefix.Ipv4(ipv4Prefix(ipv4Value, 8)?)\n\
+                 if formatAddress(networkAddress(prefix)) ~= \"10.0.0.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if containsAddress(prefix, parseAddress(\"::1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseSocketAddress(\"[2001:db8::1]:443\")?\n\
+                 if formatSocketAddress(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parseSocketAddress(\"2001:db8::1:443\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "closed-prefix-socket-unions");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted closed prefix/socket unions: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
     let module = native_modules(&[
         (

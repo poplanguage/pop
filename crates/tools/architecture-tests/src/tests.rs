@@ -2742,6 +2742,35 @@ fn closed_ip_address_union_follows_adr_0152_without_erasure_or_host_behavior() {
 }
 
 #[test]
+fn closed_prefix_and_socket_unions_follow_adr_0153_without_family_erasure() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netFamilyValues.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public union Prefix").count(), 1);
+    assert_eq!(net.matches("public union SocketAddress").count(), 1);
+    for function in [
+        "networkAddress",
+        "containsAddress",
+        "parseSocketAddress",
+        "formatSocketAddress",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in ["Dynamic", "Any", "Table", "Dns.", "connect(", "runtime"] {
+        assert!(!net.contains(forbidden));
+    }
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(

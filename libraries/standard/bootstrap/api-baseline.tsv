@@ -326,3 +326,9 @@ api:260	Api	Pop.Standard	Pop.Net	parseAddress	parseAddress(String)->Net.Address?
 api:261	Api	Pop.Standard	Pop.Net	formatAddress	formatAddress(Net.Address)->String	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
 api:262	Api	Pop.Standard	Pop.Net	isAddressLoopback	isAddressLoopback(Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
 api:263	Api	Pop.Standard	Pop.Net	isAddressUnspecified	isAddressUnspecified(Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0152-closed-ip-address-union.md
+api:264	Api	Pop.Standard	Pop.Net	Prefix	union Prefix(Ipv4(Net.Ipv4Prefix),Ipv6(Net.Ipv6Prefix))	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:265	Api	Pop.Standard	Pop.Net	SocketAddress	union SocketAddress(Ipv4(Net.Ipv4SocketAddress),Ipv6(Net.Ipv6SocketAddress))	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:266	Api	Pop.Standard	Pop.Net	networkAddress	networkAddress(Net.Prefix)->Net.Address	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:267	Api	Pop.Standard	Pop.Net	containsAddress	containsAddress(Net.Prefix,Net.Address)->Boolean	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:268	Api	Pop.Standard	Pop.Net	parseSocketAddress	parseSocketAddress(String)->Net.SocketAddress?	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
+api:269	Api	Pop.Standard	Pop.Net	formatSocketAddress	formatSocketAddress(Net.SocketAddress)->String	standard	implemented	false	architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md
