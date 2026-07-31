@@ -268,3 +268,6 @@ api:209	Api	Pop.Standard	Pop.Locale	Tag	record Tag(String,String?,String?)	stand
 api:210	Api	Pop.Standard	Pop.Locale	parse	parse(String)->Locale.Tag?	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
 api:211	Api	Pop.Standard	Pop.Locale	format	format(Locale.Tag)->String?	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
 api:212	Api	Pop.Standard	Pop.Locale	sameLanguage	sameLanguage(Locale.Tag,Locale.Tag)->Boolean	standard	implemented	false	architecture/decisions/0140-bounded-locale-tags.md
+api:213	Api	Pop.Standard	Pop.Glob	Pattern	class Pattern(private List<Int>)	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
+api:214	Api	Pop.Standard	Pop.Glob	compile	compile(String)->Glob.Pattern?	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md
+api:215	Api	Pop.Standard	Pop.Glob	matches	matches(Glob.Pattern,String)->Boolean	standard	implemented	false	architecture/decisions/0141-bounded-text-glob-patterns.md

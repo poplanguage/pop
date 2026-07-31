@@ -5499,6 +5499,51 @@ fn emitted_llvm_executes_bounded_locale_tags() {
 }
 
 #[test]
+fn emitted_llvm_executes_bounded_text_globs() {
+    let module = native_modules(&[
+        (
+            "src/glob.pop",
+            include_str!("../../../../libraries/standard/pop/src/glob.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Glob\n\
+             private function verify(): Int?\n\
+                 local wildcard = compile(\"a*?c\")?\n\
+                 if not matches(wildcard, \"abxc\") or matches(wildcard, \"ac\") or matches(wildcard, \"abxcd\") then\n\
+                     return 1\n\
+                 end\n\
+                 local escaped = compile(\"a\\\\*b\")?\n\
+                 if not matches(escaped, \"a*b\") or matches(escaped, \"axxb\") then\n\
+                     return 2\n\
+                 end\n\
+                 local scalar = compile(\"?.txt\")?\n\
+                 if not matches(scalar, \"😀.txt\") or matches(scalar, \"ab.txt\") then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = compile(\"\")?\n\
+                 if not matches(empty, \"\") or matches(empty, \"x\") or compile(\"\\\\\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-text-globs");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Glob patterns: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_deterministic_random_state() {
     let module = native_modules(&[
         (

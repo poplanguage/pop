@@ -273,6 +273,8 @@ transplanted into a Luau-shaped file.
   `OffsetDateTime` identities distinct before parsing, zones, or wall clocks.
 - ADR 0140 adds bounded canonical `Locale.Tag` language/script/region values
   without ambient locale discovery, CLDR data, or negotiation.
+- ADR 0141 adds bounded compiled Unicode-scalar `Glob.Pattern` matching without
+  regex inheritance, shell execution, or filesystem authority.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

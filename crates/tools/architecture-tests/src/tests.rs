@@ -2501,6 +2501,31 @@ fn bounded_locale_tags_follow_adr_0140_without_ambient_or_native_duplicates() {
 }
 
 #[test]
+fn bounded_text_globs_follow_adr_0141_without_regex_or_host_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0141-bounded-text-glob-patterns.md"));
+    let glob = read_required(root.join("crates/libraries/standard/pop/src/glob.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(glob.matches("public class Pattern").count(), 1);
+    for function in ["compile", "matches"] {
+        assert_eq!(
+            glob.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Glob\t{function}\t")));
+    }
+    assert!(glob.contains("MAX_GLOB_PATTERN_BYTES = 1024"));
+    assert!(glob.contains("MAX_GLOB_TEXT_BYTES = 4096"));
+    assert!(!compiler.contains("Pop.Glob"));
+    assert!(!native.contains("Pop.Glob"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(

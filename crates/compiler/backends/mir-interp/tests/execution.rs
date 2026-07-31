@@ -2746,6 +2746,46 @@ fn bounded_locale_tags_canonicalize_without_ambient_discovery() {
 }
 
 #[test]
+fn bounded_text_globs_match_unicode_scalars_and_escapes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/glob.pop",
+            include_str!("../../../../libraries/standard/pop/src/glob.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Glob\n\
+             public function verify(): Int?\n\
+                 local wildcard = compile(\"a*?c\")?\n\
+                 if not matches(wildcard, \"abxc\") or matches(wildcard, \"ac\") or matches(wildcard, \"abxcd\") then\n\
+                     return 1\n\
+                 end\n\
+                 local escaped = compile(\"a\\\\*b\")?\n\
+                 if not matches(escaped, \"a*b\") or matches(escaped, \"axxb\") then\n\
+                     return 2\n\
+                 end\n\
+                 local scalar = compile(\"?.txt\")?\n\
+                 if not matches(scalar, \"😀.txt\") or matches(scalar, \"ab.txt\") then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = compile(\"\")?\n\
+                 if not matches(empty, \"\") or matches(empty, \"x\") or compile(\"\\\\\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Glob consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Glob MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Glob execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
     let (mir, types) = executable_modules(&[
         (
