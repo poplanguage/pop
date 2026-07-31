@@ -471,6 +471,12 @@ pub const CHANNEL_RECEIVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(126)
 pub const CHANNEL_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(127);
 /// Stable compiler-known identity of closed `Channel.ReceiveOutcome<T>`.
 pub const CHANNEL_RECEIVE_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(128);
+/// Stable compiler-known identity of incarnation-scoped `Actor.Ref<TMessage>`.
+pub const ACTOR_REF_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(129);
+/// Stable compiler-known identity of non-escapable `Actor.Inbox<TMessage>`.
+pub const ACTOR_INBOX_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(130);
+/// Stable compiler-known identity of single-use `Actor.Reply<T>`.
+pub const ACTOR_REPLY_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(131);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1191,6 +1197,30 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
                 "standard type",
                 2,
                 "invalid trusted channel type contract",
+            ));
+        }
+    }
+    for (id, source_name) in [
+        (ACTOR_REF_TYPE_ID, "Actor.Ref"),
+        (ACTOR_INBOX_TYPE_ID, "Actor.Inbox"),
+        (ACTOR_REPLY_TYPE_ID, "Actor.Reply"),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required actor type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 1
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted actor type contract",
             ));
         }
     }

@@ -258,6 +258,13 @@ The first accepted actor message graph contains:
 - tagged unions; and
 - `Actor.Ref<T>`/`Actor.Reply<T>` whose payloads are also accepted.
 
+ADR 0149 makes that set an executable compiler query and reserves exact
+non-prelude Ref/Inbox/Reply identities. The proof recurses through tuples,
+immutable records, and tagged unions with cycle detection. Unknown types,
+unsubstituted parameters, inboxes, mutable collections, callables,
+classes/interfaces, arbitrary builtins/opaque values, Tasks, Channels, views,
+buffers, and native resources fail closed.
+
 The first release rejects mutable arrays, lists, tables, classes, closures,
 tasks, channels, resource/native handles, borrowed views, pins, compiler
 handles, and untyped external data. An immutable collection can enter the set

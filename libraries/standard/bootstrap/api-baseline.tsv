@@ -48,6 +48,9 @@ type:125	Type	Pop.Standard	Pop.Channel	Sender	Channel.Sender<T>	standard	impleme
 type:126	Type	Pop.Standard	Pop.Channel	Receiver	Channel.Receiver<T>	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
 type:127	Type	Pop.Standard	Pop.Channel	SendOutcome	Channel.SendOutcome	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
 type:128	Type	Pop.Standard	Pop.Channel	ReceiveOutcome	Channel.ReceiveOutcome<T>	standard	implemented	false	architecture/decisions/0147-directional-bounded-channel-api.md
+type:129	Type	Pop.Standard	Pop.Actor	Ref	Actor.Ref<TMessage>	standard	implemented	false	architecture/decisions/0149-compiler-proven-actor-message-safety.md
+type:130	Type	Pop.Standard	Pop.Actor	Inbox	Actor.Inbox<TMessage>	standard	implemented	false	architecture/decisions/0149-compiler-proven-actor-message-safety.md
+type:131	Type	Pop.Standard	Pop.Actor	Reply	Actor.Reply<T>	standard	implemented	false	architecture/decisions/0149-compiler-proven-actor-message-safety.md
 attribute:0	Attribute	Pop.Standard	Pop	CompileTime	@CompileTime	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md
 attribute:1	Attribute	Pop.Standard	Pop	AttributeUsage	@AttributeUsage	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md
 attribute:2	Attribute	Pop.Standard	Pop	AttributeValidator	@AttributeValidator	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md

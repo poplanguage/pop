@@ -28,3 +28,6 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 126	Channel.Receiver	Pop.Standard	1	Nominal	false
 127	Channel.SendOutcome	Pop.Standard	0	Nominal	false
 128	Channel.ReceiveOutcome	Pop.Standard	1	Nominal	false
+129	Actor.Ref	Pop.Standard	1	Nominal	false
+130	Actor.Inbox	Pop.Standard	1	Nominal	false
+131	Actor.Reply	Pop.Standard	1	Nominal	false

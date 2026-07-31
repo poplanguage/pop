@@ -2802,6 +2802,39 @@ fn local_actor_lifecycle_follows_adr_0148_without_channel_or_dynamic_erasure() {
 }
 
 #[test]
+fn actor_message_safety_follows_adr_0149_and_fails_closed() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0149-compiler-proven-actor-message-safety.md"),
+    );
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let safety = read_required(root.join("crates/compiler/types/src/actor_safety.rs"));
+    let tests = read_required(root.join("crates/compiler/types/tests/actor_message_safety.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for identity in ["Actor.Ref", "Actor.Inbox", "Actor.Reply"] {
+        assert!(baseline.contains(identity), "missing {identity}");
+    }
+    for rejected in [
+        "MutableCollection",
+        "Callable",
+        "Class",
+        "Interface",
+        "Builtin",
+        "TypeParameter",
+        "Opaque",
+    ] {
+        assert!(safety.contains(rejected), "missing rejection {rejected}");
+    }
+    assert!(safety.contains("ACTOR_REF_TYPE_ID | ACTOR_REPLY_TYPE_ID"));
+    assert!(tests.contains("actor_message_safety_is_recursive"));
+    assert!(!safety.contains("Box<dyn"));
+    assert!(!safety.contains("std::any::Any"));
+    assert!(!safety.contains("Dynamic"));
+    assert!(!safety.contains("marker"));
+}
+
+#[test]
 fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
     let root = repository_root();
     let iteration = read_required(
@@ -2867,11 +2900,14 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "122\tBytes.View\tPop.Standard\t0\tView\tfalse",
             "123\tText.View\tPop.Standard\t0\tView\tfalse",
             "124\tBytes.Buffer\tPop.Standard\t0\tNominal\tfalse",
-            // ADR 0147 appends the non-prelude directional Channel identities.
+            // ADRs 0147 and 0149 append non-prelude concurrency identities.
             "125\tChannel.Sender\tPop.Standard\t1\tNominal\tfalse",
             "126\tChannel.Receiver\tPop.Standard\t1\tNominal\tfalse",
             "127\tChannel.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
             "128\tChannel.ReceiveOutcome\tPop.Standard\t1\tNominal\tfalse",
+            "129\tActor.Ref\tPop.Standard\t1\tNominal\tfalse",
+            "130\tActor.Inbox\tPop.Standard\t1\tNominal\tfalse",
+            "131\tActor.Reply\tPop.Standard\t1\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

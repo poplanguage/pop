@@ -28,6 +28,7 @@ use pop_foundation::{
 };
 use serde::{Deserialize, Serialize};
 
+mod actor_safety;
 mod aggregate_checking;
 mod arena;
 mod attributes;
@@ -46,6 +47,7 @@ mod signature_resolution;
 mod statement_checking;
 mod typed_body;
 
+pub use actor_safety::{ActorMessageSafety, ActorMessageUnsafeKind};
 pub use arena::{TypeArena, TypeArenaError};
 pub use attributes::{
     AttributeAttachmentError, AttributeAttachmentResult, AttributeAttachmentSet, AttributeConstant,
@@ -57,14 +59,15 @@ pub use attributes::{
 };
 pub use body_checking::{BodyChecker, RuntimeConstant};
 pub use bootstrap::{
-    AttributeIdentity, BYTES_BUFFER_TYPE_ID, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID,
-    BootstrapCodecErrorProtocol, BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry,
-    BootstrapIterationProtocol, BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError,
-    BootstrapStandardFunctionEntry, BootstrapTypeEntry, BootstrapTypeRole,
-    CHANNEL_RECEIVE_OUTCOME_TYPE_ID, CHANNEL_RECEIVER_TYPE_ID, CHANNEL_SEND_OUTCOME_TYPE_ID,
-    CHANNEL_SENDER_TYPE_ID, CODEC_ERROR_TYPE_ID, CodecErrorReason, CompilerAttributeId,
-    CompilerAttributeRole, CompilerAttributeTarget, FFI_ALLOCATION_ERROR_TYPE_ID,
-    FFI_BUFFER_TYPE_ID, FFI_CALLBACK_CLOSED_ERROR_TYPE_ID, FFI_CALLBACK_CONTEXT_TYPE_ID,
+    ACTOR_INBOX_TYPE_ID, ACTOR_REF_TYPE_ID, ACTOR_REPLY_TYPE_ID, AttributeIdentity,
+    BYTES_BUFFER_TYPE_ID, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID, BootstrapCodecErrorProtocol,
+    BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry, BootstrapIterationProtocol,
+    BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError, BootstrapStandardFunctionEntry,
+    BootstrapTypeEntry, BootstrapTypeRole, CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+    CHANNEL_RECEIVER_TYPE_ID, CHANNEL_SEND_OUTCOME_TYPE_ID, CHANNEL_SENDER_TYPE_ID,
+    CODEC_ERROR_TYPE_ID, CodecErrorReason, CompilerAttributeId, CompilerAttributeRole,
+    CompilerAttributeTarget, FFI_ALLOCATION_ERROR_TYPE_ID, FFI_BUFFER_TYPE_ID,
+    FFI_CALLBACK_CLOSED_ERROR_TYPE_ID, FFI_CALLBACK_CONTEXT_TYPE_ID,
     FFI_CALLBACK_IN_USE_ERROR_TYPE_ID, FFI_CALLBACK_OPEN_ERROR_TYPE_ID,
     FFI_CALLBACK_THREAD_TYPE_ID, FFI_FUNCTION_TYPE_ID, FFI_HANDLE_TYPE_ID,
     FFI_NULL_POINTER_ERROR_TYPE_ID, FFI_OPTIONAL_POINTER_TYPE_ID,
