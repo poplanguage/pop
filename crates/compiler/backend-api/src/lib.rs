@@ -311,7 +311,7 @@ impl ProgramRequirements {
                 self.require_runtime(RuntimeContract::ManagedAllocator, origin);
             }
             MirInstructionKind::CallStandard { function, .. }
-                if matches!(function.raw(), 2..=22) =>
+                if matches!(function.raw(), 2..=24) =>
             {
                 self.require_runtime(RuntimeContract::AtomicOperations, origin);
             }

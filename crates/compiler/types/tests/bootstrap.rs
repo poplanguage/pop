@@ -97,9 +97,9 @@ fn atomic_standard_functions_are_typed_qualified_and_non_prelude() {
         .filter(|entry| entry.source_name().starts_with("Atomic."))
         .collect();
 
-    assert_eq!(atomic.len(), 21);
+    assert_eq!(atomic.len(), 23);
     assert_eq!(atomic.first().expect("first Atomic function").id().raw(), 2);
-    assert_eq!(atomic.last().expect("last Atomic function").id().raw(), 22);
+    assert_eq!(atomic.last().expect("last Atomic function").id().raw(), 24);
     assert!(
         atomic
             .iter()

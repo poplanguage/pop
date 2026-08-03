@@ -18,15 +18,19 @@ Atomic.storeInt(Atomic.Int, Int, Atomic.StoreOrder) -> Boolean
 Atomic.storeBoolean(Atomic.Boolean, Boolean, Atomic.StoreOrder) -> Boolean
 Atomic.swapInt(Atomic.Int, Int, Atomic.ReadModifyWriteOrder) -> Int
 Atomic.swapBoolean(Atomic.Boolean, Boolean, Atomic.ReadModifyWriteOrder) -> Boolean
+Atomic.compareExchangeInt(Atomic.Int, Int, Int, Atomic.ReadModifyWriteOrder, Atomic.LoadOrder) -> Int
+Atomic.compareExchangeBoolean(Atomic.Boolean, Boolean, Boolean, Atomic.ReadModifyWriteOrder, Atomic.LoadOrder) -> Boolean
 Atomic.releaseInt(Atomic.Int) -> Boolean
 Atomic.releaseBoolean(Atomic.Boolean) -> Boolean
 ```
 
-Order constructors are pure. State operations carry `Synchronizes`; loads and
-swaps additionally carry `MayTrap` because a rejected native handle is a
-runtime invariant failure. Strong compare-exchange remains reserved in PLRI
-until its exact public observed-value result type is added; it must not be
-reduced to a Boolean-only result.
+Order constructors are pure. State operations carry `Synchronizes`; loads,
+swaps, and compare-exchange additionally carry `MayTrap` because a rejected
+native handle or invalid success/failure order pair is a runtime invariant
+failure. Strong compare-exchange returns the exact previously observed scalar.
+The caller determines whether exchange occurred by comparing that value with
+the expected scalar, preserving all information without allocating a result
+object or reducing the operation to a Boolean-only result.
 
 The trusted function metadata drives source checking, HIR verification, MIR
 verification, and effect lowering. LLVM and MIR-interpreter adapters consume

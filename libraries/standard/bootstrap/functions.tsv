@@ -23,3 +23,5 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 20	Atomic.swapBoolean	Pop.Standard	Atomic.Boolean,Boolean,Atomic.ReadModifyWriteOrder	Boolean	Synchronizes,MayTrap	false
 21	Atomic.releaseInt	Pop.Standard	Atomic.Int	Boolean	Synchronizes	false
 22	Atomic.releaseBoolean	Pop.Standard	Atomic.Boolean	Boolean	Synchronizes	false
+23	Atomic.compareExchangeInt	Pop.Standard	Atomic.Int,Int,Int,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder	Int	Synchronizes,MayTrap	false
+24	Atomic.compareExchangeBoolean	Pop.Standard	Atomic.Boolean,Boolean,Boolean,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder	Boolean	Synchronizes,MayTrap	false

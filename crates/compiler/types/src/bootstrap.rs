@@ -1405,7 +1405,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 23 {
+    if entries.len() != 25 {
         return Err(error(
             "standard function",
             2,
@@ -1524,6 +1524,18 @@ fn validate_standard_functions(
             "Atomic.Boolean",
             "Boolean",
             "Synchronizes",
+        ),
+        (
+            "Atomic.compareExchangeInt",
+            "Atomic.Int,Int,Int,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.compareExchangeBoolean",
+            "Atomic.Boolean,Boolean,Boolean,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {

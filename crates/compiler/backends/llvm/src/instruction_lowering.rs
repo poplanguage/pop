@@ -578,7 +578,7 @@ pub(crate) fn lower_instruction(
                 "call void @pop_std_print_string(i64 %v{})",
                 arguments[0].raw()
             ),
-            2..=22 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
+            2..=24 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -3498,6 +3498,58 @@ fn lower_atomic_standard_call(
             format!("{result} = icmp eq i8 {result}_status, 1"),
         ]
         .join("\n")),
+        23 | 24 if arguments.len() == 5 => {
+            let boolean = function == 24;
+            let operation = if boolean {
+                RuntimeOperation::AtomicBoolCompareExchange
+            } else {
+                RuntimeOperation::AtomicIntCompareExchange
+            };
+            let output_type = if boolean { "i8" } else { "i64" };
+            let mut lines = Vec::from([
+                format!(
+                    "{result}_success_order = trunc i64 %v{} to i8",
+                    arguments[3].raw()
+                ),
+                format!(
+                    "{result}_failure_order = trunc i64 %v{} to i8",
+                    arguments[4].raw()
+                ),
+            ]);
+            let (current, new) = if boolean {
+                lines.extend([
+                    format!("{result}_current = zext i1 %v{} to i8", arguments[1].raw()),
+                    format!("{result}_new = zext i1 %v{} to i8", arguments[2].raw()),
+                ]);
+                (format!("i8 {result}_current"), format!("i8 {result}_new"))
+            } else {
+                (
+                    format!("i64 %v{}", arguments[1].raw()),
+                    format!("i64 %v{}", arguments[2].raw()),
+                )
+            };
+            lines.extend([
+                format!("{result}_output = alloca {output_type}"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {current}, {new}, i8 {result}_success_order, i8 {result}_failure_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result}_valid = icmp ne i8 {result}_status, 0"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_observed = load {output_type}, ptr {result}_output"),
+                if boolean {
+                    format!("{result} = icmp ne i8 {result}_observed, 0")
+                } else {
+                    format!("{result} = add i64 {result}_observed, 0")
+                },
+            ]);
+            Ok(lines.join("\n"))
+        }
         _ => Err(unsupported()),
     }
 }

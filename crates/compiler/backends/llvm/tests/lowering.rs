@@ -221,12 +221,16 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
              local integer = Atomic.int(4)\n\
              local loaded = Atomic.loadInt(integer, Atomic.acquireLoadOrder())\n\
              local previous = Atomic.swapInt(integer, 9, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local exchangedFrom = Atomic.compareExchangeInt(integer, 9, 15, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local mismatchObserved = Atomic.compareExchangeInt(integer, 9, 20, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
              local stored = Atomic.storeInt(integer, 12, Atomic.releaseStoreOrder())\n\
              local boolean = Atomic.boolean(false)\n\
              local priorBoolean = Atomic.swapBoolean(boolean, true, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
+             local exchangedBoolean = Atomic.compareExchangeBoolean(boolean, true, false, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local mismatchBoolean = Atomic.compareExchangeBoolean(boolean, true, true, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
              local loadedBoolean = Atomic.loadBoolean(boolean, Atomic.sequentiallyConsistentLoadOrder())\n\
              local released = Atomic.releaseInt(integer) and Atomic.releaseBoolean(boolean)\n\
-             if loaded == 4 and previous == 4 and stored and not priorBoolean and loadedBoolean and released then\n\
+             if loaded == 4 and previous == 4 and exchangedFrom == 9 and mismatchObserved == 15 and stored and not priorBoolean and exchangedBoolean and not mismatchBoolean and not loadedBoolean and released then\n\
                  return 0\n\
              end\n\
              return 1\n\
@@ -269,9 +273,11 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
         "pop_rt_atomic_int_load",
         "pop_rt_atomic_int_store",
         "pop_rt_atomic_int_swap",
+        "pop_rt_atomic_int_compare_exchange",
         "pop_rt_atomic_bool_create",
         "pop_rt_atomic_bool_load",
         "pop_rt_atomic_bool_swap",
+        "pop_rt_atomic_bool_compare_exchange",
         "pop_rt_atomic_release",
     ] {
         assert!(text.contains(symbol), "missing {symbol}: {text}");

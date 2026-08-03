@@ -23,16 +23,16 @@ use pop_mir::{
     is_managed_reference_type_id, verify_mir_bubble,
 };
 use pop_runtime_interface::{
-    AllocationClass, ArrayAllocationRequest, AtomicBoolean, AtomicInt, AtomicLoadOrder,
-    AtomicReadModifyWriteOrder, AtomicStoreOrder, BarrierKind, CancellationObservation,
-    CancellationTokenId, ChannelId, ChannelLifecycle, ChannelReceive, ChannelSendError,
-    FfiBufferBorrowId, FfiBufferOpenFailure, FfiBufferOpenRequest, FfiBytesBorrowId,
-    FfiCallbackCloseFailure, FfiCallbackLifetime, FfiCallbackOpenFailure, FfiCallbackOpenRequest,
-    FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId, FfiCallbackThread,
-    ForeignAddress, ForeignCallMode, ManagedReference, ObjectAllocationRequest, ObjectMap,
-    ObjectSlot, PinHandle, RootHandle, RootPublication, RootSlot, RuntimeAdapter, RuntimeFailure,
-    RuntimeTypeId, SchedulerId, StackMap, TableAllocationRequest, TaskGroupExit, TaskGroupId,
-    TaskGroupLifecycle, TaskId, TaskLifecycle, TaskOwner, TaskPollCompletion,
+    AllocationClass, ArrayAllocationRequest, AtomicBoolean, AtomicCompareExchangeOrder, AtomicInt,
+    AtomicLoadOrder, AtomicReadModifyWriteOrder, AtomicStoreOrder, BarrierKind,
+    CancellationObservation, CancellationTokenId, ChannelId, ChannelLifecycle, ChannelReceive,
+    ChannelSendError, FfiBufferBorrowId, FfiBufferOpenFailure, FfiBufferOpenRequest,
+    FfiBytesBorrowId, FfiCallbackCloseFailure, FfiCallbackLifetime, FfiCallbackOpenFailure,
+    FfiCallbackOpenRequest, FfiCallbackRegistration, FfiCallbackRegistrationId, FfiCallbackSiteId,
+    FfiCallbackThread, ForeignAddress, ForeignCallMode, ManagedReference, ObjectAllocationRequest,
+    ObjectMap, ObjectSlot, PinHandle, RootHandle, RootPublication, RootSlot, RuntimeAdapter,
+    RuntimeFailure, RuntimeTypeId, SchedulerId, StackMap, TableAllocationRequest, TaskGroupExit,
+    TaskGroupId, TaskGroupLifecycle, TaskId, TaskLifecycle, TaskOwner, TaskPollCompletion,
     TaskState as RuntimeTaskState, Trap, TrapKind, UnwindReason, WriteBarrier,
 };
 use pop_types::{
@@ -4269,7 +4269,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 2..=22) => {
+            } if matches!(function.raw(), 2..=24) => {
                 self.evaluate_atomic_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -4538,6 +4538,44 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     self.private_values.remove(&symbol),
                     Some(PrivateValue::AtomicBoolean(_))
                 )))
+            }
+            23 if arguments.len() == 5 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let current = integer_i64(&argument(1)?.visible)?;
+                let new = integer_i64(&argument(2)?.visible)?;
+                let order =
+                    AtomicCompareExchangeOrder::new(read_modify_write_order(3)?, load_order(4)?)
+                        .ok_or(ExecutionError::InvalidControlFlow)?;
+                let Some(PrivateValue::AtomicInt(state)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let observed = state.compare_exchange(current, new, order).previous();
+                IntegerValue::parse_decimal(&observed.to_string(), IntegerKind::Int64)
+                    .map(MirValue::Integer)
+                    .map_err(|_| ExecutionError::InvalidControlFlow)
+            }
+            24 if arguments.len() == 5 => {
+                let MirValue::AtomicBoolean(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(current) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(new) = argument(2)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let order =
+                    AtomicCompareExchangeOrder::new(read_modify_write_order(3)?, load_order(4)?)
+                        .ok_or(ExecutionError::InvalidControlFlow)?;
+                let Some(PrivateValue::AtomicBoolean(state)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(
+                    state.compare_exchange(current, new, order).previous(),
+                ))
             }
             _ => Err(ExecutionError::WrongArity),
         }

@@ -326,8 +326,9 @@ fn atomic_standard_calls_preserve_handle_value_and_order_types() {
              local state: Atomic.Int = Atomic.int(value)\n\
              local loaded: Int = Atomic.loadInt(state, Atomic.acquireLoadOrder())\n\
              local swapped: Int = Atomic.swapInt(state, loaded + 1, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local observed: Int = Atomic.compareExchangeInt(state, swapped, loaded, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
              local stored = Atomic.storeInt(state, swapped, Atomic.releaseStoreOrder())\n\
-             return stored and Atomic.releaseInt(state)\n\
+             return observed == swapped and stored and Atomic.releaseInt(state)\n\
          end\n",
         "update",
     );
@@ -343,7 +344,8 @@ fn atomic_standard_calls_preserve_handle_value_and_order_types() {
              local state: Atomic.Boolean = Atomic.boolean(value)\n\
              local loaded = Atomic.loadBoolean(state, Atomic.relaxedLoadOrder())\n\
              local swapped = Atomic.swapBoolean(state, not loaded, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
-             return Atomic.storeBoolean(state, swapped, Atomic.sequentiallyConsistentStoreOrder()) and Atomic.releaseBoolean(state)\n\
+             local observed = Atomic.compareExchangeBoolean(state, swapped, loaded, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             return observed == swapped and Atomic.storeBoolean(state, swapped, Atomic.sequentiallyConsistentStoreOrder()) and Atomic.releaseBoolean(state)\n\
          end\n",
         "update",
     );
