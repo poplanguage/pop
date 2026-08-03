@@ -5766,6 +5766,49 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 };
                 Ok(MirValue::Boolean(accepted.is_ok()))
             }
+            166 | 167 if arguments.len() == 3 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Record {
+                    fields: ref address,
+                    ..
+                } = argument(1)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Record {
+                    fields: ref interface,
+                    ..
+                } = argument(2)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if address.len() != 4 || interface.len() != 1 {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let word = |index: usize| {
+                    u32::try_from(integer_u64(&address[index].1)?)
+                        .map_err(|_| ExecutionError::TypeMismatch)
+                };
+                let words = [word(0)?, word(1)?, word(2)?, word(3)?];
+                let mut octets = [0_u8; 16];
+                for (index, word) in words.into_iter().enumerate() {
+                    octets[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+                }
+                let interface = u32::try_from(integer_u64(&interface[0].1)?)
+                    .map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let group = Ipv6Addr::from(octets);
+                let accepted = if function == 166 {
+                    socket.join_multicast_v6(&group, interface)
+                } else {
+                    socket.leave_multicast_v6(&group, interface)
+                };
+                Ok(MirValue::Boolean(accepted.is_ok()))
+            }
             #[cfg(unix)]
             114 | 115 if arguments.len() == 1 => {
                 let MirValue::String(ref path) = argument(0)?.visible else {
