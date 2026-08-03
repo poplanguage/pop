@@ -28,6 +28,8 @@ fn native_target_declares_relocating_nursery_feasibility() {
     assert!(target.supports(TargetCapability::PreciseStackMaps));
     assert!(target.supports(TargetCapability::RelocatingNursery));
     assert!(target.supports(TargetCapability::Exceptions));
+    assert!(target.supports(TargetCapability::Atomics));
+    assert!(target.supports(TargetCapability::Networking));
 }
 
 #[test]
@@ -64,6 +66,8 @@ fn bpf_target_specs_are_elf_llvm_bpf_targets() {
     assert_eq!(little.operating_system(), OperatingSystem::None);
     assert!(little.supports(TargetCapability::LlvmBpf));
     assert!(!little.supports(TargetCapability::Threads));
+    assert!(!little.supports(TargetCapability::Atomics));
+    assert!(!little.supports(TargetCapability::Networking));
     assert!(!little.supports(TargetCapability::SharedLibraries));
     assert_eq!(little.c_abi_scalar_layout(CAbiScalarKind::Int), None);
 

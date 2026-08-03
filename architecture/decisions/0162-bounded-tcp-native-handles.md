@@ -13,4 +13,6 @@ integration. TLS, cancellation, deadlines, public `Net.Tcp` records, and
 non-loopback policy remain later layers.
 
 The backend-neutral `RuntimeOperation` inventory and native ABI symbol catalog
-reserve exact entries for every operation in this slice.
+reserve exact entries for every operation in this slice. Lowering requires the
+backend-neutral `Networking` target capability; the supported Linux native
+target declares it and freestanding targets do not.
