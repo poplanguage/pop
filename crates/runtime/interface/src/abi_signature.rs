@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 36] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 40] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -51,11 +51,15 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 36] = [
     RuntimeOperation::TcpAccept,
     RuntimeOperation::TcpSend,
     RuntimeOperation::TcpReceive,
+    RuntimeOperation::TcpSendBytes,
+    RuntimeOperation::TcpReceiveBytes,
     RuntimeOperation::TcpClose,
     RuntimeOperation::UdpBind,
     RuntimeOperation::UdpLocalPort,
     RuntimeOperation::UdpSendTo,
     RuntimeOperation::UdpReceive,
+    RuntimeOperation::UdpSendBytesTo,
+    RuntimeOperation::UdpReceiveBytes,
     RuntimeOperation::UdpClose,
 ];
 
@@ -91,7 +95,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicIntCompareExchange, AtomicIntCreate, AtomicIntFetchAdd, AtomicIntFetchAnd,
         AtomicIntFetchOr, AtomicIntFetchSubtract, AtomicIntFetchXor, AtomicIntLoad, AtomicIntStore,
         AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort,
-        TcpReceive, TcpSend, UdpBind, UdpClose, UdpLocalPort, UdpReceive, UdpSendTo,
+        TcpReceive, TcpReceiveBytes, TcpSend, TcpSendBytes, UdpBind, UdpClose, UdpLocalPort,
+        UdpReceive, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
     };
 
     Some(match operation {
@@ -123,6 +128,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpAccept => signature(&[U64], U64),
         TcpSend => signature(&[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer], U8),
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
+        TcpSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
+        TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
         UdpSendTo => signature(
             &[U64, U32, U16, ReadOnlyU8Pointer, U64, WritableU64Pointer],
             U8,
@@ -132,6 +139,18 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
                 U64,
                 WritableU8Pointer,
                 U64,
+                WritableU32Pointer,
+                WritableU16Pointer,
+                WritableU64Pointer,
+            ],
+            U8,
+        ),
+        UdpSendBytesTo => signature(&[U64, U32, U16, U64, WritableU64Pointer], U8),
+        UdpReceiveBytes => signature(
+            &[
+                U64,
+                U64,
+                WritableU64Pointer,
                 WritableU32Pointer,
                 WritableU16Pointer,
                 WritableU64Pointer,

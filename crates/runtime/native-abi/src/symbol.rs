@@ -36,12 +36,16 @@ pub const TCP_CONNECT_SYMBOL: &str = "pop_rt_tcp_connect";
 pub const TCP_ACCEPT_SYMBOL: &str = "pop_rt_tcp_accept";
 pub const TCP_SEND_SYMBOL: &str = "pop_rt_tcp_send";
 pub const TCP_RECEIVE_SYMBOL: &str = "pop_rt_tcp_receive";
+pub const TCP_SEND_BYTES_SYMBOL: &str = "pop_rt_tcp_send_bytes";
+pub const TCP_RECEIVE_BYTES_SYMBOL: &str = "pop_rt_tcp_receive_bytes";
 pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
 
 pub const UDP_BIND_SYMBOL: &str = "pop_rt_udp_bind";
 pub const UDP_LOCAL_PORT_SYMBOL: &str = "pop_rt_udp_local_port";
 pub const UDP_SEND_TO_SYMBOL: &str = "pop_rt_udp_send_to";
 pub const UDP_RECEIVE_SYMBOL: &str = "pop_rt_udp_receive";
+pub const UDP_SEND_BYTES_TO_SYMBOL: &str = "pop_rt_udp_send_bytes_to";
+pub const UDP_RECEIVE_BYTES_SYMBOL: &str = "pop_rt_udp_receive_bytes";
 pub const UDP_CLOSE_SYMBOL: &str = "pop_rt_udp_close";
 
 pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
@@ -61,7 +65,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.29.
+/// Returns the native C symbol for an operation implemented through ABI 1.31.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -202,11 +206,15 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::TcpAccept => Some(TCP_ACCEPT_SYMBOL),
         RuntimeOperation::TcpSend => Some(TCP_SEND_SYMBOL),
         RuntimeOperation::TcpReceive => Some(TCP_RECEIVE_SYMBOL),
+        RuntimeOperation::TcpSendBytes => Some(TCP_SEND_BYTES_SYMBOL),
+        RuntimeOperation::TcpReceiveBytes => Some(TCP_RECEIVE_BYTES_SYMBOL),
         RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
         RuntimeOperation::UdpBind => Some(UDP_BIND_SYMBOL),
         RuntimeOperation::UdpLocalPort => Some(UDP_LOCAL_PORT_SYMBOL),
         RuntimeOperation::UdpSendTo => Some(UDP_SEND_TO_SYMBOL),
         RuntimeOperation::UdpReceive => Some(UDP_RECEIVE_SYMBOL),
+        RuntimeOperation::UdpSendBytesTo => Some(UDP_SEND_BYTES_TO_SYMBOL),
+        RuntimeOperation::UdpReceiveBytes => Some(UDP_RECEIVE_BYTES_SYMBOL),
         RuntimeOperation::UdpClose => Some(UDP_CLOSE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake

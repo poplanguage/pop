@@ -7,7 +7,11 @@ use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use pop_runtime_interface::RuntimeAdapter;
 use pop_runtime_native_abi::SocketIoStatus;
+
+use crate::allocate_immutable_bytes;
+use crate::state::lock_abi_runtime;
 
 static NEXT_UDP: AtomicU64 = AtomicU64::new(1);
 
@@ -139,6 +143,82 @@ pub unsafe extern "C" fn pop_rt_udp_receive(
         received.write(count);
     }
     SocketIoStatus::Progress as u8
+}
+
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_rt_udp_send_bytes_to(
+    handle: u64,
+    address: u32,
+    port: u16,
+    bytes: u64,
+    written: *mut u64,
+) -> u8 {
+    if bytes == 0 || written.is_null() {
+        return SocketIoStatus::Failure as u8;
+    }
+    let Ok(runtime) = lock_abi_runtime() else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let reference = pop_runtime_interface::ManagedReference::new(bytes);
+    let Ok(length) = runtime.immutable_bytes_length(reference) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let Ok(capacity) = usize::try_from(length) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let mut input = vec![0; capacity];
+    if runtime
+        .immutable_bytes_read(reference, 0, &mut input)
+        .is_err()
+    {
+        return SocketIoStatus::Failure as u8;
+    }
+    drop(runtime);
+    unsafe { pop_rt_udp_send_to(handle, address, port, input.as_ptr(), length, written) }
+}
+
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_rt_udp_receive_bytes(
+    handle: u64,
+    capacity: u64,
+    bytes: *mut u64,
+    address: *mut u32,
+    port: *mut u16,
+    received: *mut u64,
+) -> u8 {
+    if bytes.is_null() || address.is_null() || port.is_null() || received.is_null() || capacity == 0
+    {
+        return SocketIoStatus::Failure as u8;
+    }
+    let Ok(length) = usize::try_from(capacity) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let mut output = vec![0; length];
+    let status = unsafe {
+        pop_rt_udp_receive(
+            handle,
+            output.as_mut_ptr(),
+            capacity,
+            address,
+            port,
+            received,
+        )
+    };
+    if status != SocketIoStatus::Progress as u8 {
+        return status;
+    }
+    let count = unsafe { received.read() };
+    let Ok(count) = usize::try_from(count) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let reference = allocate_immutable_bytes(&output[..count]);
+    if reference == 0 {
+        return SocketIoStatus::Failure as u8;
+    }
+    unsafe { bytes.write(reference) };
+    status
 }
 
 #[unsafe(no_mangle)]

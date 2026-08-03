@@ -25,7 +25,7 @@ use pop_runtime_native_abi::{
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 30);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 31);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
@@ -236,11 +236,15 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::TcpAccept,
         RuntimeOperation::TcpSend,
         RuntimeOperation::TcpReceive,
+        RuntimeOperation::TcpSendBytes,
+        RuntimeOperation::TcpReceiveBytes,
         RuntimeOperation::TcpClose,
         RuntimeOperation::UdpBind,
         RuntimeOperation::UdpLocalPort,
         RuntimeOperation::UdpSendTo,
         RuntimeOperation::UdpReceive,
+        RuntimeOperation::UdpSendBytesTo,
+        RuntimeOperation::UdpReceiveBytes,
         RuntimeOperation::UdpClose,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
@@ -302,7 +306,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 30);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 31);
 }
 
 #[test]

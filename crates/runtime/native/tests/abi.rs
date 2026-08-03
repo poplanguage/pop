@@ -35,9 +35,10 @@ use pop_runtime_native::{
     pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set,
     pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept, pop_rt_tcp_close,
     pop_rt_tcp_connect, pop_rt_tcp_listen, pop_rt_tcp_local_port, pop_rt_tcp_receive,
-    pop_rt_tcp_send, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_udp_bind,
-    pop_rt_udp_close, pop_rt_udp_local_port, pop_rt_udp_receive, pop_rt_udp_send_to, pop_rt_unpin,
-    request_abi_collection,
+    pop_rt_tcp_receive_bytes, pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8,
+    pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_close, pop_rt_udp_local_port,
+    pop_rt_udp_receive, pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
+    pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -59,7 +60,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 30);
+    assert_eq!(pop_rt_abi_minor(), 31);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -81,6 +82,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 28), 1);
     assert_eq!(pop_rt_supports_abi(1, 29), 1);
     assert_eq!(pop_rt_supports_abi(1, 30), 1);
+    assert_eq!(pop_rt_supports_abi(1, 31), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -293,6 +295,52 @@ fn native_tcp_handles_fail_closed_without_a_capability() {
 
 #[test]
 #[allow(unsafe_code)]
+fn native_tcp_transfers_owning_bytes_with_exact_counts() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client = pop_rt_tcp_connect(port);
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_tcp_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"buffered Pop Net");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 16);
+    let mut received_bytes = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_tcp_receive_bytes(server, 64, &raw mut received_bytes, &raw mut count)
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_ne!(received_bytes, 0);
+    assert_eq!(count, 16);
+    assert_eq!(pop_rt_tcp_close(client), 1);
+    assert_eq!(pop_rt_tcp_close(server), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn native_udp_handles_fail_closed_without_a_capability() {
     let _guard = abi_test_lock();
     let socket = pop_rt_udp_bind(0);
@@ -322,6 +370,48 @@ fn native_udp_handles_fail_closed_without_a_capability() {
         SocketIoStatus::Failure as u8
     );
     assert_eq!(pop_rt_udp_close(0), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_transfers_owning_bytes_with_source_and_exact_count() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket == 0 {
+        return;
+    }
+    let mut port = 0;
+    assert_eq!(unsafe { pop_rt_udp_local_port(socket, &raw mut port) }, 1);
+    let payload = allocate_immutable_bytes(b"datagram");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_udp_send_bytes_to(socket, 0x7f00_0001, port, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 8);
+    let mut received_bytes = 0;
+    let mut address = 0;
+    let mut source_port = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_udp_receive_bytes(
+                socket,
+                64,
+                &raw mut received_bytes,
+                &raw mut address,
+                &raw mut source_port,
+                &raw mut count,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_ne!(received_bytes, 0);
+    assert_eq!((address, source_port, count), (0x7f00_0001, port, 8));
+    assert_eq!(pop_rt_udp_close(socket), 1);
 }
 
 #[test]
