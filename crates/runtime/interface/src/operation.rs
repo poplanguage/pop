@@ -117,6 +117,13 @@ pub enum RuntimeOperation {
     AtomicBoolSwap,
     AtomicBoolCompareExchange,
     AtomicRelease,
+    ActorCreate,
+    ActorActivate,
+    ActorTrySend,
+    ActorTryReceive,
+    ActorBeginExit,
+    ActorCompleteExit,
+    ActorRelease,
     InitializeModule,
     InitializeBubble,
 }

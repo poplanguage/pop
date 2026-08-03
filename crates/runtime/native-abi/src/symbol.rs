@@ -163,6 +163,13 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::AtomicBoolSwap => Some(ATOMIC_BOOL_SWAP_SYMBOL),
         RuntimeOperation::AtomicBoolCompareExchange => Some(ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL),
         RuntimeOperation::AtomicRelease => Some(ATOMIC_RELEASE_SYMBOL),
+        RuntimeOperation::ActorCreate => Some(ACTOR_CREATE_SYMBOL),
+        RuntimeOperation::ActorActivate => Some(ACTOR_ACTIVATE_SYMBOL),
+        RuntimeOperation::ActorTrySend => Some(ACTOR_TRY_SEND_SYMBOL),
+        RuntimeOperation::ActorTryReceive => Some(ACTOR_TRY_RECEIVE_SYMBOL),
+        RuntimeOperation::ActorBeginExit => Some(ACTOR_BEGIN_EXIT_SYMBOL),
+        RuntimeOperation::ActorCompleteExit => Some(ACTOR_COMPLETE_EXIT_SYMBOL),
+        RuntimeOperation::ActorRelease => Some(ACTOR_RELEASE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake
         | RuntimeOperation::CaptureLoad

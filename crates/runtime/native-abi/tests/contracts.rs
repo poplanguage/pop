@@ -195,6 +195,13 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::AtomicBoolSwap,
         RuntimeOperation::AtomicBoolCompareExchange,
         RuntimeOperation::AtomicRelease,
+        RuntimeOperation::ActorCreate,
+        RuntimeOperation::ActorActivate,
+        RuntimeOperation::ActorTrySend,
+        RuntimeOperation::ActorTryReceive,
+        RuntimeOperation::ActorBeginExit,
+        RuntimeOperation::ActorCompleteExit,
+        RuntimeOperation::ActorRelease,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
     ];

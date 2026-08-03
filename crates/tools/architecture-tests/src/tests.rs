@@ -3008,6 +3008,32 @@ fn atomic_runtime_operation_vocabulary_follows_adr_0160() {
 }
 
 #[test]
+fn actor_runtime_operation_vocabulary_follows_adr_0161() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0161-actor-operation-vocabulary.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for name in [
+        "ActorCreate",
+        "ActorActivate",
+        "ActorTrySend",
+        "ActorTryReceive",
+        "ActorBeginExit",
+        "ActorCompleteExit",
+        "ActorRelease",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name}"))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
 fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
     let root = repository_root();
     let adr =
