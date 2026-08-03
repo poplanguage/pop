@@ -5394,19 +5394,29 @@ impl Verifier<'_> {
     ) {
         let signature = match dispatch {
             HirCallDispatch::Standard { function } => {
-                if function.raw() == 0 {
-                    self.arena
-                        .source_type("Int")
-                        .map(|int| HirCallableSignature {
-                            is_async: false,
-                            type_parameters: Vec::new(),
-                            type_parameter_bounds: Vec::new(),
-                            parameters: vec![int],
-                            results: Vec::new(),
-                        })
-                } else {
-                    None
-                }
+                embedded_bootstrap_schema().ok().and_then(|schema| {
+                    let entry = schema
+                        .standard_functions()
+                        .iter()
+                        .find(|entry| entry.id() == *function)?;
+                    let parameters = entry
+                        .parameter_types()
+                        .iter()
+                        .map(|name| self.arena.source_type(name))
+                        .collect::<Option<Vec<_>>>()?;
+                    let results = entry
+                        .result_types()
+                        .iter()
+                        .map(|name| self.arena.source_type(name))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(HirCallableSignature {
+                        is_async: false,
+                        type_parameters: Vec::new(),
+                        type_parameter_bounds: Vec::new(),
+                        parameters,
+                        results,
+                    })
+                })
             }
             HirCallDispatch::Direct { function } => {
                 self.verify_function(*function, span);

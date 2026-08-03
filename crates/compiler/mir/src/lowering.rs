@@ -11,8 +11,8 @@ use std::rc::Rc;
 use pop_foundation::{
     AllocationSiteId, BindingId, BlockId, BorrowRegionId, BuiltinTypeId, CaptureId, ClassId,
     CleanupScopeId, CoroutineStateId, FieldId, FileId, FunctionId, IterationProtocolMethodId,
-    LifetimeId, LocalId, MethodId, ResultCaseId, SourceSpan, SymbolId, SymbolIdentity, TextRange,
-    TextSize, TypeId, ValueId, ValueParameterId,
+    LifetimeId, LocalId, MethodId, ResultCaseId, SourceSpan, StandardFunctionId, SymbolId,
+    SymbolIdentity, TextRange, TextSize, TypeId, ValueId, ValueParameterId,
 };
 use pop_hir::{
     HirAssignmentTarget, HirBubble, HirCallDispatch, HirCaptureMode, HirCaptureSource, HirClosure,
@@ -6587,7 +6587,7 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
-                declared_effects: MirEffectSummary::empty().with(MirEffect::AmbientIo),
+                declared_effects: standard_function_effects(*function),
             },
             HirCallDispatch::Direct { function } => MirInstructionKind::CallDirect {
                 function: *function,
@@ -6967,6 +6967,34 @@ impl<'hir> FunctionBuilder<'hir> {
     fn branch_with_state_if_open(&mut self, target: BlockId, state: &LiveState) {
         self.branch_with_arguments_if_open(target, self.state_values(state));
     }
+}
+
+fn standard_function_effects(function: StandardFunctionId) -> MirEffectSummary {
+    let Some(entry) = embedded_bootstrap_schema().ok().and_then(|schema| {
+        schema
+            .standard_functions()
+            .iter()
+            .find(|entry| entry.id() == function)
+            .cloned()
+    }) else {
+        return MirEffectSummary::empty();
+    };
+    MirEffectSummary::from_effects(entry.effects().iter().filter_map(|name| match *name {
+        "Allocates" => Some(MirEffect::Allocates),
+        "WritesManagedReference" => Some(MirEffect::WritesManagedReference),
+        "Synchronizes" => Some(MirEffect::Synchronizes),
+        "MayTrap" => Some(MirEffect::MayTrap),
+        "MayUnwind" => Some(MirEffect::MayUnwind),
+        "Suspends" => Some(MirEffect::Suspends),
+        "Blocks" => Some(MirEffect::Blocks),
+        "UnsafeMemory" => Some(MirEffect::UnsafeMemory),
+        "ForeignFunction" => Some(MirEffect::ForeignFunction),
+        "AmbientIo" => Some(MirEffect::AmbientIo),
+        "CompilerQuery" => Some(MirEffect::CompilerQuery),
+        "GcSafePoint" => Some(MirEffect::GcSafePoint),
+        "Roots" => Some(MirEffect::Roots),
+        _ => None,
+    }))
 }
 
 const fn mir_view_kind(kind: pop_types::ViewKind) -> MirViewKind {

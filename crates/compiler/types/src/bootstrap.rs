@@ -666,7 +666,7 @@ impl BootstrapSchema {
     ) -> impl Iterator<Item = &'a BootstrapStandardFunctionEntry> + 'a {
         self.standard_functions
             .iter()
-            .filter(move |entry| entry.prelude && entry.source_name == name)
+            .filter(move |entry| entry.source_name == name && (entry.prelude || name.contains('.')))
     }
 
     /// Finds a trusted prelude compiler-attribute candidate by source name.

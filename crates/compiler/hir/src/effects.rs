@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 
 use pop_foundation::{
     BuiltinTypeId, CaptureId, InterfaceId, InterfaceMethodId, IterationProtocolMethodId, LocalId,
-    MethodId, SymbolId, SymbolIdentity, TypeId,
+    MethodId, StandardFunctionId, SymbolId, SymbolIdentity, TypeId,
 };
 use pop_types::{
     Effect, EffectSummary, PrimitiveType, SemanticType, TypeArena, TypedBinaryOperator,
-    TypedCompoundOperator, TypedUnaryOperator,
+    TypedCompoundOperator, TypedUnaryOperator, embedded_bootstrap_schema,
 };
 
 use crate::*;
@@ -885,7 +885,7 @@ fn infer_call(
 ) -> EffectSummary {
     let mut effects = infer_expressions(arguments, context, environment);
     let callee_effects = match dispatch {
-        HirCallDispatch::Standard { .. } => EffectSummary::empty().with(Effect::AmbientIo),
+        HirCallDispatch::Standard { function } => standard_function_effects(*function),
         HirCallDispatch::Direct { function } => {
             context.functions.get(function).copied().unwrap_or_default()
         }
@@ -932,6 +932,38 @@ fn infer_call(
     } else {
         effects.union(callee_effects)
     }
+}
+
+fn standard_function_effects(function: StandardFunctionId) -> EffectSummary {
+    let Some(entry) = embedded_bootstrap_schema().ok().and_then(|schema| {
+        schema
+            .standard_functions()
+            .iter()
+            .find(|entry| entry.id() == function)
+            .cloned()
+    }) else {
+        return EffectSummary::empty();
+    };
+    entry
+        .effects()
+        .iter()
+        .filter_map(|name| match *name {
+            "Allocates" => Some(Effect::Allocates),
+            "WritesManagedReference" => Some(Effect::WritesManagedReference),
+            "Synchronizes" => Some(Effect::Synchronizes),
+            "MayTrap" => Some(Effect::MayTrap),
+            "MayUnwind" => Some(Effect::MayUnwind),
+            "Suspends" => Some(Effect::Suspends),
+            "Blocks" => Some(Effect::Blocks),
+            "UnsafeMemory" => Some(Effect::UnsafeMemory),
+            "ForeignFunction" => Some(Effect::ForeignFunction),
+            "AmbientIo" => Some(Effect::AmbientIo),
+            "CompilerQuery" => Some(Effect::CompilerQuery),
+            "GcSafePoint" => Some(Effect::GcSafePoint),
+            "Roots" => Some(Effect::Roots),
+            _ => None,
+        })
+        .fold(EffectSummary::empty(), EffectSummary::with)
 }
 
 fn callable_effects(

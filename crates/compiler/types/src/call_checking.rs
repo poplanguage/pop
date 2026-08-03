@@ -3894,16 +3894,17 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         arguments: &[ExpressionSyntax],
         span: SourceSpan,
     ) -> Option<CheckedCall> {
-        let [name] = path else {
+        let Some(root) = path.first() else {
             return None;
         };
-        if self.binding_by_name(name).is_some() {
+        if self.binding_by_name(root).is_some() {
             return None;
         }
+        let name = path.join(".");
         if !self
             .resolver
             .database()
-            .resolve(self.module, name, SymbolSpace::Value, span)
+            .resolve(self.module, &name, SymbolSpace::Value, span)
             .symbols()
             .is_empty()
         {
@@ -3912,7 +3913,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         let entries: Vec<_> = self
             .resolver
             .schema()
-            .standard_functions_by_source_name(name)
+            .standard_functions_by_source_name(&name)
             .map(|entry| {
                 (
                     entry.id(),
