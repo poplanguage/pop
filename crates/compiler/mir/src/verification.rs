@@ -45,6 +45,102 @@ fn standard_function_type(
     })
 }
 
+fn verify_actor_standard_call(
+    instruction: &MirInstruction,
+    function: u32,
+    arguments: &[ValueId],
+    arena: &TypeArena,
+    values: &BTreeMap<ValueId, TypeId>,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    let Ok(schema) = embedded_bootstrap_schema() else {
+        errors.push(MirVerificationError::UnknownStandardFunction(
+            pop_foundation::StandardFunctionId::from_raw(function),
+        ));
+        return;
+    };
+    let Some(boolean) = arena.source_type("Boolean") else {
+        return;
+    };
+    let Some(uint64) = arena.source_type("UInt64") else {
+        return;
+    };
+    let Some(send_outcome) = schema
+        .type_by_source_name("Actor.SendOutcome")
+        .and_then(|entry| builtin_instance(arena, entry.id(), &[]))
+    else {
+        return;
+    };
+    let Some(argument_types) = arguments
+        .iter()
+        .map(|argument| values.get(argument).copied())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    let builtin_element = |value: TypeId, name: &str| {
+        let expected = schema.type_by_source_name(name)?.id();
+        match arena.get(value) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if *definition == expected && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        }
+    };
+    let builtin = |name: &str, element: TypeId| {
+        builtin_instance(arena, schema.type_by_source_name(name)?.id(), &[element])
+    };
+    let scalar_message = |element: TypeId| {
+        matches!(
+            arena.get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        )
+    };
+    let signature = match function {
+        25 if argument_types == [uint64, uint64, uint64] => {
+            let inbox = optional_inner_type(arena, instruction.result_type())
+                .and_then(|inbox| builtin_element(inbox, "Actor.Inbox"))
+                .filter(|element| scalar_message(*element));
+            inbox.map(|_| (argument_types, vec![instruction.result_type()]))
+        }
+        26 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .and_then(|element| builtin("Actor.Ref", element))
+            .map(|result| (argument_types, vec![result])),
+        27 if argument_types.len() == 2 => builtin_element(argument_types[0], "Actor.Ref")
+            .filter(|element| scalar_message(*element))
+            .filter(|element| *element == argument_types[1])
+            .map(|_| (argument_types, vec![send_outcome])),
+        28 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .filter(|element| {
+                optional_inner_type(arena, instruction.result_type()) == Some(*element)
+            })
+            .map(|_| (argument_types, vec![instruction.result_type()])),
+        29 | 30 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .map(|_| (argument_types, vec![boolean])),
+        31..=34 if argument_types == [send_outcome] => Some((argument_types, vec![boolean])),
+        _ => None,
+    };
+    if let Some((parameters, results)) = signature {
+        verify_call_signature(
+            instruction,
+            arguments,
+            &parameters,
+            &results,
+            values,
+            errors,
+        );
+    } else {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+}
+
 fn canonical_arguments_match(
     arena: &TypeArena,
     types: &[TypeId],
@@ -6761,6 +6857,17 @@ fn verify_callable_instruction(
             arguments,
             ..
         } => {
+            if matches!(function.raw(), 25..=34) {
+                verify_actor_standard_call(
+                    instruction,
+                    function.raw(),
+                    arguments,
+                    arena,
+                    values,
+                    errors,
+                );
+                return true;
+            }
             let signature = embedded_bootstrap_schema().ok().and_then(|bootstrap| {
                 let entry = bootstrap
                     .standard_functions()

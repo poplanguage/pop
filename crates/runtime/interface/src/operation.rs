@@ -120,6 +120,7 @@ pub enum RuntimeOperation {
     ActorCreate,
     ActorActivate,
     ActorTrySend,
+    ActorTrySendHandle,
     ActorTryReceive,
     ActorBeginExit,
     ActorCompleteExit,

@@ -122,6 +122,21 @@ fn atomic_standard_functions_are_typed_qualified_and_non_prelude() {
 }
 
 #[test]
+fn actor_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let actor: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Actor."))
+        .collect();
+
+    assert_eq!(actor.len(), 10);
+    assert_eq!(actor.first().expect("first Actor function").id().raw(), 25);
+    assert_eq!(actor.last().expect("last Actor function").id().raw(), 34);
+    assert!(actor.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
 fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();

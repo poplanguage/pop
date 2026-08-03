@@ -487,6 +487,8 @@ pub const ATOMIC_LOAD_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(134
 pub const ATOMIC_STORE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(135);
 /// Stable compiler-known identity of Atomic read-modify-write ordering.
 pub const ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(136);
+/// Stable compiler-known identity of closed local Actor send outcomes.
+pub const ACTOR_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(137);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1234,6 +1236,28 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
             ));
         }
     }
+    let Some(send_outcome) = entries
+        .iter()
+        .find(|entry| entry.source_name == "Actor.SendOutcome")
+    else {
+        return Err(error(
+            "standard type",
+            2,
+            "missing required actor send outcome",
+        ));
+    };
+    if send_outcome.id != ACTOR_SEND_OUTCOME_TYPE_ID
+        || send_outcome.owner_bubble != "Pop.Standard"
+        || send_outcome.arity != 0
+        || send_outcome.role != BootstrapTypeRole::Nominal
+        || send_outcome.prelude
+    {
+        return Err(error(
+            "standard type",
+            2,
+            "invalid trusted actor send outcome contract",
+        ));
+    }
     for (id, source_name) in [
         (ATOMIC_INT_TYPE_ID, "Atomic.Int"),
         (ATOMIC_BOOLEAN_TYPE_ID, "Atomic.Boolean"),
@@ -1405,7 +1429,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 25 {
+    if entries.len() != 35 {
         return Err(error(
             "standard function",
             2,
@@ -1537,6 +1561,31 @@ fn validate_standard_functions(
             "Boolean",
             "Synchronizes,MayTrap",
         ),
+        (
+            "Actor.mailbox",
+            "UInt64,UInt64,UInt64",
+            "Actor.Inbox<T>",
+            "Synchronizes,MayTrap",
+        ),
+        ("Actor.reference", "Actor.Inbox<T>", "Actor.Ref<T>", "-"),
+        (
+            "Actor.trySend",
+            "Actor.Ref<T>,T",
+            "Actor.SendOutcome",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Actor.tryReceive",
+            "Actor.Inbox<T>",
+            "T?",
+            "Synchronizes,MayTrap",
+        ),
+        ("Actor.finish", "Actor.Inbox<T>", "Boolean", "Synchronizes"),
+        ("Actor.release", "Actor.Inbox<T>", "Boolean", "Synchronizes"),
+        ("Actor.sendAccepted", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendFull", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendClosed", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendStale", "Actor.SendOutcome", "Boolean", "-"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

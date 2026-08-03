@@ -58,6 +58,8 @@ ABI 1.27 and ABI 2.5 add bounded channel storage with directional endpoint
 lifetime, closed non-suspending statuses, and precise managed-payload roots.
 ABI 1.28 adds nonblocking TCP/UDP I/O with a closed transport status and separate
 byte-count outputs.
+ABI 1.29 adds opaque local-Actor reference admission while retaining exact
+incarnation checks inside the native lifecycle registry.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

@@ -67,6 +67,7 @@ impl RuntimeProfile {
                     RuntimeContract::InterfaceDispatch,
                     RuntimeContract::ClosureEnvironment,
                     RuntimeContract::AtomicOperations,
+                    RuntimeContract::ActorOperations,
                     RuntimeContract::NetworkIo,
                 ])
             }
@@ -136,6 +137,7 @@ pub enum RuntimeContract {
     InterfaceDispatch,
     ClosureEnvironment,
     AtomicOperations,
+    ActorOperations,
     NetworkIo,
     KernelHelpers,
     BpfMaps,
@@ -314,6 +316,11 @@ impl ProgramRequirements {
                 if matches!(function.raw(), 2..=24) =>
             {
                 self.require_runtime(RuntimeContract::AtomicOperations, origin);
+            }
+            MirInstructionKind::CallStandard { function, .. }
+                if matches!(function.raw(), 25..=34) =>
+            {
+                self.require_runtime(RuntimeContract::ActorOperations, origin);
             }
             MirInstructionKind::CallStandard { .. }
             | MirInstructionKind::CallBuiltinInterface { .. } => {

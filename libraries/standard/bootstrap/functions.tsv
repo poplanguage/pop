@@ -25,3 +25,13 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 22	Atomic.releaseBoolean	Pop.Standard	Atomic.Boolean	Boolean	Synchronizes	false
 23	Atomic.compareExchangeInt	Pop.Standard	Atomic.Int,Int,Int,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder	Int	Synchronizes,MayTrap	false
 24	Atomic.compareExchangeBoolean	Pop.Standard	Atomic.Boolean,Boolean,Boolean,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder	Boolean	Synchronizes,MayTrap	false
+25	Actor.mailbox	Pop.Standard	UInt64,UInt64,UInt64	Actor.Inbox<T>	Synchronizes,MayTrap	false
+26	Actor.reference	Pop.Standard	Actor.Inbox<T>	Actor.Ref<T>	-	false
+27	Actor.trySend	Pop.Standard	Actor.Ref<T>,T	Actor.SendOutcome	Synchronizes,MayTrap	false
+28	Actor.tryReceive	Pop.Standard	Actor.Inbox<T>	T?	Synchronizes,MayTrap	false
+29	Actor.finish	Pop.Standard	Actor.Inbox<T>	Boolean	Synchronizes	false
+30	Actor.release	Pop.Standard	Actor.Inbox<T>	Boolean	Synchronizes	false
+31	Actor.sendAccepted	Pop.Standard	Actor.SendOutcome	Boolean	-	false
+32	Actor.sendFull	Pop.Standard	Actor.SendOutcome	Boolean	-	false
+33	Actor.sendClosed	Pop.Standard	Actor.SendOutcome	Boolean	-	false
+34	Actor.sendStale	Pop.Standard	Actor.SendOutcome	Boolean	-	false

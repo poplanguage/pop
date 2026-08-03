@@ -5395,6 +5395,15 @@ impl Verifier<'_> {
         let signature = match dispatch {
             HirCallDispatch::Standard { function } => {
                 embedded_bootstrap_schema().ok().and_then(|schema| {
+                    if matches!(function.raw(), 25..=34) {
+                        return actor_standard_signature(
+                            self.arena,
+                            &schema,
+                            function.raw(),
+                            arguments,
+                            result,
+                        );
+                    }
                     let entry = schema
                         .standard_functions()
                         .iter()
@@ -6186,6 +6195,92 @@ fn standard_function_type(
                 arguments: Vec::new(),
             })
         })?
+    })
+}
+
+fn actor_standard_signature(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    function: u32,
+    arguments: &[HirExpression],
+    result: Option<TypeId>,
+) -> Option<HirCallableSignature> {
+    let boolean = arena.source_type("Boolean")?;
+    let uint64 = arena.source_type("UInt64")?;
+    let send_outcome = arena.find(&SemanticType::Builtin {
+        definition: schema.type_by_source_name("Actor.SendOutcome")?.id(),
+        arguments: Vec::new(),
+    })?;
+    let builtin_element = |value: TypeId, name: &str| {
+        let expected = schema.type_by_source_name(name)?.id();
+        match arena.get(value) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if *definition == expected && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        }
+    };
+    let builtin = |name: &str, element: TypeId| {
+        arena.find(&SemanticType::Builtin {
+            definition: schema.type_by_source_name(name)?.id(),
+            arguments: vec![element],
+        })
+    };
+    let scalar_message = |element: TypeId| {
+        matches!(
+            arena.get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        )
+    };
+    let argument_types = arguments
+        .iter()
+        .map(HirExpression::type_id)
+        .collect::<Vec<_>>();
+    let (parameters, results) = match function {
+        25 if argument_types == [uint64, uint64, uint64] => {
+            let result = result?;
+            let inbox = optional_inner_type(arena, result)?;
+            let element = builtin_element(inbox, "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![result])
+        }
+        26 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![builtin("Actor.Ref", element)?])
+        }
+        27 if argument_types.len() == 2 => {
+            let element = builtin_element(argument_types[0], "Actor.Ref")?;
+            scalar_message(element).then_some(())?;
+            (
+                argument_types.clone(),
+                (argument_types[1] == element).then_some(vec![send_outcome])?,
+            )
+        }
+        28 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            let result = result?;
+            (
+                argument_types,
+                (optional_inner_type(arena, result) == Some(element)).then_some(vec![result])?,
+            )
+        }
+        29 | 30 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![boolean])
+        }
+        31..=34 if argument_types == [send_outcome] => (argument_types, vec![boolean]),
+        _ => return None,
+    };
+    Some(HirCallableSignature {
+        is_async: false,
+        type_parameters: Vec::new(),
+        type_parameter_bounds: Vec::new(),
+        parameters,
+        results,
     })
 }
 

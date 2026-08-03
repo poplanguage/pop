@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 30] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 31] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -35,6 +35,7 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 30] = [
     RuntimeOperation::ActorCreate,
     RuntimeOperation::ActorActivate,
     RuntimeOperation::ActorTrySend,
+    RuntimeOperation::ActorTrySendHandle,
     RuntimeOperation::ActorTryReceive,
     RuntimeOperation::ActorBeginExit,
     RuntimeOperation::ActorCompleteExit,
@@ -80,10 +81,11 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
     };
     use RuntimeOperation::{
         ActorActivate, ActorBeginExit, ActorCompleteExit, ActorCreate, ActorRelease,
-        ActorTryReceive, ActorTrySend, AtomicBoolCompareExchange, AtomicBoolCreate, AtomicBoolLoad,
-        AtomicBoolStore, AtomicBoolSwap, AtomicIntCompareExchange, AtomicIntCreate, AtomicIntLoad,
-        AtomicIntStore, AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen,
-        TcpLocalPort, TcpReceive, TcpSend, UdpBind, UdpClose, UdpLocalPort, UdpReceive, UdpSendTo,
+        ActorTryReceive, ActorTrySend, ActorTrySendHandle, AtomicBoolCompareExchange,
+        AtomicBoolCreate, AtomicBoolLoad, AtomicBoolStore, AtomicBoolSwap,
+        AtomicIntCompareExchange, AtomicIntCreate, AtomicIntLoad, AtomicIntStore, AtomicIntSwap,
+        AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort, TcpReceive,
+        TcpSend, UdpBind, UdpClose, UdpLocalPort, UdpReceive, UdpSendTo,
     };
 
     Some(match operation {
@@ -102,6 +104,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
             signature(&[U64], U8)
         }
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
+        ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
         ActorBeginExit => signature(&[U64, U8], U8),
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),

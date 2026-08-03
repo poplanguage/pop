@@ -36,3 +36,4 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 134	Atomic.LoadOrder	Pop.Standard	0	Nominal	false
 135	Atomic.StoreOrder	Pop.Standard	0	Nominal	false
 136	Atomic.ReadModifyWriteOrder	Pop.Standard	0	Nominal	false
+137	Actor.SendOutcome	Pop.Standard	0	Nominal	false

@@ -935,7 +935,7 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 28)"),
+        (&native_abi, "NativeAbiVersion::new(1, 29)"),
         (&native_abi, "NativeAbiVersion::new(2, 5)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
@@ -1778,7 +1778,7 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(adr.contains("- Status: accepted"));
     assert!(typed.contains("String,"));
     assert!(hir.contains("HirIterationSource::String"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 28)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 29)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(native_abi.contains("String = 4"));
     assert!(native_iteration.contains("scalar_array_values"));
@@ -1812,7 +1812,7 @@ fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
     assert!(native_state.contains("ABI_BYTE_BUFFERS"));
     assert!(!native_buffer.contains("abi_lists"));
     assert!(!native_buffer.contains("FfiBuffer"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 28)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 29)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
     assert!(c.contains("is_byte_buffer_instruction"));
@@ -1841,7 +1841,7 @@ fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
     assert!(interpreter.contains("String::from_utf8"));
     assert!(llvm.contains("RuntimeOperation::Utf8DecodeBuffer"));
     assert!(native.contains("pop_rt_byte_buffer_decode_utf8"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 28)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 29)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(c.contains("MirInstructionKind::Utf8DecodeBuffer"));
     for forbidden in ["Any", "Dynamic", "from_utf8_lossy", "runtime name"] {
@@ -3028,15 +3028,16 @@ fn actor_runtime_operation_vocabulary_follows_adr_0161() {
         "ActorCreate",
         "ActorActivate",
         "ActorTrySend",
+        "ActorTrySendHandle",
         "ActorTryReceive",
         "ActorBeginExit",
         "ActorCompleteExit",
         "ActorRelease",
     ] {
-        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(operation.matches(&format!("    {name},")).count(), 1);
         assert_eq!(
             symbols
-                .matches(&format!("RuntimeOperation::{name}"))
+                .matches(&format!("RuntimeOperation::{name} =>"))
                 .count(),
             1
         );
@@ -3162,7 +3163,7 @@ fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
         "pop_rt_actor_complete_exit",
         "pop_rt_actor_release",
     ] {
-        assert_eq!(native.matches(function).count(), 1);
+        assert_eq!(native.matches(&format!("fn {function}(")).count(), 1);
     }
     assert!(tests.contains("native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle"));
     assert!(tests.contains("native_actor_managed_messages_transfer_one_precise_root"));
@@ -3227,7 +3228,7 @@ fn native_bounded_channel_abi_follows_adr_0146_with_precise_roots() {
     let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
 
     assert!(adr.contains("- Status: accepted"));
-    assert!(version.contains("NativeAbiVersion::new(1, 28)"));
+    assert!(version.contains("NativeAbiVersion::new(1, 29)"));
     assert!(version.contains("NativeAbiVersion::new(2, 5)"));
     for name in [
         "ChannelCreate",
@@ -3475,6 +3476,7 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "134\tAtomic.LoadOrder\tPop.Standard\t0\tNominal\tfalse",
             "135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse",
             "136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse",
+            "137\tActor.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

@@ -154,6 +154,34 @@ fn atomic_standard_calls_derive_the_atomic_runtime_contract() {
 }
 
 #[test]
+fn actor_standard_calls_derive_the_actor_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t0) effects[]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer Int64 0\n",
+        "    v1:t0 = callStandard sf31 (v0) effects[]\n",
+        "    return (v1)\n",
+    ))
+    .expect("structural Actor MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::ActorOperations
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(1))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| {
+                requirement.contract() == RuntimeContract::StandardLibraryAdapters
+            })
+    );
+}
+
+#[test]
 fn blocking_effect_requires_a_distinct_blocking_pool_contract() {
     let mut requirements = ProgramRequirements::default();
     let origin = RequirementOrigin::FunctionEffect {

@@ -357,6 +357,29 @@ fn atomic_standard_calls_preserve_handle_value_and_order_types() {
 }
 
 #[test]
+fn actor_mailboxes_preserve_exact_integer_message_types_and_outcomes() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function run(actorId: UInt64, incarnation: UInt64): Boolean\n\
+             if local inbox = Actor.mailbox<<Int>>(actorId, incarnation, UInt64(2)) then\n\
+                 local reference: Actor.Ref<Int> = Actor.reference(inbox)\n\
+                 local sent: Actor.SendOutcome = Actor.trySend(reference, 42)\n\
+                 if local received = Actor.tryReceive(inbox) then\n\
+                     return Actor.sendAccepted(sent) and received == 42 and Actor.finish(inbox) and Actor.release(inbox)\n\
+                 end\n\
+             end\n\
+             return false\n\
+         end\n",
+        "run",
+    );
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
 fn await_requires_async_context_and_exact_task_operand() {
     let outside = check_function(
         "namespace Example\n\

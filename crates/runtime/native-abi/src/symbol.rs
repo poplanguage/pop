@@ -24,6 +24,7 @@ pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 pub const ACTOR_CREATE_SYMBOL: &str = "pop_rt_actor_create";
 pub const ACTOR_ACTIVATE_SYMBOL: &str = "pop_rt_actor_activate";
 pub const ACTOR_TRY_SEND_SYMBOL: &str = "pop_rt_actor_try_send";
+pub const ACTOR_TRY_SEND_HANDLE_SYMBOL: &str = "pop_rt_actor_try_send_handle";
 pub const ACTOR_TRY_RECEIVE_SYMBOL: &str = "pop_rt_actor_try_receive";
 pub const ACTOR_BEGIN_EXIT_SYMBOL: &str = "pop_rt_actor_begin_exit";
 pub const ACTOR_COMPLETE_EXIT_SYMBOL: &str = "pop_rt_actor_complete_exit";
@@ -55,7 +56,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.28.
+/// Returns the native C symbol for an operation implemented through ABI 1.29.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -180,6 +181,7 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ActorCreate => Some(ACTOR_CREATE_SYMBOL),
         RuntimeOperation::ActorActivate => Some(ACTOR_ACTIVATE_SYMBOL),
         RuntimeOperation::ActorTrySend => Some(ACTOR_TRY_SEND_SYMBOL),
+        RuntimeOperation::ActorTrySendHandle => Some(ACTOR_TRY_SEND_HANDLE_SYMBOL),
         RuntimeOperation::ActorTryReceive => Some(ACTOR_TRY_RECEIVE_SYMBOL),
         RuntimeOperation::ActorBeginExit => Some(ACTOR_BEGIN_EXIT_SYMBOL),
         RuntimeOperation::ActorCompleteExit => Some(ACTOR_COMPLETE_EXIT_SYMBOL),

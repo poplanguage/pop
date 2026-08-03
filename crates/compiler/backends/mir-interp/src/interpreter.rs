@@ -23,6 +23,7 @@ use pop_mir::{
     is_managed_reference_type_id, verify_mir_bubble,
 };
 use pop_runtime_interface::{
+    ActorExit, ActorId, ActorIncarnation, ActorLifecycle, ActorReceive, ActorSendError,
     AllocationClass, ArrayAllocationRequest, AtomicBoolean, AtomicCompareExchangeOrder, AtomicInt,
     AtomicLoadOrder, AtomicReadModifyWriteOrder, AtomicStoreOrder, BarrierKind,
     CancellationObservation, CancellationTokenId, ChannelId, ChannelLifecycle, ChannelReceive,
@@ -1523,6 +1524,7 @@ enum PrivateValue {
     CancellationToken(Rc<RefCell<CancellationState>>),
     TaskGroup(Rc<RefCell<InterpreterTaskGroup>>),
     Channel(Rc<RefCell<ChannelLifecycle<InterpreterChannelValue>>>),
+    Actor(Rc<RefCell<ActorLifecycle<InterpreterChannelValue>>>),
     AtomicInt(AtomicInt),
     AtomicBoolean(AtomicBoolean),
 }
@@ -4272,6 +4274,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             } if matches!(function.raw(), 2..=24) => {
                 self.evaluate_atomic_standard_call(function.raw(), arguments, values)?
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 25..=34) => {
+                self.evaluate_actor_standard_call(function.raw(), arguments, values)?
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)
@@ -4576,6 +4585,145 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 Ok(MirValue::Boolean(
                     state.compare_exchange(current, new, order).previous(),
                 ))
+            }
+            _ => Err(ExecutionError::WrongArity),
+        }
+    }
+
+    fn evaluate_actor_standard_call(
+        &mut self,
+        function: u32,
+        arguments: &[ValueId],
+        values: &BTreeMap<ValueId, RuntimeValue>,
+    ) -> Result<MirValue, ExecutionError> {
+        let argument = |index: usize| {
+            arguments
+                .get(index)
+                .copied()
+                .ok_or(ExecutionError::WrongArity)
+                .and_then(|argument| value(values, argument))
+        };
+        let unsigned = |index: usize| -> Result<u64, ExecutionError> {
+            let MirValue::Integer(value) = argument(index)?.visible else {
+                return Err(ExecutionError::TypeMismatch);
+            };
+            value.unsigned().ok_or(ExecutionError::TypeMismatch)
+        };
+        match function {
+            25 if arguments.len() == 3 => {
+                let actor = unsigned(0)?;
+                let incarnation = unsigned(1)?;
+                let capacity = unsigned(2)?;
+                let mut lifecycle = ActorLifecycle::starting(
+                    ActorId::new(actor),
+                    ActorIncarnation::new(incarnation),
+                    capacity,
+                );
+                if lifecycle.activate().is_err() {
+                    return Ok(MirValue::Nil);
+                }
+                let symbol = self.fresh_private_symbol();
+                self.private_values.insert(
+                    symbol,
+                    PrivateValue::Actor(Rc::new(RefCell::new(lifecycle))),
+                );
+                Ok(MirValue::ActorInbox(symbol))
+            }
+            26 if arguments.len() == 1 => {
+                let MirValue::ActorInbox(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if !matches!(
+                    self.private_values.get(&symbol),
+                    Some(PrivateValue::Actor(_))
+                ) {
+                    return Err(self.runtime_invariant());
+                }
+                Ok(MirValue::ActorRef(symbol))
+            }
+            27 if arguments.len() == 2 => {
+                let MirValue::ActorRef(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let actor = match self.private_values.get(&symbol) {
+                    Some(PrivateValue::Actor(actor)) => Rc::clone(actor),
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let sent = argument(1)?.clone();
+                if sent.reference.is_some() {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let queued = InterpreterChannelValue {
+                    value: sent,
+                    root: None,
+                };
+                let reference = actor.borrow().reference();
+                let outcome = match actor.borrow_mut().try_admit(reference, queued) {
+                    Ok(()) => pop_types::ActorSendOutcomeKind::Accepted,
+                    Err(ActorSendError::Full(_)) => pop_types::ActorSendOutcomeKind::Full,
+                    Err(ActorSendError::Closed(_)) => pop_types::ActorSendOutcomeKind::Closed,
+                    Err(ActorSendError::Stale(_)) => pop_types::ActorSendOutcomeKind::Stale,
+                };
+                Ok(MirValue::ActorSendOutcome(outcome))
+            }
+            28 if arguments.len() == 1 => {
+                let MirValue::ActorInbox(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let actor = match self.private_values.get(&symbol) {
+                    Some(PrivateValue::Actor(actor)) => Rc::clone(actor),
+                    _ => return Err(self.runtime_invariant()),
+                };
+                match actor.borrow_mut().try_receive() {
+                    ActorReceive::Message(received) => Ok(received.value.observed_visible()),
+                    ActorReceive::Empty | ActorReceive::Closed => Ok(MirValue::Nil),
+                }
+            }
+            29 if arguments.len() == 1 => {
+                let MirValue::ActorInbox(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let actor = match self.private_values.get(&symbol) {
+                    Some(PrivateValue::Actor(actor)) => Rc::clone(actor),
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let queued = actor
+                    .borrow_mut()
+                    .begin_exit(ActorExit::Completed)
+                    .map_err(|_| self.runtime_invariant())?;
+                for value in queued {
+                    if let Some(root) = value.root {
+                        self.runtime
+                            .release_root(root)
+                            .map_err(ExecutionError::Runtime)?;
+                    }
+                }
+                actor
+                    .borrow_mut()
+                    .complete_exit()
+                    .map_err(|_| self.runtime_invariant())?;
+                Ok(MirValue::Boolean(true))
+            }
+            30 if arguments.len() == 1 => {
+                let MirValue::ActorInbox(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::Actor(_))
+                )))
+            }
+            31..=34 if arguments.len() == 1 => {
+                let MirValue::ActorSendOutcome(outcome) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let expected = match function {
+                    31 => pop_types::ActorSendOutcomeKind::Accepted,
+                    32 => pop_types::ActorSendOutcomeKind::Full,
+                    33 => pop_types::ActorSendOutcomeKind::Closed,
+                    _ => pop_types::ActorSendOutcomeKind::Stale,
+                };
+                Ok(MirValue::Boolean(outcome == expected))
             }
             _ => Err(ExecutionError::WrongArity),
         }
@@ -5194,6 +5342,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::CancellationToken(_)
                         | PrivateValue::TaskGroup(_)
                         | PrivateValue::Channel(_)
+                        | PrivateValue::Actor(_)
                         | PrivateValue::AtomicInt(_)
                         | PrivateValue::AtomicBoolean(_),
                     ) => Err(ExecutionError::TypeMismatch),

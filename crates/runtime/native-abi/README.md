@@ -45,6 +45,8 @@ ABI 1.28 appends the closed nonblocking socket I/O status and separate
 byte-count outputs for TCP and UDP I/O from
 [ADR 0162](../../../architecture/decisions/0162-bounded-tcp-native-handles.md)
 and [ADR 0163](../../../architecture/decisions/0163-bounded-udp-native-handles.md).
+ABI 1.29 appends opaque local-Actor reference admission. The adapter recovers
+the exact stored actor identity and incarnation before bounded admission.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the

@@ -7,7 +7,9 @@ use pop_diagnostics::{resolution as resolution_diagnostics, types as type_diagno
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use pop_foundation::{BuiltinTypeId, ParameterId, ResultCaseId, SourceSpan, TypeId};
+use pop_foundation::{
+    BuiltinTypeId, ParameterId, ResultCaseId, SourceSpan, StandardFunctionId, TypeId,
+};
 use pop_resolve::SymbolSpace;
 use pop_syntax::{ExpressionSyntax, ExpressionSyntaxKind};
 
@@ -441,6 +443,16 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             {
                 return self
                     .check_channel_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [actor, operation]
+                if actor == "Actor"
+                    && matches!(operation.as_str(),
+                        "reference" | "trySend" | "tryReceive" | "finish" | "release"
+                            | "sendAccepted" | "sendFull" | "sendClosed" | "sendStale"))
+            {
+                return self
+                    .check_actor_invocation(path, arguments, span)
                     .map(CheckedInvocation::Value);
             }
             if let Some(checked) = self.check_standard_invocation(path, arguments, span) {
@@ -2951,6 +2963,209 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 arguments,
             })
             .ok()
+    }
+
+    fn actor_builtin_type(&mut self, name: &str, arguments: Vec<TypeId>) -> Option<TypeId> {
+        let definition = self.resolver.schema().type_by_source_name(name)?.id();
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition,
+                arguments,
+            })
+            .ok()
+    }
+
+    fn actor_element(
+        &mut self,
+        type_id: TypeId,
+        definition: BuiltinTypeId,
+        expected: &str,
+        span: SourceSpan,
+    ) -> Option<TypeId> {
+        self.channel_element(type_id, definition, expected, span)
+    }
+
+    fn require_actor_scalar_message(&mut self, element: TypeId, span: SourceSpan) -> Option<()> {
+        if matches!(
+            self.resolver.arena().get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        ) {
+            return Some(());
+        }
+        self.diagnostics.push(type_diagnostics::type_mismatch(
+            span,
+            "integer Actor message",
+            self.type_name(element),
+            span,
+        ));
+        None
+    }
+
+    fn actor_standard_value(
+        function: u32,
+        arguments: Vec<TypedExpression>,
+        type_id: TypeId,
+        span: SourceSpan,
+    ) -> TypedExpression {
+        TypedExpression {
+            kind: TypedExpressionKind::StandardCall {
+                function: StandardFunctionId::from_raw(function),
+                arguments,
+            },
+            type_id,
+            span,
+        }
+    }
+
+    pub(crate) fn check_actor_mailbox(
+        &mut self,
+        type_arguments: &[pop_syntax::TypeSyntax],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if type_arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_type_arity(
+                span,
+                "Actor.mailbox",
+                1,
+                type_arguments.len(),
+            ));
+            return None;
+        }
+        if arguments.len() != 3 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Actor.mailbox",
+                3,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let signature = self.signature_stack.last()?.clone();
+        let (resolved, diagnostics) =
+            self.resolver
+                .resolve_annotation(self.module, &type_arguments[0], &signature);
+        self.diagnostics.extend(diagnostics);
+        let element = resolved?.type_id()?;
+        self.require_actor_scalar_message(element, type_arguments[0].span())?;
+        let uint64 = self.resolver.arena().source_type("UInt64")?;
+        let mut checked_arguments = Vec::with_capacity(3);
+        for argument in arguments {
+            let typed = self
+                .check_expression_expected(argument, Some(ExpectedExpressionType::plain(uint64)))?;
+            self.require_same_type(uint64, typed.type_id(), typed.span(), argument.span());
+            checked_arguments.push(typed);
+        }
+        let inbox = self.actor_builtin_type("Actor.Inbox", vec![element])?;
+        let result = self.resolver.arena_mut().optional(inbox).ok()?;
+        Some(Self::actor_standard_value(
+            25,
+            checked_arguments,
+            result,
+            span,
+        ))
+    }
+
+    fn check_actor_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let operation = path.get(1)?.as_str();
+        let expected_arity = usize::from(operation == "trySend") + 1;
+        if arguments.len() != expected_arity {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                format!("Actor.{operation}"),
+                expected_arity,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let inbox_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Actor.Inbox")?
+            .id();
+        let reference_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Actor.Ref")?
+            .id();
+        let boolean = self.resolver.arena().source_type("Boolean")?;
+        let send_outcome = self.actor_builtin_type("Actor.SendOutcome", Vec::new())?;
+        match operation {
+            "reference" | "tryReceive" | "finish" | "release" => {
+                let inbox = self.check_expression(&arguments[0])?;
+                let element = self.actor_element(
+                    inbox.type_id(),
+                    inbox_definition,
+                    "Actor.Inbox<T>",
+                    arguments[0].span(),
+                )?;
+                self.require_actor_scalar_message(element, arguments[0].span())?;
+                let (function, result) = match operation {
+                    "reference" => (26, self.actor_builtin_type("Actor.Ref", vec![element])?),
+                    "tryReceive" => (28, self.resolver.arena_mut().optional(element).ok()?),
+                    "finish" => (29, boolean),
+                    _ => (30, boolean),
+                };
+                Some(Self::actor_standard_value(
+                    function,
+                    vec![inbox],
+                    result,
+                    span,
+                ))
+            }
+            "trySend" => {
+                let reference = self.check_expression(&arguments[0])?;
+                let element = self.actor_element(
+                    reference.type_id(),
+                    reference_definition,
+                    "Actor.Ref<T>",
+                    arguments[0].span(),
+                )?;
+                self.require_actor_scalar_message(element, arguments[1].span())?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(element)),
+                )?;
+                self.require_same_type(element, value.type_id(), value.span(), arguments[1].span());
+                Some(Self::actor_standard_value(
+                    27,
+                    vec![reference, value],
+                    send_outcome,
+                    span,
+                ))
+            }
+            "sendAccepted" | "sendFull" | "sendClosed" | "sendStale" => {
+                let outcome = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(send_outcome)),
+                )?;
+                self.require_same_type(
+                    send_outcome,
+                    outcome.type_id(),
+                    outcome.span(),
+                    arguments[0].span(),
+                );
+                let function = match operation {
+                    "sendAccepted" => 31,
+                    "sendFull" => 32,
+                    "sendClosed" => 33,
+                    _ => 34,
+                };
+                Some(Self::actor_standard_value(
+                    function,
+                    vec![outcome],
+                    boolean,
+                    span,
+                ))
+            }
+            _ => None,
+        }
     }
 
     fn channel_element(

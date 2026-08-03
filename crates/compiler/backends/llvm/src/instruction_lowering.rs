@@ -8,7 +8,8 @@ use pop_foundation::{BubbleId, FieldId, FunctionId, SymbolId, TypeId, ValueId};
 use pop_mir::{MirFfiLayoutCatalog, MirInstructionKind, MirTerminator};
 use pop_runtime_interface::{ArrayElementMap, RuntimeOperation};
 use pop_runtime_native_abi::{
-    ChannelReceiveStatus, ChannelSendStatus, IterationCollectionKind, IterationStatus,
+    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, ChannelReceiveStatus,
+    ChannelSendStatus, IterationCollectionKind, IterationStatus,
 };
 use pop_types::{FloatKind, IntegerKind, PrimitiveType, SemanticType, TypeArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -579,6 +580,14 @@ pub(crate) fn lower_instruction(
                 arguments[0].raw()
             ),
             2..=24 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
+            25..=34 => lower_actor_standard_call(
+                &result,
+                function.raw(),
+                arguments,
+                instruction.result_type(),
+                value_types,
+                types,
+            )?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -3550,6 +3559,160 @@ fn lower_atomic_standard_call(
             ]);
             Ok(lines.join("\n"))
         }
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_actor_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+    result_type: TypeId,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    match function {
+        25 if arguments.len() == 3 => Ok([
+            format!(
+                "{result}_handle = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorCreate),
+                arguments[0].raw(),
+                arguments[1].raw(),
+                arguments[2].raw()
+            ),
+            format!(
+                "{result}_status = call i8 @{}(i64 {result}_handle)",
+                native_runtime_symbol(RuntimeOperation::ActorActivate)
+            ),
+            format!(
+                "{result}_present = icmp eq i8 {result}_status, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!("{result}_payload = select i1 {result}_present, i64 {result}_handle, i64 0"),
+            format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+            format!(
+                "{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_payload, 1"
+            ),
+        ]
+        .join("\n")),
+        26 if arguments.len() == 1 => Ok(format!("{result} = add i64 %v{}, 0", arguments[0].raw())),
+        27 if arguments.len() == 2 => {
+            let value_type = *values
+                .get(&arguments[1])
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let (mut lines, stored) = lower_runtime_slot_store(
+                arguments[1],
+                value_type,
+                &llvm_type(value_type, types)?,
+                types,
+            )?;
+            lines.extend([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 {stored}, i8 0)",
+                    native_runtime_symbol(RuntimeOperation::ActorTrySendHandle),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_valid = icmp ne i8 {result}_status, {}",
+                    ActorSendStatus::Failure as u8
+                ),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_wide = zext i8 {result}_status to i64"),
+                format!(
+                    "{result} = sub i64 {result}_wide, {}",
+                    ActorSendStatus::Sent as u8
+                ),
+            ]);
+            Ok(lines.join("\n"))
+        }
+        28 if arguments.len() == 1 => {
+            let element = optional_inner_type(types, result_type).ok_or_else(unsupported)?;
+            let element_type = llvm_type(element, types)?;
+            let loaded = if element_type == "i64" {
+                format!("{result}_value = add i64 {result}_raw, 0")
+            } else {
+                format!("{result}_value = trunc i64 {result}_raw to {element_type}")
+            };
+            Ok([
+                format!("{result}_output = alloca i64"),
+                format!("{result}_managed = alloca i8"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, ptr {result}_output, ptr {result}_managed)",
+                    native_runtime_symbol(RuntimeOperation::ActorTryReceive),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_valid = icmp ne i8 {result}_status, {}",
+                    ActorReceiveStatus::Failure as u8
+                ),
+                format!(
+                    "br i1 {result}_valid, label %{label}_continue, label %{label}_trap"
+                ),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!(
+                    "{result}_present = icmp eq i8 {result}_status, {}",
+                    ActorReceiveStatus::Item as u8
+                ),
+                format!("{result}_raw = load i64, ptr {result}_output"),
+                loaded,
+                format!(
+                    "{result}_tagged = insertvalue {{ i1, {element_type} }} undef, i1 {result}_present, 0"
+                ),
+                format!(
+                    "{result} = insertvalue {{ i1, {element_type} }} {result}_tagged, {element_type} {result}_value, 1"
+                ),
+            ]
+            .join("\n"))
+        }
+        29 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_begin = call i8 @{}(i64 %v{}, i8 0)",
+                native_runtime_symbol(RuntimeOperation::ActorBeginExit),
+                arguments[0].raw()
+            ),
+            format!(
+                "{result}_complete = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorCompleteExit),
+                arguments[0].raw()
+            ),
+            format!(
+                "{result}_began = icmp eq i8 {result}_begin, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!(
+                "{result}_completed = icmp eq i8 {result}_complete, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!("{result} = and i1 {result}_began, {result}_completed"),
+        ]
+        .join("\n")),
+        30 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorRelease),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        31..=34 if arguments.len() == 1 => Ok(format!(
+            "{result} = icmp eq i64 %v{}, {}",
+            arguments[0].raw(),
+            function - 31
+        )),
         _ => Err(unsupported()),
     }
 }

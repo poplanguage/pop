@@ -415,6 +415,14 @@ pub enum ChannelReceiveOutcomeKind {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ActorSendOutcomeKind {
+    Accepted,
+    Full,
+    Closed,
+    Stale,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypedExpressionKind {
     Integer(IntegerValue),

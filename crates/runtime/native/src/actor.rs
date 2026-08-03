@@ -160,6 +160,24 @@ pub extern "C" fn pop_rt_actor_try_send(
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_actor_try_send_handle(handle: u64, value: u64, managed: u8) -> u8 {
+    let reference = actors()
+        .lock()
+        .ok()
+        .and_then(|values| values.get(&handle).map(ActorLifecycle::reference));
+    let Some(reference) = reference else {
+        return ActorSendStatus::Failure as u8;
+    };
+    pop_rt_actor_try_send(
+        handle,
+        reference.actor().raw(),
+        reference.incarnation().raw(),
+        value,
+        managed,
+    )
+}
+
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_actor_try_receive(

@@ -308,6 +308,98 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
 }
 
 #[test]
+fn typed_actor_mailboxes_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/actor.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             if local inbox = Actor.mailbox<<Int>>(UInt64(7), UInt64(3), UInt64(2)) then\n\
+                 local reference = Actor.reference(inbox)\n\
+                 local first = Actor.trySend(reference, 41)\n\
+                 local second = Actor.trySend(reference, 42)\n\
+                 local full = Actor.trySend(reference, 43)\n\
+                 if local received = Actor.tryReceive(inbox) then\n\
+                     local finished = Actor.finish(inbox)\n\
+                     local closed = Actor.trySend(reference, 44)\n\
+                     local released = Actor.release(inbox)\n\
+                     if Actor.sendAccepted(first) and Actor.sendAccepted(second) and Actor.sendFull(full) and received == 41 and finished and Actor.sendClosed(closed) and released then\n\
+                         return 0\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Actor MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Actor MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Actor MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Actor lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_actor_create",
+        "pop_rt_actor_activate",
+        "pop_rt_actor_try_send_handle",
+        "pop_rt_actor_try_receive",
+        "pop_rt_actor_begin_exit",
+        "pop_rt_actor_complete_exit",
+        "pop_rt_actor_release",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-actor.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-actor.bc");
+    fs::write(&input, &text).expect("write Actor LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Actor IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "actor");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Actor execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
 fn llvm_lowers_foreign_calls_with_exact_abi_and_balanced_transitions() {
     let ffi = BubbleId::from_raw(9);
     let source = SourceFile::new(

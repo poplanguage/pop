@@ -6,8 +6,8 @@ use pop_runtime_native::{
     direct_page_mutation_miss_count, direct_reference_mutation_miss_count, pop_rt_abi_major,
     pop_rt_abi_minor, pop_rt_actor_activate, pop_rt_actor_begin_exit, pop_rt_actor_complete_exit,
     pop_rt_actor_create, pop_rt_actor_release, pop_rt_actor_try_receive, pop_rt_actor_try_send,
-    pop_rt_allocate_array, pop_rt_allocate_array_filled, pop_rt_allocate_initialized_object,
-    pop_rt_allocate_initialized_object_at_site,
+    pop_rt_actor_try_send_handle, pop_rt_allocate_array, pop_rt_allocate_array_filled,
+    pop_rt_allocate_initialized_object, pop_rt_allocate_initialized_object_at_site,
     pop_rt_allocate_initialized_object_at_site_and_store_array,
     pop_rt_allocate_initialized_self_referential_object_at_site, pop_rt_allocate_object,
     pop_rt_allocate_table, pop_rt_array_fill, pop_rt_array_get, pop_rt_array_get_checked,
@@ -58,7 +58,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 28);
+    assert_eq!(pop_rt_abi_minor(), 29);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -78,6 +78,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 26), 1);
     assert_eq!(pop_rt_supports_abi(1, 27), 1);
     assert_eq!(pop_rt_supports_abi(1, 28), 1);
+    assert_eq!(pop_rt_supports_abi(1, 29), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -168,7 +169,7 @@ fn native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle() {
         ActorSendStatus::Sent as u8
     );
     assert_eq!(
-        pop_rt_actor_try_send(actor, 7, 3, 13, 0),
+        pop_rt_actor_try_send_handle(actor, 13, 0),
         ActorSendStatus::Sent as u8
     );
     assert_eq!(
