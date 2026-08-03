@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 492);
+    assert_eq!(baseline.entries().len(), 504);
 
     let prelude_names = baseline
         .entries()
@@ -496,6 +496,18 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Net.Udp", "waitSourcePort"),
             ("Pop.Net.Unix", "sendUntil"),
             ("Pop.Net.Unix", "receiveUntil"),
+            ("Pop.Net.Interfaces", "Snapshot"),
+            ("Pop.Net.Interfaces", "snapshot"),
+            ("Pop.Net.Interfaces", "close"),
+            ("Pop.Net.Interfaces", "count"),
+            ("Pop.Net.Interfaces", "name"),
+            ("Pop.Net.Interfaces", "index"),
+            ("Pop.Net.Interfaces", "flags"),
+            ("Pop.Net.Interfaces", "addressCount"),
+            ("Pop.Net.Interfaces", "addressFamily"),
+            ("Pop.Net.Interfaces", "addressWord"),
+            ("Pop.Net.Interfaces", "prefixLength"),
+            ("Pop.Net.Interfaces", "scopeId"),
         ]
     );
 }

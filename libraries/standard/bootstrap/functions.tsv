@@ -145,3 +145,14 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 142	Net.Udp.waitSourcePort	Pop.Standard	Net.Udp.WaitTransfer	UInt16	-	false
 143	Net.Unix.sendUntil	Pop.Standard	Net.Unix.Stream,Bytes,Time.LiveDeadline,CancelToken	Net.WaitTransfer	AmbientIo,MayTrap	false
 144	Net.Unix.receiveUntil	Pop.Standard	Net.Unix.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken	Net.WaitTransfer	AmbientIo,MayTrap	false
+145	Net.Interfaces.snapshot	Pop.Standard	-	Net.Interfaces.Snapshot	AmbientIo,MayTrap	false
+146	Net.Interfaces.close	Pop.Standard	Net.Interfaces.Snapshot	Boolean	AmbientIo	false
+147	Net.Interfaces.count	Pop.Standard	Net.Interfaces.Snapshot	UInt64	AmbientIo,MayTrap	false
+148	Net.Interfaces.name	Pop.Standard	Net.Interfaces.Snapshot,UInt64	String	AmbientIo,MayTrap	false
+149	Net.Interfaces.index	Pop.Standard	Net.Interfaces.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
+150	Net.Interfaces.flags	Pop.Standard	Net.Interfaces.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
+151	Net.Interfaces.addressCount	Pop.Standard	Net.Interfaces.Snapshot,UInt64	UInt64	AmbientIo,MayTrap	false
+152	Net.Interfaces.addressFamily	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64	Byte	AmbientIo,MayTrap	false
+153	Net.Interfaces.addressWord	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64,Byte	UInt32	AmbientIo,MayTrap	false
+154	Net.Interfaces.prefixLength	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64	Byte	AmbientIo,MayTrap	false
+155	Net.Interfaces.scopeId	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64	UInt32	AmbientIo,MayTrap	false

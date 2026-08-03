@@ -505,6 +505,7 @@ pub const TIME_MONOTONIC_CLOCK_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(
 pub const TIME_LIVE_DEADLINE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(151);
 pub const NET_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(152);
 pub const NET_UDP_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(153);
+pub const NET_INTERFACES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(154);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1291,6 +1292,7 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (TIME_LIVE_DEADLINE_TYPE_ID, "Time.LiveDeadline"),
         (NET_WAIT_TRANSFER_TYPE_ID, "Net.WaitTransfer"),
         (NET_UDP_WAIT_TRANSFER_TYPE_ID, "Net.Udp.WaitTransfer"),
+        (NET_INTERFACES_SNAPSHOT_TYPE_ID, "Net.Interfaces.Snapshot"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1486,7 +1488,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 145 {
+    if entries.len() != 156 {
         return Err(error(
             "standard function",
             2,
@@ -2191,6 +2193,72 @@ fn validate_standard_functions(
             "Net.Unix.receiveUntil",
             "Net.Unix.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
             "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.snapshot",
+            "-",
+            "Net.Interfaces.Snapshot",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.close",
+            "Net.Interfaces.Snapshot",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Interfaces.count",
+            "Net.Interfaces.Snapshot",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.name",
+            "Net.Interfaces.Snapshot,UInt64",
+            "String",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.index",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.flags",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressCount",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressFamily",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressWord",
+            "Net.Interfaces.Snapshot,UInt64,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.prefixLength",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.scopeId",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "UInt32",
             "AmbientIo,MayTrap",
         ),
     ];

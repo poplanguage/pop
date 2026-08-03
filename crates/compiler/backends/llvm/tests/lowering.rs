@@ -9431,10 +9431,12 @@ fn bounded_network_waits_lower_from_typed_pop_to_native_abi() {
              local clock = Time.monotonicClock()\n\
              local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
              local socket = Net.Udp.bind(UInt16(0))\n\
+             local interfaces = Net.Interfaces.snapshot()\n\
+             local interfaceCount = Net.Interfaces.count(interfaces)\n\
              local buffer = Bytes.withCapacity(16)\n\
              local waited = Net.Udp.receiveUntil(socket, buffer, UInt64(16), deadline, cancel)\n\
              local timedOut = Net.Udp.waitTimedOut(waited)\n\
-             return timedOut and Net.Udp.close(socket) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
+             return timedOut and Net.Interfaces.close(interfaces) and Net.Udp.close(socket) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
          end\n",
     )
     .expect("bounded wait source");
@@ -9467,4 +9469,5 @@ fn bounded_network_waits_lower_from_typed_pop_to_native_abi() {
     let llvm = module.to_string();
     assert!(llvm.contains("@pop_rt_udp_receive_buffer_until"), "{llvm}");
     assert!(llvm.contains("@pop_rt_deadline_after"), "{llvm}");
+    assert!(llvm.contains("@pop_rt_net_interfaces_snapshot"), "{llvm}");
 }

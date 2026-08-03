@@ -53,3 +53,4 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 151	Time.LiveDeadline	Pop.Standard	0	Nominal	false
 152	Net.WaitTransfer	Pop.Standard	0	Nominal	false
 153	Net.Udp.WaitTransfer	Pop.Standard	0	Nominal	false
+154	Net.Interfaces.Snapshot	Pop.Standard	0	Nominal	false

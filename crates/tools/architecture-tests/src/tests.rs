@@ -3500,6 +3500,7 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "151\tTime.LiveDeadline\tPop.Standard\t0\tNominal\tfalse",
             "152\tNet.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
             "153\tNet.Udp.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
+            "154\tNet.Interfaces.Snapshot\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

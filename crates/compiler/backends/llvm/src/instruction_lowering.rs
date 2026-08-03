@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=122 | 128..=144 => {
+            35..=58 | 64..=122 | 128..=155 => {
                 lower_net_standard_call(&result, function.raw(), arguments)?
             }
             123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
@@ -4921,6 +4921,120 @@ fn lower_net_standard_call(
             "{result}_shifted = lshr i64 %v{}, 16\n{result} = trunc i64 {result}_shifted to i16",
             arguments[0].raw()
         )),
+        145 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::NetInterfacesSnapshot)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        146 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::NetInterfacesClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        147 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetInterfaceCount),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        148..=151 if arguments.len() == 2 => {
+            let (operation, output_type) = match function {
+                148 => (RuntimeOperation::NetInterfaceName, "i64"),
+                149 => (RuntimeOperation::NetInterfaceIndex, "i32"),
+                150 => (RuntimeOperation::NetInterfaceFlags, "i32"),
+                _ => (RuntimeOperation::NetInterfaceAddressCount, "i64"),
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca {output_type}"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!(
+                    "{result} = load {output_type}, ptr {result}_output"
+                )])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        152..=155 if arguments.len() == if function == 153 { 4 } else { 3 } => {
+            let part = match function {
+                152 => 0,
+                153 => 1,
+                154 => 2,
+                _ => 3,
+            };
+            let word = if function == 153 {
+                format!("i8 %v{}", arguments[3].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i32"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i8 {part}, {word}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetInterfaceAddressPart),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            let load = if matches!(function, 152 | 154) {
+                format!(
+                    "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                )
+            } else {
+                format!("{result} = load i32, ptr {result}_output")
+            };
+            Ok(lines
+                .into_iter()
+                .chain([load])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
         _ => Err(unsupported()),
     }
 }

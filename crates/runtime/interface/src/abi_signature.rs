@@ -203,7 +203,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         }
         DnsResolverCreate | MonotonicClockCreate | NetInterfacesSnapshot => signature(&[], U64),
         DnsResolve => signature(&[U64, U64, U16], U64),
-        DnsAnswerCount => signature(&[U64, WritableU64Pointer], U8),
+        DnsAnswerCount | NetInterfaceCount => signature(&[U64, WritableU64Pointer], U8),
         DnsAnswerFamily | DeadlineExpired => signature(&[U64, U64, WritableU8Pointer], U8),
         DnsAnswerIpv4 | NetInterfaceIndex | NetInterfaceFlags => {
             signature(&[U64, U64, WritableU32Pointer], U8)
@@ -282,7 +282,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
             ],
             U8,
         ),
-        NetInterfaceCount | NetInterfaceName | NetInterfaceAddressCount => {
+        NetInterfaceName | NetInterfaceAddressCount => {
             signature(&[U64, U64, WritableU64Pointer], U8)
         }
         NetInterfaceAddressPart => signature(&[U64, U64, U64, U8, U8, WritableU32Pointer], U8),
