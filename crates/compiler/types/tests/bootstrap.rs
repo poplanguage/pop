@@ -145,9 +145,9 @@ fn net_transport_standard_functions_are_typed_qualified_and_non_prelude() {
         .filter(|entry| entry.source_name().starts_with("Net."))
         .collect();
 
-    assert_eq!(net.len(), 58);
+    assert_eq!(net.len(), 65);
     assert_eq!(net.first().expect("first Net function").id().raw(), 35);
-    assert_eq!(net.last().expect("last Net function").id().raw(), 97);
+    assert_eq!(net.last().expect("last Net function").id().raw(), 104);
     assert!(net.iter().all(|entry| !entry.is_in_prelude()));
 }
 

@@ -1474,7 +1474,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 98 {
+    if entries.len() != 105 {
         return Err(error(
             "standard function",
             2,
@@ -1912,6 +1912,48 @@ fn validate_standard_functions(
             "Net.Tcp.hopLimit",
             "Net.Tcp.Stream",
             "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.localAddressFamily",
+            "Net.Tcp.Stream",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerAddressFamily",
+            "Net.Tcp.Stream",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.localAddressWord",
+            "Net.Tcp.Stream,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.peerAddressWord",
+            "Net.Tcp.Stream,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.localScopeId",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerScopeId",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerPort",
+            "Net.Tcp.Stream",
+            "UInt16",
             "AmbientIo,MayTrap",
         ),
     ];

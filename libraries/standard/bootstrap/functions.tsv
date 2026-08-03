@@ -98,3 +98,10 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 95	Net.Tcp.noDelay	Pop.Standard	Net.Tcp.Stream	Boolean	AmbientIo,MayTrap	false
 96	Net.Tcp.setHopLimit	Pop.Standard	Net.Tcp.Stream,UInt32	Boolean	AmbientIo	false
 97	Net.Tcp.hopLimit	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false
+98	Net.Tcp.localAddressFamily	Pop.Standard	Net.Tcp.Stream	Byte	AmbientIo,MayTrap	false
+99	Net.Tcp.peerAddressFamily	Pop.Standard	Net.Tcp.Stream	Byte	AmbientIo,MayTrap	false
+100	Net.Tcp.localAddressWord	Pop.Standard	Net.Tcp.Stream,Byte	UInt32?	AmbientIo	false
+101	Net.Tcp.peerAddressWord	Pop.Standard	Net.Tcp.Stream,Byte	UInt32?	AmbientIo	false
+102	Net.Tcp.localScopeId	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false
+103	Net.Tcp.peerScopeId	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false
+104	Net.Tcp.peerPort	Pop.Standard	Net.Tcp.Stream	UInt16	AmbientIo,MayTrap	false

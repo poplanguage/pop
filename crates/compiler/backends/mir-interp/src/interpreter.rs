@@ -4295,7 +4295,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=97) => {
+            } if matches!(function.raw(), 35..=58 | 64..=104) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5587,6 +5587,59 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     u64::from(stream.ttl().map_err(|_| self.runtime_invariant())?),
                     IntegerKind::UInt32,
                 )
+            }
+            98..=104 if arguments.len() == usize::from(matches!(function, 100 | 101)) + 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let peer = matches!(function, 99 | 101 | 103 | 104);
+                let endpoint = if peer {
+                    stream.peer_addr()
+                } else {
+                    stream.local_addr()
+                }
+                .map_err(|_| self.runtime_invariant())?;
+                match function {
+                    98 | 99 => integer(
+                        u64::from(if endpoint.is_ipv4() { 4_u8 } else { 6_u8 }),
+                        IntegerKind::UInt8,
+                    ),
+                    100 | 101 => {
+                        let index = usize::from(
+                            u8::try_from(unsigned(1)?)
+                                .map_err(|_| ExecutionError::TypeMismatch)?,
+                        );
+                        let word = match endpoint.ip() {
+                            IpAddr::V4(value) if index == 0 => Some(u32::from(value)),
+                            IpAddr::V6(value) if index < 4 => {
+                                let octets = value.octets();
+                                let start = index * 4;
+                                Some(u32::from_be_bytes([
+                                    octets[start],
+                                    octets[start + 1],
+                                    octets[start + 2],
+                                    octets[start + 3],
+                                ]))
+                            }
+                            _ => None,
+                        };
+                        word.map_or(Ok(MirValue::Nil), |word| {
+                            integer(u64::from(word), IntegerKind::UInt32)
+                        })
+                    }
+                    102 | 103 => integer(
+                        u64::from(match endpoint {
+                            std::net::SocketAddr::V4(_) => 0,
+                            std::net::SocketAddr::V6(value) => value.scope_id(),
+                        }),
+                        IntegerKind::UInt32,
+                    ),
+                    104 => integer(u64::from(endpoint.port()), IntegerKind::UInt16),
+                    _ => unreachable!(),
+                }
             }
             _ => Err(ExecutionError::WrongArity),
         }

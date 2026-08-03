@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=97 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=104 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4486,6 +4486,55 @@ fn lower_net_standard_call(
                 .chain([format!("{result} = load i32, ptr {result}_output")])
                 .collect::<Vec<_>>()
                 .join("\n"))
+        }
+        98..=104 if arguments.len() == usize::from(matches!(function, 100 | 101)) + 1 => {
+            let peer = u8::from(matches!(function, 99 | 101 | 103 | 104));
+            let field = match function {
+                98 | 99 => 0,
+                100 | 101 => 1,
+                102 | 103 => 3,
+                104 => 2,
+                _ => unreachable!(),
+            };
+            let index = if matches!(function, 100 | 101) {
+                format!("i8 %v{}", arguments[1].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let call = vec![
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i8 {peer}, i8 {field}, {index}, ptr {result}_output)",
+                    native_runtime_symbol(RuntimeOperation::TcpEndpointPart),
+                    arguments[0].raw()
+                ),
+            ];
+            if matches!(function, 100 | 101) {
+                Ok(call
+                    .into_iter()
+                    .chain([
+                        format!("{result}_present = icmp eq i8 {status}, 1"),
+                        format!("{result}_value = load i32, ptr {result}_output"),
+                        format!("{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"),
+                        format!("{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"),
+                    ])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            } else {
+                let lines = trap_status(
+                    &status,
+                    format!("{status}_valid = icmp eq i8 {status}, 1"),
+                    call,
+                );
+                let load = match function {
+                    98 | 99 => format!("{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"),
+                    104 => format!("{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i16"),
+                    _ => format!("{result} = load i32, ptr {result}_output"),
+                };
+                Ok(lines.into_iter().chain([load]).collect::<Vec<_>>().join("\n"))
+            }
         }
         _ => Err(unsupported()),
     }
