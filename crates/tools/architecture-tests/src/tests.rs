@@ -659,12 +659,18 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                 | "toml = \"0.9.8\""
         );
         let approved_platform_dependency = line == "libc = \"0.2.186\"";
+        let approved_security_dependency = matches!(
+            line,
+            "rustls = { version = \"=0.23.43\", default-features = false, features = [\"ring\", \"std\", \"tls12\"] }"
+                | "rustls-platform-verifier = { version = \"=0.7.0\", default-features = false }"
+        );
         assert!(
             local
                 || approved_inkwell
                 || approved_terminal_dependency
                 || approved_artifact_dependency
-                || approved_platform_dependency,
+                || approved_platform_dependency
+                || approved_security_dependency,
             "unapproved workspace dependency: {line}"
         );
     }
@@ -718,6 +724,11 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                     );
                 let native_platform_dependency =
                     *member == "crates/runtime/native" && line == "libc.workspace = true";
+                let native_security_dependency = *member == "crates/runtime/native"
+                    && matches!(
+                        line,
+                        "rustls.workspace = true" | "rustls-platform-verifier.workspace = true"
+                    );
                 let interpreter_platform_dependency = *member
                     == "crates/compiler/backends/mir-interp"
                     && line == "libc.workspace = true";
@@ -731,6 +742,7 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                         || localization_dependency
                         || language_server_transport_dependency
                         || native_platform_dependency
+                        || native_security_dependency
                         || interpreter_platform_dependency,
                     "{} {table} entry is not inherited from the workspace: {line}",
                     manifest_path.display(),
