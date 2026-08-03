@@ -102,6 +102,14 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
         "collection and field operations need exact optimizable ABI signatures: {text}"
     );
     assert!(
+        text.contains(
+            "declare i8 @pop_rt_atomic_int_compare_exchange(i64, i64, i64, i8, i8, ptr) nounwind"
+        ) && text.contains("declare i8 @pop_rt_actor_try_receive(i64, ptr, ptr) nounwind")
+            && text.contains("declare i64 @pop_rt_tcp_send(i64, ptr, i64) nounwind")
+            && text.contains("declare i64 @pop_rt_udp_receive(i64, ptr, i64, ptr, ptr) nounwind"),
+        "closed runtime ABI signatures must drive LLVM declarations: {text}"
+    );
+    assert!(
         !text.contains("@pop_rt_array_get(...)") && !text.contains("@pop_rt_field_set(...)"),
         "variadic runtime declarations hide optimizer-visible argument contracts: {text}"
     );

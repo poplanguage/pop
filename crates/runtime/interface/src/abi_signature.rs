@@ -20,6 +20,39 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 30] = [
+    RuntimeOperation::AtomicIntCreate,
+    RuntimeOperation::AtomicIntLoad,
+    RuntimeOperation::AtomicIntStore,
+    RuntimeOperation::AtomicIntSwap,
+    RuntimeOperation::AtomicIntCompareExchange,
+    RuntimeOperation::AtomicBoolCreate,
+    RuntimeOperation::AtomicBoolLoad,
+    RuntimeOperation::AtomicBoolStore,
+    RuntimeOperation::AtomicBoolSwap,
+    RuntimeOperation::AtomicBoolCompareExchange,
+    RuntimeOperation::AtomicRelease,
+    RuntimeOperation::ActorCreate,
+    RuntimeOperation::ActorActivate,
+    RuntimeOperation::ActorTrySend,
+    RuntimeOperation::ActorTryReceive,
+    RuntimeOperation::ActorBeginExit,
+    RuntimeOperation::ActorCompleteExit,
+    RuntimeOperation::ActorRelease,
+    RuntimeOperation::TcpListen,
+    RuntimeOperation::TcpLocalPort,
+    RuntimeOperation::TcpConnect,
+    RuntimeOperation::TcpAccept,
+    RuntimeOperation::TcpSend,
+    RuntimeOperation::TcpReceive,
+    RuntimeOperation::TcpClose,
+    RuntimeOperation::UdpBind,
+    RuntimeOperation::UdpLocalPort,
+    RuntimeOperation::UdpSendTo,
+    RuntimeOperation::UdpReceive,
+    RuntimeOperation::UdpClose,
+];
+
 impl RuntimeAbiSignature {
     #[must_use]
     pub const fn parameters(self) -> &'static [RuntimeAbiType] {

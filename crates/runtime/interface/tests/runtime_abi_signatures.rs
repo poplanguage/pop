@@ -1,42 +1,10 @@
-use pop_runtime_interface::{RuntimeAbiType, RuntimeOperation, runtime_abi_signature};
+use pop_runtime_interface::{
+    CLOSED_RUNTIME_ABI_OPERATIONS, RuntimeAbiType, RuntimeOperation, runtime_abi_signature,
+};
 
 #[test]
 fn atomic_actor_and_network_operations_have_closed_native_signatures() {
-    use RuntimeOperation::*;
-    let operations = [
-        AtomicIntCreate,
-        AtomicIntLoad,
-        AtomicIntStore,
-        AtomicIntSwap,
-        AtomicIntCompareExchange,
-        AtomicBoolCreate,
-        AtomicBoolLoad,
-        AtomicBoolStore,
-        AtomicBoolSwap,
-        AtomicBoolCompareExchange,
-        AtomicRelease,
-        ActorCreate,
-        ActorActivate,
-        ActorTrySend,
-        ActorTryReceive,
-        ActorBeginExit,
-        ActorCompleteExit,
-        ActorRelease,
-        TcpListen,
-        TcpLocalPort,
-        TcpConnect,
-        TcpAccept,
-        TcpSend,
-        TcpReceive,
-        TcpClose,
-        UdpBind,
-        UdpLocalPort,
-        UdpSendTo,
-        UdpReceive,
-        UdpClose,
-    ];
-
-    for operation in operations {
+    for operation in CLOSED_RUNTIME_ABI_OPERATIONS {
         assert!(runtime_abi_signature(operation).is_some(), "{operation:?}");
     }
 }

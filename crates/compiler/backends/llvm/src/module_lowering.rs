@@ -8,7 +8,9 @@ use std::fmt::Write as _;
 
 use pop_foundation::{BubbleId, ClassId, FieldId, SymbolId, TypeId, ValueId};
 use pop_mir::{MirBubble, MirDeclarationKind, MirEffect, MirEffectSummary, MirInstructionKind};
-use pop_runtime_interface::RuntimeOperation;
+use pop_runtime_interface::{
+    CLOSED_RUNTIME_ABI_OPERATIONS, RuntimeAbiType, RuntimeOperation, runtime_abi_signature,
+};
 use pop_types::{SemanticType, TypeArena};
 
 use crate::api::LlvmLoweringError;
@@ -614,7 +616,7 @@ pub(crate) fn render_string_literals(literals: &BTreeMap<String, String>) -> Vec
 }
 
 pub(crate) fn runtime_declarations() -> Vec<String> {
-    vec![
+    let mut declarations = vec![
         "declare { i64, i64 } @pop_rt_bytes_view_lengths(i64) nounwind".to_owned(),
         "declare { i64, i64 } @pop_rt_text_view_lengths(i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_bytes_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
@@ -782,7 +784,38 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
             "declare i8 @{}(i64, i64, i64) nounwind",
             native_runtime_symbol(RuntimeOperation::FieldSet)
         ),
-    ]
+    ];
+    declarations.extend(CLOSED_RUNTIME_ABI_OPERATIONS.map(runtime_abi_declaration));
+    declarations
+}
+
+fn runtime_abi_declaration(operation: RuntimeOperation) -> String {
+    let signature = runtime_abi_signature(operation).expect("closed runtime ABI operation");
+    let parameters = signature
+        .parameters()
+        .iter()
+        .map(|parameter| llvm_runtime_abi_type(*parameter))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "declare {} @{}({parameters}) nounwind",
+        llvm_runtime_abi_type(signature.result()),
+        native_runtime_symbol(operation)
+    )
+}
+
+const fn llvm_runtime_abi_type(value: RuntimeAbiType) -> &'static str {
+    match value {
+        RuntimeAbiType::U8 => "i8",
+        RuntimeAbiType::U16 => "i16",
+        RuntimeAbiType::U32 => "i32",
+        RuntimeAbiType::U64 | RuntimeAbiType::I64 => "i64",
+        RuntimeAbiType::ReadOnlyU8Pointer
+        | RuntimeAbiType::WritableU8Pointer
+        | RuntimeAbiType::WritableU16Pointer
+        | RuntimeAbiType::WritableU32Pointer
+        | RuntimeAbiType::WritableU64Pointer => "ptr",
+    }
 }
 
 pub(crate) fn collect_field_layout(bubble: &MirBubble) -> BTreeMap<FieldId, u32> {
