@@ -310,6 +310,11 @@ impl ProgramRequirements {
             | MirInstructionKind::ListCreate { .. } => {
                 self.require_runtime(RuntimeContract::ManagedAllocator, origin);
             }
+            MirInstructionKind::CallStandard { function, .. }
+                if matches!(function.raw(), 2..=22) =>
+            {
+                self.require_runtime(RuntimeContract::AtomicOperations, origin);
+            }
             MirInstructionKind::CallStandard { .. }
             | MirInstructionKind::CallBuiltinInterface { .. } => {
                 self.require_runtime(RuntimeContract::StandardLibraryAdapters, origin);

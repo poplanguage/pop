@@ -127,6 +127,33 @@ fn native_runtime_requires_explicit_atomic_and_network_target_capabilities() {
 }
 
 #[test]
+fn atomic_standard_calls_derive_the_atomic_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t5) effects[Synchronizes,MayTrap]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer Int64 0\n",
+        "    v1:t5 = const.integer Int64 0\n",
+        "    v2:t5 = callStandard sf15 (v0, v1) effects[Synchronizes,MayTrap]\n",
+        "    return (v2)\n",
+    ))
+    .expect("structural Atomic MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::AtomicOperations
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(2))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| requirement.contract() == RuntimeContract::StandardLibraryAdapters)
+    );
+}
+
+#[test]
 fn blocking_effect_requires_a_distinct_blocking_pool_contract() {
     let mut requirements = ProgramRequirements::default();
     let origin = RequirementOrigin::FunctionEffect {
