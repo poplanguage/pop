@@ -10,6 +10,10 @@ transport registries are excluded. Invalid handles, spans, and output slots
 fail closed. Deadlines, cancellation, multicast, and public `Net.Udp` wiring
 remain later layers.
 
+ABI 1.28 returns a closed failure/progress/would-block status from datagram send
+and receive and writes byte counts separately. A zero-length datagram therefore
+remains successful progress rather than becoming an ambiguous failure.
+
 The backend-neutral `RuntimeOperation` inventory and native ABI symbol catalog
 reserve exact entries for every operation in this slice. Lowering requires the
 backend-neutral `Networking` target capability; the supported Linux native

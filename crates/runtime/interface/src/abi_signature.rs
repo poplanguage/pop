@@ -109,7 +109,10 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpAccept => signature(&[U64], U64),
         TcpSend => signature(&[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer], U8),
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
-        UdpSendTo => signature(&[U64, U32, U16, ReadOnlyU8Pointer, U64], U64),
+        UdpSendTo => signature(
+            &[U64, U32, U16, ReadOnlyU8Pointer, U64, WritableU64Pointer],
+            U8,
+        ),
         UdpReceive => signature(
             &[
                 U64,
@@ -117,8 +120,9 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
                 U64,
                 WritableU32Pointer,
                 WritableU16Pointer,
+                WritableU64Pointer,
             ],
-            U64,
+            U8,
         ),
         _ => return None,
     })

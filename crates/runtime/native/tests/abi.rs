@@ -273,12 +273,25 @@ fn native_udp_handles_fail_closed_without_a_capability() {
     }
     let mut port = 0_u16;
     let mut address = 0_u32;
+    let mut count = 0_u64;
     let mut bytes = [0_u8; 1];
     assert_eq!(unsafe { pop_rt_udp_local_port(0, &raw mut port) }, 0);
-    assert_eq!(unsafe { pop_rt_udp_send_to(0, 0, 1, bytes.as_ptr(), 1) }, 0);
     assert_eq!(
-        unsafe { pop_rt_udp_receive(0, bytes.as_mut_ptr(), 1, &raw mut address, &raw mut port,) },
-        0
+        unsafe { pop_rt_udp_send_to(0, 0, 1, bytes.as_ptr(), 1, &raw mut count) },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive(
+                0,
+                bytes.as_mut_ptr(),
+                1,
+                &raw mut address,
+                &raw mut port,
+                &raw mut count,
+            )
+        },
+        SocketIoStatus::Failure as u8
     );
     assert_eq!(pop_rt_udp_close(0), 0);
 }

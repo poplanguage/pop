@@ -33,9 +33,10 @@ fn signatures_preserve_widths_and_pointer_direction() {
             U64,
             WritableU32Pointer,
             WritableU16Pointer,
+            WritableU64Pointer,
         ]
     );
-    assert_eq!(udp_receive.result(), U64);
+    assert_eq!(udp_receive.result(), U8);
 
     let local_port =
         runtime_abi_signature(RuntimeOperation::TcpLocalPort).expect("local port signature");
@@ -44,4 +45,6 @@ fn signatures_preserve_widths_and_pointer_direction() {
 
     let send_to = runtime_abi_signature(RuntimeOperation::UdpSendTo).expect("UDP send signature");
     assert_eq!(send_to.parameters()[1..3], [U32, U16]);
+    assert_eq!(send_to.parameters().last(), Some(&WritableU64Pointer));
+    assert_eq!(send_to.result(), U8);
 }

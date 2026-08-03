@@ -10,6 +10,6 @@ byte output pointers. They contain no LLVM types, host Rust types, dynamic
 arguments, variadic calls, or string-selected operations.
 
 Compiler backends must consume these signatures when declaring and validating
-native calls. TCP I/O uses ABI 1.28's closed socket status and separate byte
+native calls. TCP and UDP I/O use ABI 1.28's closed socket status and separate byte
 count outputs. Public Pop Lang APIs remain typed adapters above this closed ABI
 and never expose its raw pointers.
