@@ -48,6 +48,7 @@ pub const TCP_SET_NO_DELAY_SYMBOL: &str = "pop_rt_tcp_set_no_delay";
 pub const TCP_NO_DELAY_SYMBOL: &str = "pop_rt_tcp_no_delay";
 pub const TCP_SET_TTL_SYMBOL: &str = "pop_rt_tcp_set_ttl";
 pub const TCP_TTL_SYMBOL: &str = "pop_rt_tcp_ttl";
+pub const TCP_ENDPOINT_PART_SYMBOL: &str = "pop_rt_tcp_endpoint_part";
 pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
 
 pub const UDP_BIND_SYMBOL: &str = "pop_rt_udp_bind";
@@ -86,7 +87,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.37.
+/// Returns the native C symbol for an operation implemented through ABI 1.38.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -239,6 +240,7 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::TcpNoDelay => Some(TCP_NO_DELAY_SYMBOL),
         RuntimeOperation::TcpSetTtl => Some(TCP_SET_TTL_SYMBOL),
         RuntimeOperation::TcpTtl => Some(TCP_TTL_SYMBOL),
+        RuntimeOperation::TcpEndpointPart => Some(TCP_ENDPOINT_PART_SYMBOL),
         RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
         RuntimeOperation::UdpBind => Some(UDP_BIND_SYMBOL),
         RuntimeOperation::UdpBindIpv4 => Some(UDP_BIND_IPV4_SYMBOL),

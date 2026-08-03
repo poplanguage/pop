@@ -148,6 +148,7 @@ pub enum RuntimeOperation {
     TcpNoDelay,
     TcpSetTtl,
     TcpTtl,
+    TcpEndpointPart,
     TcpClose,
     UdpBind,
     UdpBindIpv4,

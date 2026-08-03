@@ -60,6 +60,7 @@ ABI 1.36 appends explicit bounded system-resolver and family-preserving DNS
 answer handles.
 ABI 1.37 appends TCP half-close, no-delay configuration, and hop-limit
 configuration with typed scalar inspection.
+ABI 1.38 appends family-preserving TCP local/peer endpoint inspection.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the

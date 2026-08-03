@@ -34,7 +34,7 @@ use pop_runtime_native::{
     pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
     pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
     pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
-    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6, pop_rt_tcp_endpoint_part,
     pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6, pop_rt_tcp_local_port,
     pop_rt_tcp_no_delay, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes,
     pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_tcp_set_no_delay, pop_rt_tcp_set_ttl,
@@ -63,7 +63,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 37);
+    assert_eq!(pop_rt_abi_minor(), 38);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -92,6 +92,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 35), 1);
     assert_eq!(pop_rt_supports_abi(1, 36), 1);
     assert_eq!(pop_rt_supports_abi(1, 37), 1);
+    assert_eq!(pop_rt_supports_abi(1, 38), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -378,6 +379,22 @@ fn native_tcp_exposes_half_close_and_common_stream_options() {
     let mut ttl = 0;
     assert_eq!(unsafe { pop_rt_tcp_ttl(client, &raw mut ttl) }, 1);
     assert_eq!(ttl, 42);
+    let mut endpoint_part = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 0, 0, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, 4);
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 1, 1, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, u32::from(std::net::Ipv4Addr::LOCALHOST));
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 1, 2, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, u32::from(port));
     assert_eq!(pop_rt_tcp_shutdown(client, 1), 1);
     assert_eq!(pop_rt_tcp_shutdown(server, 0), 1);
 

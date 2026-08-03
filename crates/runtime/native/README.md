@@ -73,6 +73,7 @@ ABI 1.36 adds explicit bounded system-resolver and family-preserving DNS answer
 handles.
 ABI 1.37 adds TCP half-close, no-delay configuration, and hop-limit
 configuration with typed scalar inspection.
+ABI 1.38 adds family-preserving TCP local/peer endpoint inspection.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact
