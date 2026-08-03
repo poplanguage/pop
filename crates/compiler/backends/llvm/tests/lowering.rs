@@ -212,6 +212,86 @@ fn directional_channels_lower_to_exact_native_abi_and_valid_llvm_ir() {
 }
 
 #[test]
+fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/atomic.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             local integer = Atomic.int(4)\n\
+             local loaded = Atomic.loadInt(integer, Atomic.acquireLoadOrder())\n\
+             local previous = Atomic.swapInt(integer, 9, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local stored = Atomic.storeInt(integer, 12, Atomic.releaseStoreOrder())\n\
+             local boolean = Atomic.boolean(false)\n\
+             local priorBoolean = Atomic.swapBoolean(boolean, true, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
+             local loadedBoolean = Atomic.loadBoolean(boolean, Atomic.sequentiallyConsistentLoadOrder())\n\
+             local released = Atomic.releaseInt(integer) and Atomic.releaseBoolean(boolean)\n\
+             if loaded == 4 and previous == 4 and stored and not priorBoolean and loadedBoolean and released then\n\
+                 return 0\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Atomic MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Atomic lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_atomic_int_create",
+        "pop_rt_atomic_int_load",
+        "pop_rt_atomic_int_store",
+        "pop_rt_atomic_int_swap",
+        "pop_rt_atomic_bool_create",
+        "pop_rt_atomic_bool_load",
+        "pop_rt_atomic_bool_swap",
+        "pop_rt_atomic_release",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-atomic.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-atomic.bc");
+    fs::write(&input, &text).expect("write Atomic LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Atomic IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "atomic");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Atomic execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
 fn llvm_lowers_foreign_calls_with_exact_abi_and_balanced_transitions() {
     let ffi = BubbleId::from_raw(9);
     let source = SourceFile::new(
