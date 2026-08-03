@@ -612,6 +612,7 @@ dependencies = [
 name = "pop-backend-mir-interp"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pop-backend-api",
  "pop-compile-time",
  "pop-driver",

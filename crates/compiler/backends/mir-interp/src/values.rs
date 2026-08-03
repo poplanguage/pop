@@ -55,6 +55,8 @@ pub enum MirValue {
     NetUdpSocket(SymbolId),
     NetDnsResolver(SymbolId),
     NetDnsAnswers(SymbolId),
+    NetInterfacesSnapshot(SymbolId),
+    NetRoutesSnapshot(SymbolId),
     NetUnixListener(SymbolId),
     NetUnixStream(SymbolId),
     TimeMonotonicClock(SymbolId),

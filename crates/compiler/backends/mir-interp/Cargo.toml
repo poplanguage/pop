@@ -16,6 +16,7 @@ pop-runtime-interface.workspace = true
 pop-standard.workspace = true
 pop-target.workspace = true
 pop-types.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 pop-compile-time.workspace = true

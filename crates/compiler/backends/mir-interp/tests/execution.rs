@@ -5295,3 +5295,30 @@ fn bounded_udp_wait_reports_timeout_in_mir_interpreter() {
         vec![MirValue::Boolean(true)]
     );
 }
+
+#[test]
+fn host_interface_and_route_snapshots_execute_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local interfaces = Net.Interfaces.snapshot()\n\
+             local interfaceCount = Net.Interfaces.count(interfaces)\n\
+             local interfaceIndex = Net.Interfaces.index(interfaces, UInt64(0))\n\
+             local interfaceAddressCount = Net.Interfaces.addressCount(interfaces, UInt64(0))\n\
+             local interfaceFamily = Net.Interfaces.addressFamily(interfaces, UInt64(0), UInt64(0))\n\
+             local interfaceWord = Net.Interfaces.addressWord(interfaces, UInt64(0), UInt64(0), Byte(0))\n\
+             local routes = Net.Routes.snapshot()\n\
+             local routeCount = Net.Routes.count(routes)\n\
+             local routeFamily = Net.Routes.family(routes, UInt64(0))\n\
+             local destinationWord = Net.Routes.destinationWord(routes, UInt64(0), Byte(0))\n\
+             return interfaceCount > UInt64(0) and interfaceIndex > UInt32(0) and interfaceAddressCount > UInt64(0) and (interfaceFamily == Byte(4) or interfaceFamily == Byte(6)) and interfaceWord >= UInt32(0) and routeCount > UInt64(0) and (routeFamily == Byte(4) or routeFamily == Byte(6)) and destinationWord >= UInt32(0) and Net.Interfaces.close(interfaces) and Net.Routes.close(routes)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("host network snapshots"),
+        vec![MirValue::Boolean(true)]
+    );
+}

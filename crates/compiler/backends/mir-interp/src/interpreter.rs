@@ -3,6 +3,7 @@
 //! Construction verifies the complete `MirBubble` before retaining it. Execution
 //! consumes resolved stable IDs only and delegates every runtime operation through
 //! the backend-neutral PLRI adapter.
+#![allow(unsafe_code)]
 use crate::evaluation::*;
 use crate::ffi_buffer::{
     integer_from_u64, integer_i64, integer_kind_for_type, integer_u64, marshal, unmarshal,
@@ -44,6 +45,10 @@ use pop_types::{
 };
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(unix)]
+use std::ffi::CStr;
+#[cfg(target_os = "linux")]
+use std::ffi::CString;
 use std::io::{Read as _, Write as _};
 use std::net::{
     IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs,
@@ -57,6 +62,228 @@ use std::time::{Duration, Instant};
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
 const MAX_CODEC_EVENTS: usize = 65_536;
 const MAX_CODEC_SEQUENCE_ELEMENTS: usize = 65_535;
+
+#[derive(Clone)]
+struct InterpreterInterfaceAddress {
+    family: u8,
+    words: [u32; 4],
+    prefix: u8,
+    scope: u32,
+}
+
+#[derive(Clone)]
+struct InterpreterInterface {
+    name: String,
+    index: u32,
+    flags: u32,
+    addresses: Vec<InterpreterInterfaceAddress>,
+}
+
+#[derive(Clone)]
+struct InterpreterRoute {
+    family: u8,
+    destination: [u32; 4],
+    prefix: u8,
+    gateway: [u32; 4],
+    interface: u32,
+    metric: u32,
+    flags: u32,
+}
+
+#[cfg(unix)]
+fn interface_ipv4_prefix(mask: *const libc::sockaddr) -> u8 {
+    if mask.is_null() {
+        return 0;
+    }
+    let mask = unsafe { std::ptr::read_unaligned(mask.cast::<libc::sockaddr_in>()) };
+    u8::try_from(u32::from_be(mask.sin_addr.s_addr).leading_ones()).unwrap_or(0)
+}
+
+#[cfg(unix)]
+fn interface_ipv6_prefix(mask: *const libc::sockaddr) -> u8 {
+    if mask.is_null() {
+        return 0;
+    }
+    let mask = unsafe { std::ptr::read_unaligned(mask.cast::<libc::sockaddr_in6>()) };
+    let mut prefix = 0_u8;
+    for byte in mask.sin6_addr.s6_addr {
+        let ones = byte.leading_ones();
+        prefix = prefix.saturating_add(u8::try_from(ones).unwrap_or(0));
+        if ones != 8 {
+            break;
+        }
+    }
+    prefix
+}
+
+#[cfg(unix)]
+fn capture_interface_address(entry: &libc::ifaddrs) -> Option<InterpreterInterfaceAddress> {
+    if entry.ifa_addr.is_null() {
+        return None;
+    }
+    let family = unsafe { i32::from((*entry.ifa_addr).sa_family) };
+    match family {
+        libc::AF_INET => {
+            let socket =
+                unsafe { std::ptr::read_unaligned(entry.ifa_addr.cast::<libc::sockaddr_in>()) };
+            Some(InterpreterInterfaceAddress {
+                family: 4,
+                words: [u32::from_be(socket.sin_addr.s_addr), 0, 0, 0],
+                prefix: interface_ipv4_prefix(entry.ifa_netmask),
+                scope: 0,
+            })
+        }
+        libc::AF_INET6 => {
+            let socket =
+                unsafe { std::ptr::read_unaligned(entry.ifa_addr.cast::<libc::sockaddr_in6>()) };
+            let mut words = [0_u32; 4];
+            for (index, octets) in socket.sin6_addr.s6_addr.chunks_exact(4).enumerate() {
+                words[index] = u32::from_be_bytes([octets[0], octets[1], octets[2], octets[3]]);
+            }
+            Some(InterpreterInterfaceAddress {
+                family: 6,
+                words,
+                prefix: interface_ipv6_prefix(entry.ifa_netmask),
+                scope: socket.sin6_scope_id,
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
+fn capture_interfaces() -> Option<Vec<InterpreterInterface>> {
+    let mut head = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&raw mut head) } != 0 {
+        return None;
+    }
+    let mut by_index = BTreeMap::<u32, InterpreterInterface>::new();
+    let mut current = head;
+    while !current.is_null() {
+        let entry = unsafe { &*current };
+        if !entry.ifa_name.is_null() {
+            let name = unsafe { CStr::from_ptr(entry.ifa_name) }
+                .to_string_lossy()
+                .into_owned();
+            let index = unsafe { libc::if_nametoindex(entry.ifa_name) };
+            if index != 0 {
+                let interface = by_index
+                    .entry(index)
+                    .or_insert_with(|| InterpreterInterface {
+                        name,
+                        index,
+                        flags: 0,
+                        addresses: Vec::new(),
+                    });
+                interface.flags |= entry.ifa_flags;
+                if let Some(address) = capture_interface_address(entry) {
+                    interface.addresses.push(address);
+                }
+            }
+        }
+        current = entry.ifa_next;
+    }
+    unsafe { libc::freeifaddrs(head) };
+    Some(by_index.into_values().collect())
+}
+
+#[cfg(not(unix))]
+fn capture_interfaces() -> Option<Vec<InterpreterInterface>> {
+    Some(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+fn interpreter_interface_index(name: &str) -> u32 {
+    CString::new(name)
+        .ok()
+        .map_or(0, |name| unsafe { libc::if_nametoindex(name.as_ptr()) })
+}
+
+fn parse_route_hex(value: &str) -> Option<u32> {
+    u32::from_str_radix(value, 16).ok()
+}
+
+fn parse_ipv6_route_words(value: &str) -> Option<[u32; 4]> {
+    if value.len() != 32 {
+        return None;
+    }
+    let mut words = [0_u32; 4];
+    for (index, word) in words.iter_mut().enumerate() {
+        *word = parse_route_hex(&value[index * 8..index * 8 + 8])?;
+    }
+    Some(words)
+}
+
+#[cfg(target_os = "linux")]
+fn capture_routes() -> Vec<InterpreterRoute> {
+    let mut routes = Vec::new();
+    if let Ok(text) = std::fs::read_to_string("/proc/net/route") {
+        for line in text.lines().skip(1) {
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            let Some((destination, gateway, flags, metric, mask)) = (fields.len() >= 8)
+                .then(|| {
+                    Some((
+                        parse_route_hex(fields[1])?,
+                        parse_route_hex(fields[2])?,
+                        parse_route_hex(fields[3])?,
+                        fields[6].parse::<u32>().ok()?,
+                        parse_route_hex(fields[7])?,
+                    ))
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            routes.push(InterpreterRoute {
+                family: 4,
+                destination: [destination.swap_bytes(), 0, 0, 0],
+                prefix: u8::try_from(mask.swap_bytes().leading_ones()).unwrap_or(0),
+                gateway: [gateway.swap_bytes(), 0, 0, 0],
+                interface: interpreter_interface_index(fields[0]),
+                metric,
+                flags,
+            });
+        }
+    }
+    if let Ok(text) = std::fs::read_to_string("/proc/net/ipv6_route") {
+        for line in text.lines() {
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            if fields.len() < 10 {
+                continue;
+            }
+            let Some(destination) = parse_ipv6_route_words(fields[0]) else {
+                continue;
+            };
+            let Some(prefix) = u8::from_str_radix(fields[1], 16).ok() else {
+                continue;
+            };
+            let Some(gateway) = parse_ipv6_route_words(fields[4]) else {
+                continue;
+            };
+            let Some(metric) = parse_route_hex(fields[5]) else {
+                continue;
+            };
+            let Some(flags) = parse_route_hex(fields[8]) else {
+                continue;
+            };
+            routes.push(InterpreterRoute {
+                family: 6,
+                destination,
+                prefix,
+                gateway,
+                interface: interpreter_interface_index(fields[9]),
+                metric,
+                flags,
+            });
+        }
+    }
+    routes
+}
+
+#[cfg(not(target_os = "linux"))]
+fn capture_routes() -> Vec<InterpreterRoute> {
+    Vec::new()
+}
 
 fn push_codec_event(
     events: &mut Vec<MirCodecEvent>,
@@ -1540,6 +1767,8 @@ enum PrivateValue {
     UdpSocket(UdpSocket),
     DnsResolver,
     DnsAnswers(Vec<IpAddr>),
+    NetInterfaces(Vec<InterpreterInterface>),
+    NetRoutes(Vec<InterpreterRoute>),
     #[cfg(unix)]
     UnixListener(UnixListener),
     #[cfg(unix)]
@@ -5766,6 +5995,154 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 };
                 Ok(MirValue::Boolean(accepted.is_ok()))
             }
+            145 if arguments.is_empty() => {
+                let interfaces = capture_interfaces().ok_or_else(|| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::NetInterfaces(interfaces));
+                Ok(MirValue::NetInterfacesSnapshot(symbol))
+            }
+            146 if arguments.len() == 1 => {
+                let MirValue::NetInterfacesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::NetInterfaces(_))
+                )))
+            }
+            147 if arguments.len() == 1 => {
+                let MirValue::NetInterfacesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::NetInterfaces(interfaces)) =
+                    self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::try_from(interfaces.len()).map_err(|_| self.runtime_invariant())?,
+                    IntegerKind::UInt64,
+                )
+            }
+            148..=155 => {
+                let expected = if function >= 152 { 3 } else { 2 };
+                if arguments.len() != expected + usize::from(function == 153) {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::NetInterfacesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let interface_index =
+                    usize::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::NetInterfaces(interfaces)) =
+                    self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let Some(interface) = interfaces.get(interface_index) else {
+                    return Err(self.runtime_invariant());
+                };
+                match function {
+                    148 => Ok(MirValue::String(interface.name.clone())),
+                    149 => integer(u64::from(interface.index), IntegerKind::UInt32),
+                    150 => integer(u64::from(interface.flags), IntegerKind::UInt32),
+                    151 => integer(
+                        u64::try_from(interface.addresses.len())
+                            .map_err(|_| self.runtime_invariant())?,
+                        IntegerKind::UInt64,
+                    ),
+                    152..=155 => {
+                        let address_index = usize::try_from(unsigned(2)?)
+                            .map_err(|_| ExecutionError::TypeMismatch)?;
+                        let Some(address) = interface.addresses.get(address_index) else {
+                            return Err(self.runtime_invariant());
+                        };
+                        match function {
+                            152 => integer(u64::from(address.family), IntegerKind::UInt8),
+                            153 => {
+                                let word = usize::from(
+                                    u8::try_from(unsigned(3)?)
+                                        .map_err(|_| ExecutionError::TypeMismatch)?,
+                                );
+                                let Some(value) = address.words.get(word) else {
+                                    return Err(self.runtime_invariant());
+                                };
+                                integer(u64::from(*value), IntegerKind::UInt32)
+                            }
+                            154 => integer(u64::from(address.prefix), IntegerKind::UInt8),
+                            _ => integer(u64::from(address.scope), IntegerKind::UInt32),
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            156 if arguments.is_empty() => {
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::NetRoutes(capture_routes()));
+                Ok(MirValue::NetRoutesSnapshot(symbol))
+            }
+            157 if arguments.len() == 1 => {
+                let MirValue::NetRoutesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::NetRoutes(_))
+                )))
+            }
+            158 if arguments.len() == 1 => {
+                let MirValue::NetRoutesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::NetRoutes(routes)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::try_from(routes.len()).map_err(|_| self.runtime_invariant())?,
+                    IntegerKind::UInt64,
+                )
+            }
+            159..=165 => {
+                let expected = 2 + usize::from(matches!(function, 160 | 162));
+                if arguments.len() != expected {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::NetRoutesSnapshot(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let route_index =
+                    usize::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::NetRoutes(routes)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let Some(route) = routes.get(route_index) else {
+                    return Err(self.runtime_invariant());
+                };
+                match function {
+                    159 => integer(u64::from(route.family), IntegerKind::UInt8),
+                    160 | 162 => {
+                        let word = usize::from(
+                            u8::try_from(unsigned(2)?).map_err(|_| ExecutionError::TypeMismatch)?,
+                        );
+                        let words = if function == 160 {
+                            &route.destination
+                        } else {
+                            &route.gateway
+                        };
+                        let Some(value) = words.get(word) else {
+                            return Err(self.runtime_invariant());
+                        };
+                        integer(u64::from(*value), IntegerKind::UInt32)
+                    }
+                    161 => integer(u64::from(route.prefix), IntegerKind::UInt8),
+                    163 => integer(u64::from(route.interface), IntegerKind::UInt32),
+                    164 => integer(u64::from(route.metric), IntegerKind::UInt32),
+                    165 => integer(u64::from(route.flags), IntegerKind::UInt32),
+                    _ => unreachable!(),
+                }
+            }
             166 | 167 if arguments.len() == 3 => {
                 let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
                     return Err(ExecutionError::TypeMismatch);
@@ -6841,6 +7218,8 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::UdpSocket(_)
                         | PrivateValue::DnsResolver
                         | PrivateValue::DnsAnswers(_)
+                        | PrivateValue::NetInterfaces(_)
+                        | PrivateValue::NetRoutes(_)
                         | PrivateValue::MonotonicClock(_)
                         | PrivateValue::LiveDeadline { .. },
                     ) => Err(ExecutionError::TypeMismatch),
