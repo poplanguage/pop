@@ -21,6 +21,14 @@ pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 /// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
 pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 
+pub const ACTOR_CREATE_SYMBOL: &str = "pop_rt_actor_create";
+pub const ACTOR_ACTIVATE_SYMBOL: &str = "pop_rt_actor_activate";
+pub const ACTOR_TRY_SEND_SYMBOL: &str = "pop_rt_actor_try_send";
+pub const ACTOR_TRY_RECEIVE_SYMBOL: &str = "pop_rt_actor_try_receive";
+pub const ACTOR_BEGIN_EXIT_SYMBOL: &str = "pop_rt_actor_begin_exit";
+pub const ACTOR_COMPLETE_EXIT_SYMBOL: &str = "pop_rt_actor_complete_exit";
+pub const ACTOR_RELEASE_SYMBOL: &str = "pop_rt_actor_release";
+
 pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
 pub const ATOMIC_INT_LOAD_SYMBOL: &str = "pop_rt_atomic_int_load";
 pub const ATOMIC_INT_STORE_SYMBOL: &str = "pop_rt_atomic_int_store";

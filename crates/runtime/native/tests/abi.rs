@@ -4,8 +4,10 @@ use pop_runtime_native::{
     allocate_utf8_string_literal, allocation_site_descriptor_count,
     allocation_site_global_lookup_count, direct_page_access_miss_count,
     direct_page_mutation_miss_count, direct_reference_mutation_miss_count, pop_rt_abi_major,
-    pop_rt_abi_minor, pop_rt_allocate_array, pop_rt_allocate_array_filled,
-    pop_rt_allocate_initialized_object, pop_rt_allocate_initialized_object_at_site,
+    pop_rt_abi_minor, pop_rt_actor_activate, pop_rt_actor_begin_exit, pop_rt_actor_complete_exit,
+    pop_rt_actor_create, pop_rt_actor_release, pop_rt_actor_try_receive, pop_rt_actor_try_send,
+    pop_rt_allocate_array, pop_rt_allocate_array_filled, pop_rt_allocate_initialized_object,
+    pop_rt_allocate_initialized_object_at_site,
     pop_rt_allocate_initialized_object_at_site_and_store_array,
     pop_rt_allocate_initialized_self_referential_object_at_site, pop_rt_allocate_object,
     pop_rt_allocate_table, pop_rt_array_fill, pop_rt_array_get, pop_rt_array_get_checked,
@@ -34,9 +36,10 @@ use pop_runtime_native::{
     pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
-    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
-    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, IterationCollectionKind, IterationStatus,
-    StringFormatTag, TextViewGetRuneAbi,
+    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
+    ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
+    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, StringFormatTag,
+    TextViewGetRuneAbi,
 };
 use std::ffi::CString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -136,6 +139,100 @@ fn native_atomics_keep_typed_state_and_fail_closed() {
     assert_eq!(pop_rt_atomic_release(integer), 1);
     assert_eq!(pop_rt_atomic_release(boolean), 1);
     assert_eq!(pop_rt_atomic_release(integer), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle() {
+    let _guard = abi_test_lock();
+    let actor = pop_rt_actor_create(7, 3, 2);
+    assert_ne!(actor, 0);
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::AlreadyActive as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 2, 11, 0),
+        ActorSendStatus::Stale as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 11, 0),
+        ActorSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 13, 0),
+        ActorSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 17, 0),
+        ActorSendStatus::Full as u8
+    );
+    let mut value = 0_u64;
+    let mut managed = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_actor_try_receive(actor, &raw mut value, &raw mut managed) },
+        ActorReceiveStatus::Item as u8
+    );
+    assert_eq!((value, managed), (11, 0));
+    assert_eq!(
+        pop_rt_actor_begin_exit(actor, 0),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 19, 0),
+        ActorSendStatus::Closed as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::AlreadyExited as u8
+    );
+    assert_eq!(pop_rt_actor_release(actor), 1);
+    assert_eq!(pop_rt_actor_release(actor), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_actor_managed_messages_transfer_one_precise_root() {
+    let _guard = abi_test_lock();
+    let actor = pop_rt_actor_create(8, 1, 1);
+    let text = allocate_utf8_string_literal(b"actor-root");
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 8, 1, text, 1),
+        ActorSendStatus::Sent as u8
+    );
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(81, &[]), 1);
+    let mut value = 0_u64;
+    let mut managed = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_actor_try_receive(actor, &raw mut value, &raw mut managed) },
+        ActorReceiveStatus::Item as u8
+    );
+    assert_eq!((value, managed), (text, 1));
+    assert_eq!(
+        pop_rt_actor_begin_exit(actor, 0),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(pop_rt_actor_release(actor), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(82, &[]), 1);
+    assert_eq!(pop_rt_retain_root(value), 0);
 }
 
 #[test]

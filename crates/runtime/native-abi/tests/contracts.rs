@@ -2,16 +2,19 @@ use std::collections::BTreeSet;
 
 use pop_runtime_interface::RuntimeOperation;
 use pop_runtime_native_abi::{
-    ABI_SUPPORT_SYMBOL, ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
+    ABI_SUPPORT_SYMBOL, ACTOR_ACTIVATE_SYMBOL, ACTOR_BEGIN_EXIT_SYMBOL, ACTOR_COMPLETE_EXIT_SYMBOL,
+    ACTOR_CREATE_SYMBOL, ACTOR_RELEASE_SYMBOL, ACTOR_TRY_RECEIVE_SYMBOL, ACTOR_TRY_SEND_SYMBOL,
+    ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
     ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
     ATOMIC_BOOL_CREATE_SYMBOL, ATOMIC_BOOL_LOAD_SYMBOL, ATOMIC_BOOL_STORE_SYMBOL,
     ATOMIC_BOOL_SWAP_SYMBOL, ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL, ATOMIC_INT_CREATE_SYMBOL,
     ATOMIC_INT_LOAD_SYMBOL, ATOMIC_INT_STORE_SYMBOL, ATOMIC_INT_SWAP_SYMBOL, ATOMIC_RELEASE_SYMBOL,
-    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
-    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
-    ITERATION_MAKE_SYMBOL, IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
-    TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, symbol,
+    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
+    ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
+    CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL,
+    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TEXT_VIEW_GET_RUNE_SYMBOL,
+    TextViewGetRuneAbi, symbol,
 };
 
 #[test]
@@ -46,6 +49,35 @@ fn atomic_symbols_are_typed_and_closed() {
         symbols
             .iter()
             .all(|symbol| symbol.starts_with("pop_rt_atomic_"))
+    );
+}
+
+#[test]
+fn actor_symbols_and_statuses_are_closed() {
+    let symbols = [
+        ACTOR_CREATE_SYMBOL,
+        ACTOR_ACTIVATE_SYMBOL,
+        ACTOR_TRY_SEND_SYMBOL,
+        ACTOR_TRY_RECEIVE_SYMBOL,
+        ACTOR_BEGIN_EXIT_SYMBOL,
+        ACTOR_COMPLETE_EXIT_SYMBOL,
+        ACTOR_RELEASE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_actor_"))
+    );
+    assert_eq!(ActorSendStatus::from_raw(4), Some(ActorSendStatus::Stale));
+    assert_eq!(ActorSendStatus::from_raw(5), None);
+    assert_eq!(
+        ActorReceiveStatus::from_raw(3),
+        Some(ActorReceiveStatus::Closed)
+    );
+    assert_eq!(
+        ActorLifecycleStatus::from_raw(5),
+        Some(ActorLifecycleStatus::NotStopping)
     );
 }
 

@@ -4,6 +4,8 @@ mod symbol;
 mod version;
 
 pub use symbol::{
+    ACTOR_ACTIVATE_SYMBOL, ACTOR_BEGIN_EXIT_SYMBOL, ACTOR_COMPLETE_EXIT_SYMBOL,
+    ACTOR_CREATE_SYMBOL, ACTOR_RELEASE_SYMBOL, ACTOR_TRY_RECEIVE_SYMBOL, ACTOR_TRY_SEND_SYMBOL,
     ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
     ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
@@ -13,9 +15,9 @@ pub use symbol::{
     ITERATION_MAKE_SYMBOL, TABLE_GET_CHECKED_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, symbol,
 };
 pub use version::{
-    ABI_SUPPORT_SYMBOL, AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus,
-    CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
-    GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, IterationCollectionKind, IterationStatus,
-    NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, NativeAbiVersion, NativeTaskStatus,
-    StringFormatTag, TextViewGetRuneAbi,
+    ABI_SUPPORT_SYMBOL, ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus,
+    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
+    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
+    IterationCollectionKind, IterationStatus, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
+    NativeAbiVersion, NativeTaskStatus, StringFormatTag, TextViewGetRuneAbi,
 };

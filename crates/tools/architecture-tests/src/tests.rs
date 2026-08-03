@@ -2932,6 +2932,48 @@ fn atomic_native_handles_follow_adr_0157_without_dynamic_dispatch() {
 }
 
 #[test]
+fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0158-local-actor-native-mailboxes.md"));
+    let abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/actor.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "pub enum ActorSendStatus",
+        "pub enum ActorReceiveStatus",
+        "pub enum ActorLifecycleStatus",
+    ] {
+        assert_eq!(abi.matches(declaration).count(), 1);
+    }
+    for function in [
+        "pop_rt_actor_create",
+        "pop_rt_actor_activate",
+        "pop_rt_actor_try_send",
+        "pop_rt_actor_try_receive",
+        "pop_rt_actor_begin_exit",
+        "pop_rt_actor_complete_exit",
+        "pop_rt_actor_release",
+    ] {
+        assert_eq!(native.matches(function).count(), 1);
+    }
+    assert!(tests.contains("native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle"));
+    assert!(tests.contains("native_actor_managed_messages_transfer_one_precise_root"));
+    for forbidden in [
+        "Any",
+        "Dynamic",
+        "symbolic",
+        "*mut Managed",
+        "llvm",
+        "inkwell",
+    ] {
+        assert!(!native.contains(forbidden));
+    }
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(

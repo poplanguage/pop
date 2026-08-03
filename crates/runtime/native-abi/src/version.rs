@@ -58,6 +58,78 @@ pub enum ChannelReceiveStatus {
     Closed = 3,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ActorSendStatus {
+    Failure = 0,
+    Sent = 1,
+    Full = 2,
+    Closed = 3,
+    Stale = 4,
+}
+
+impl ActorSendStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Sent,
+            2 => Self::Full,
+            3 => Self::Closed,
+            4 => Self::Stale,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ActorReceiveStatus {
+    Failure = 0,
+    Item = 1,
+    Empty = 2,
+    Closed = 3,
+}
+
+impl ActorReceiveStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Item,
+            2 => Self::Empty,
+            3 => Self::Closed,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ActorLifecycleStatus {
+    Failure = 0,
+    Applied = 1,
+    AlreadyActive = 2,
+    AlreadyStopping = 3,
+    AlreadyExited = 4,
+    NotStopping = 5,
+}
+
+impl ActorLifecycleStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Applied,
+            2 => Self::AlreadyActive,
+            3 => Self::AlreadyStopping,
+            4 => Self::AlreadyExited,
+            5 => Self::NotStopping,
+            _ => return None,
+        })
+    }
+}
+
 impl ChannelReceiveStatus {
     #[must_use]
     pub const fn from_raw(raw: u8) -> Option<Self> {
