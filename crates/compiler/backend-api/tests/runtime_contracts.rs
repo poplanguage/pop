@@ -87,6 +87,46 @@ fn full_runtime_profile_satisfies_allocator_contract_in_unit_resolution() {
 }
 
 #[test]
+fn native_runtime_requires_explicit_atomic_and_network_target_capabilities() {
+    let origin = RequirementOrigin::Instruction {
+        function: FunctionId::from_raw(4),
+        value: ValueId::from_raw(8),
+    };
+    let mut requirements = ProgramRequirements::default();
+    requirements.require_runtime(RuntimeContract::AtomicOperations, origin);
+    requirements.require_runtime(RuntimeContract::NetworkIo, origin);
+
+    assert_eq!(
+        validate_runtime_contracts(
+            &requirements,
+            RuntimeProfile::BootstrapStableHandles,
+            &native_target(),
+        ),
+        Ok(())
+    );
+
+    let target = TargetSpec::builder("custom-linux")
+        .pointer_width(pop_target::PointerWidth::Bits64)
+        .endianness(pop_target::Endianness::Little)
+        .capability(TargetCapability::Atomics)
+        .build()
+        .expect("custom target");
+    assert!(matches!(
+        validate_runtime_contracts(
+            &requirements,
+            RuntimeProfile::BootstrapStableHandles,
+            &target,
+        ),
+        Err(RuntimeContractError::MissingTargetCapability {
+            capability: TargetCapability::Networking,
+            ref requirement,
+            ..
+        }) if requirement.contract() == RuntimeContract::NetworkIo
+            && requirement.origin() == origin
+    ));
+}
+
+#[test]
 fn blocking_effect_requires_a_distinct_blocking_pool_contract() {
     let mut requirements = ProgramRequirements::default();
     let origin = RequirementOrigin::FunctionEffect {

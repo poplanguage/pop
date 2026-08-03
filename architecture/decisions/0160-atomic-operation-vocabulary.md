@@ -12,3 +12,7 @@ public compiler call checking remain subsequent implementation layers.
 The trusted Standard bootstrap also reserves nominal `Atomic.Int` and
 `Atomic.Boolean` identities. They are non-prelude types; constructors and
 methods must remain explicitly typed.
+
+Atomic lowering requires both the `AtomicOperations` runtime contract and the
+backend-neutral `Atomics` target capability. Runtime-profile selection rejects
+the program before emission when either side is unavailable.

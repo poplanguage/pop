@@ -14,3 +14,5 @@ The backend-neutral `RuntimeOperation` inventory and native ABI symbol catalog
 reserve exact entries for every operation in this slice. Lowering requires the
 backend-neutral `Networking` target capability; the supported Linux native
 target declares it and freestanding targets do not.
+The selected runtime profile must also provide the distinct `NetworkIo`
+runtime contract.
