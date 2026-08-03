@@ -52,6 +52,7 @@ use std::net::{
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
 const MAX_CODEC_EVENTS: usize = 65_536;
@@ -1543,6 +1544,11 @@ enum PrivateValue {
     UnixListener(UnixListener),
     #[cfg(unix)]
     UnixStream(UnixStream),
+    MonotonicClock(Instant),
+    LiveDeadline {
+        clock: SymbolId,
+        target: Instant,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -4304,6 +4310,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             } if matches!(function.raw(), 35..=58 | 64..=122) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 123..=127) => {
+                self.evaluate_live_time_standard_call(function.raw(), arguments, values)?
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)
@@ -5925,6 +5938,99 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
         }
     }
 
+    fn evaluate_live_time_standard_call(
+        &mut self,
+        function: u32,
+        arguments: &[ValueId],
+        values: &BTreeMap<ValueId, RuntimeValue>,
+    ) -> Result<MirValue, ExecutionError> {
+        let argument = |index: usize| {
+            arguments
+                .get(index)
+                .copied()
+                .ok_or(ExecutionError::WrongArity)
+                .and_then(|argument| value(values, argument))
+        };
+        match function {
+            123 if arguments.is_empty() => {
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::MonotonicClock(Instant::now()));
+                Ok(MirValue::TimeMonotonicClock(symbol))
+            }
+            124 if arguments.len() == 2 => {
+                let MirValue::TimeMonotonicClock(clock) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::MonotonicClock(origin)) = self.private_values.get(&clock)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let now = origin
+                    .checked_add(origin.elapsed())
+                    .ok_or_else(|| self.runtime_invariant())?;
+                let milliseconds = integer_u64(&argument(1)?.visible)?;
+                let target = now
+                    .checked_add(Duration::from_millis(milliseconds))
+                    .ok_or_else(|| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::LiveDeadline { clock, target });
+                Ok(MirValue::TimeLiveDeadline(symbol))
+            }
+            125 if arguments.len() == 2 => {
+                let MirValue::TimeMonotonicClock(clock) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::TimeLiveDeadline(deadline) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if !matches!(
+                    self.private_values.get(&clock),
+                    Some(PrivateValue::MonotonicClock(_))
+                ) {
+                    return Err(self.runtime_invariant());
+                }
+                let Some(PrivateValue::LiveDeadline {
+                    clock: owner,
+                    target,
+                }) = self.private_values.get(&deadline)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                if *owner != clock {
+                    return Err(self.runtime_invariant());
+                }
+                Ok(MirValue::Boolean(Instant::now() >= *target))
+            }
+            126 if arguments.len() == 1 => {
+                let MirValue::TimeLiveDeadline(deadline) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&deadline),
+                    Some(PrivateValue::LiveDeadline { .. })
+                )))
+            }
+            127 if arguments.len() == 1 => {
+                let MirValue::TimeMonotonicClock(clock) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if !matches!(
+                    self.private_values.remove(&clock),
+                    Some(PrivateValue::MonotonicClock(_))
+                ) {
+                    return Ok(MirValue::Boolean(false));
+                }
+                self.private_values.retain(|_, value| {
+                    !matches!(value, PrivateValue::LiveDeadline { clock: owner, .. } if *owner == clock)
+                });
+                Ok(MirValue::Boolean(true))
+            }
+            _ => Err(ExecutionError::WrongArity),
+        }
+    }
+
     fn verify_ffi_alignment(
         &mut self,
         address: ForeignAddress,
@@ -6545,7 +6651,9 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::TcpStream(_)
                         | PrivateValue::UdpSocket(_)
                         | PrivateValue::DnsResolver
-                        | PrivateValue::DnsAnswers(_),
+                        | PrivateValue::DnsAnswers(_)
+                        | PrivateValue::MonotonicClock(_)
+                        | PrivateValue::LiveDeadline { .. },
                     ) => Err(ExecutionError::TypeMismatch),
                     #[cfg(unix)]
                     Some(PrivateValue::UnixListener(_) | PrivateValue::UnixStream(_)) => {

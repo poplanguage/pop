@@ -5248,3 +5248,25 @@ fn remaining_exact_numeric_operations_preserve_width_and_format() {
         ])]
     );
 }
+
+#[test]
+fn live_monotonic_deadlines_execute_as_owned_capabilities() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local expired = Time.liveDeadlineExpired(clock, deadline)\n\
+             local deadlineClosed = Time.closeLiveDeadline(deadline)\n\
+             local clockClosed = Time.closeMonotonicClock(clock)\n\
+             return expired and deadlineClosed and clockClosed\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("live deadline execution"),
+        vec![MirValue::Boolean(true)]
+    );
+}

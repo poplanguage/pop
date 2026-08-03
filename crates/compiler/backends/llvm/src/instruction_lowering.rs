@@ -589,6 +589,7 @@ pub(crate) fn lower_instruction(
                 types,
             )?,
             35..=58 | 64..=122 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4770,6 +4771,115 @@ fn lower_net_standard_call(
             format!("{result} = icmp eq i8 {result}_status, 1"),
         ]
         .join("\n")),
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_live_time_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    let trap_status = |status: &str, valid: String, mut lines: Vec<String>| {
+        lines.extend([
+            valid,
+            format!("br i1 {status}_valid, label %{label}_continue, label %{label}_trap"),
+            format!("{label}_trap:"),
+            format!("call void @{trap}()"),
+            "unreachable".to_owned(),
+            format!("{label}_continue:"),
+        ]);
+        lines
+    };
+    match function {
+        123 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::MonotonicClockCreate)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        124 if arguments.len() == 2 => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!("{result}_seconds = udiv i64 %v{}, 1000", arguments[1].raw()),
+                    format!(
+                        "{result}_milliseconds = urem i64 %v{}, 1000",
+                        arguments[1].raw()
+                    ),
+                    format!("{result}_milliseconds32 = trunc i64 {result}_milliseconds to i32"),
+                    format!("{result}_nanoseconds = mul i32 {result}_milliseconds32, 1000000"),
+                    format!(
+                        "{handle} = call i64 @{}(i64 %v{}, i64 {result}_seconds, i32 {result}_nanoseconds)",
+                        native_runtime_symbol(RuntimeOperation::DeadlineAfter),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        125 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_expired = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_expired)",
+                        native_runtime_symbol(RuntimeOperation::DeadlineExpired),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_value = load i8, ptr {result}_expired"),
+                    format!("{result} = icmp eq i8 {result}_value, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        126 | 127 if arguments.len() == 1 => {
+            let operation = if function == 126 {
+                RuntimeOperation::DeadlineClose
+            } else {
+                RuntimeOperation::MonotonicClockClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
         _ => Err(unsupported()),
     }
 }

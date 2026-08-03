@@ -3490,6 +3490,9 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "147\tNet.Dns.Answers\tPop.Standard\t0\tNominal\tfalse",
             "148\tNet.Unix.Listener\tPop.Standard\t0\tNominal\tfalse",
             "149\tNet.Unix.Stream\tPop.Standard\t0\tNominal\tfalse",
+            // ABI 1.41 appends explicit non-prelude live monotonic capabilities.
+            "150\tTime.MonotonicClock\tPop.Standard\t0\tNominal\tfalse",
+            "151\tTime.LiveDeadline\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

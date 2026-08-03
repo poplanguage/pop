@@ -501,6 +501,8 @@ pub const NET_DNS_RESOLVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(146)
 pub const NET_DNS_ANSWERS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(147);
 pub const NET_UNIX_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(148);
 pub const NET_UNIX_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(149);
+pub const TIME_MONOTONIC_CLOCK_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(150);
+pub const TIME_LIVE_DEADLINE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(151);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1283,6 +1285,8 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_DNS_ANSWERS_TYPE_ID, "Net.Dns.Answers"),
         (NET_UNIX_LISTENER_TYPE_ID, "Net.Unix.Listener"),
         (NET_UNIX_STREAM_TYPE_ID, "Net.Unix.Stream"),
+        (TIME_MONOTONIC_CLOCK_TYPE_ID, "Time.MonotonicClock"),
+        (TIME_LIVE_DEADLINE_TYPE_ID, "Time.LiveDeadline"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1478,7 +1482,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 123 {
+    if entries.len() != 128 {
         return Err(error(
             "standard function",
             2,
@@ -2075,6 +2079,36 @@ fn validate_standard_functions(
         (
             "Net.Unix.closeStream",
             "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Time.monotonicClock",
+            "-",
+            "Time.MonotonicClock",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.deadlineAfterMilliseconds",
+            "Time.MonotonicClock,UInt64",
+            "Time.LiveDeadline",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.liveDeadlineExpired",
+            "Time.MonotonicClock,Time.LiveDeadline",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.closeLiveDeadline",
+            "Time.LiveDeadline",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Time.closeMonotonicClock",
+            "Time.MonotonicClock",
             "Boolean",
             "AmbientIo",
         ),

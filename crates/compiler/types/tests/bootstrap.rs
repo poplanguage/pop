@@ -152,6 +152,21 @@ fn net_transport_standard_functions_are_typed_qualified_and_non_prelude() {
 }
 
 #[test]
+fn live_time_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let time: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Time."))
+        .collect();
+
+    assert_eq!(time.len(), 5);
+    assert_eq!(time.first().expect("first Time function").id().raw(), 123);
+    assert_eq!(time.last().expect("last Time function").id().raw(), 127);
+    assert!(time.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
 fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();

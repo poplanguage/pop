@@ -123,3 +123,8 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 120	Net.Unix.shutdownWrite	Pop.Standard	Net.Unix.Stream	Boolean	AmbientIo	false
 121	Net.Unix.closeListener	Pop.Standard	Net.Unix.Listener	Boolean	AmbientIo	false
 122	Net.Unix.closeStream	Pop.Standard	Net.Unix.Stream	Boolean	AmbientIo	false
+123	Time.monotonicClock	Pop.Standard	-	Time.MonotonicClock	AmbientIo,MayTrap	false
+124	Time.deadlineAfterMilliseconds	Pop.Standard	Time.MonotonicClock,UInt64	Time.LiveDeadline	AmbientIo,MayTrap	false
+125	Time.liveDeadlineExpired	Pop.Standard	Time.MonotonicClock,Time.LiveDeadline	Boolean	AmbientIo,MayTrap	false
+126	Time.closeLiveDeadline	Pop.Standard	Time.LiveDeadline	Boolean	AmbientIo	false
+127	Time.closeMonotonicClock	Pop.Standard	Time.MonotonicClock	Boolean	AmbientIo	false

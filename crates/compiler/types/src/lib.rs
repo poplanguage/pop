@@ -77,9 +77,9 @@ pub use bootstrap::{
     NET_TCP_RECEIVE_TYPE_ID, NET_TCP_STREAM_TYPE_ID, NET_TRANSFER_TYPE_ID,
     NET_UDP_DATAGRAM_TYPE_ID, NET_UDP_SOCKET_TYPE_ID, NET_UDP_TRANSFER_TYPE_ID,
     NET_UNIX_LISTENER_TYPE_ID, NET_UNIX_STREAM_TYPE_ID, TEXT_VIEW_TYPE_ID,
-    embedded_bootstrap_schema, ffi_c_integer_kind, is_ffi_abi_builtin_type,
-    is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
-    is_ffi_pointer_type_constructor,
+    TIME_LIVE_DEADLINE_TYPE_ID, TIME_MONOTONIC_CLOCK_TYPE_ID, embedded_bootstrap_schema,
+    ffi_c_integer_kind, is_ffi_abi_builtin_type, is_ffi_function_type_constructor,
+    is_ffi_integer_abi_builtin_type, is_ffi_pointer_type_constructor,
 };
 pub use classes::{
     ClassDefinition, ClassDefinitionResult, ClassFieldDefinition, ClassMethodDefinition,
