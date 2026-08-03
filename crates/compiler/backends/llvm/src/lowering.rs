@@ -2457,7 +2457,22 @@ pub(crate) fn llvm_block_exit_label(
                 MirInstructionKind::CallStandard { function, .. }
                     if matches!(
                         function.raw(),
-                        35 | 36 | 37 | 38 | 40 | 41 | 51 | 52 | 53 | 54 | 64 | 65 | 70 | 71
+                        35 | 36
+                            | 37
+                            | 38
+                            | 40
+                            | 41
+                            | 51
+                            | 52
+                            | 53
+                            | 54
+                            | 64
+                            | 65
+                            | 70
+                            | 71
+                            | 75
+                            | 76
+                            | 77
                     ) =>
                 {
                     "continue"

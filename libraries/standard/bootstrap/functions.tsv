@@ -75,3 +75,6 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 72	Net.Udp.transferredByteCount	Pop.Standard	Net.Udp.Transfer	UInt64	-	false
 73	Net.Udp.sourceAddress	Pop.Standard	Net.Udp.Transfer	UInt32	-	false
 74	Net.Udp.sourcePort	Pop.Standard	Net.Udp.Transfer	UInt16	-	false
+75	Net.Tcp.listenAt	Pop.Standard	Net.Ipv4Address,UInt16	Net.Tcp.Listener	AmbientIo,MayTrap	false
+76	Net.Tcp.connectTo	Pop.Standard	Net.Ipv4Address,UInt16	Net.Tcp.Stream	AmbientIo,MayTrap	false
+77	Net.Udp.bindAt	Pop.Standard	Net.Ipv4Address,UInt16	Net.Udp.Socket	AmbientIo,MayTrap	false

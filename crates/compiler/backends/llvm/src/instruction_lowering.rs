@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=74 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=77 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4173,6 +4173,36 @@ fn lower_net_standard_call(
             format!("{result} = trunc i64 {result}_shifted to i16"),
         ]
         .join("\n")),
+        75..=77 if arguments.len() == 2 => {
+            let operation = match function {
+                75 => RuntimeOperation::TcpListenIpv4,
+                76 => RuntimeOperation::TcpConnectIpv4,
+                _ => RuntimeOperation::UdpBindIpv4,
+            };
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!(
+                        "{result}_address_raw = call i64 @{}(i64 %v{}, i64 0)",
+                        native_runtime_symbol(RuntimeOperation::FieldGet),
+                        arguments[0].raw()
+                    ),
+                    format!("{result}_address = trunc i64 {result}_address_raw to i32"),
+                    format!(
+                        "{handle} = call i64 @{}(i32 {result}_address, i16 %v{})",
+                        native_runtime_symbol(operation),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
         _ => Err(unsupported()),
     }
 }

@@ -4290,7 +4290,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=74) => {
+            } if matches!(function.raw(), 35..=58 | 64..=77) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5235,6 +5235,46 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     72 => integer(u64::from(count), IntegerKind::UInt64),
                     73 => integer(u64::from(address), IntegerKind::UInt32),
                     _ => integer(u64::from(port), IntegerKind::UInt16),
+                }
+            }
+            75..=77 if arguments.len() == 2 => {
+                let MirValue::Record { ref fields, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let bits = &fields.first().ok_or(ExecutionError::TypeMismatch)?.1;
+                let address =
+                    u32::try_from(integer_u64(bits)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let port = u16::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                if function == 75 {
+                    let listener = TcpListener::bind((Ipv4Addr::from(address), port))
+                        .map_err(|_| self.runtime_invariant())?;
+                    listener
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::TcpListener(listener));
+                    Ok(MirValue::NetTcpListener(symbol))
+                } else if function == 76 {
+                    let stream = TcpStream::connect((Ipv4Addr::from(address), port))
+                        .map_err(|_| self.runtime_invariant())?;
+                    stream
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::TcpStream(stream));
+                    Ok(MirValue::NetTcpStream(symbol))
+                } else {
+                    let socket = UdpSocket::bind((Ipv4Addr::from(address), port))
+                        .map_err(|_| self.runtime_invariant())?;
+                    socket
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::UdpSocket(socket));
+                    Ok(MirValue::NetUdpSocket(symbol))
                 }
             }
             _ => Err(ExecutionError::WrongArity),

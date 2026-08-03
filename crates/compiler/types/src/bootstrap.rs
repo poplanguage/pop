@@ -1470,7 +1470,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 75 {
+    if entries.len() != 78 {
         return Err(error(
             "standard function",
             2,
@@ -1787,6 +1787,24 @@ fn validate_standard_functions(
         ),
         ("Net.Udp.sourceAddress", "Net.Udp.Transfer", "UInt32", "-"),
         ("Net.Udp.sourcePort", "Net.Udp.Transfer", "UInt16", "-"),
+        (
+            "Net.Tcp.listenAt",
+            "Net.Ipv4Address,UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connectTo",
+            "Net.Ipv4Address,UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.bindAt",
+            "Net.Ipv4Address,UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);
