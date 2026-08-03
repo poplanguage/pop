@@ -506,6 +506,7 @@ pub const TIME_LIVE_DEADLINE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(15
 pub const NET_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(152);
 pub const NET_UDP_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(153);
 pub const NET_INTERFACES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(154);
+pub const NET_ROUTES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(155);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1293,6 +1294,7 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_WAIT_TRANSFER_TYPE_ID, "Net.WaitTransfer"),
         (NET_UDP_WAIT_TRANSFER_TYPE_ID, "Net.Udp.WaitTransfer"),
         (NET_INTERFACES_SNAPSHOT_TYPE_ID, "Net.Interfaces.Snapshot"),
+        (NET_ROUTES_SNAPSHOT_TYPE_ID, "Net.Routes.Snapshot"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1488,7 +1490,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 156 {
+    if entries.len() != 166 {
         return Err(error(
             "standard function",
             2,
@@ -2258,6 +2260,66 @@ fn validate_standard_functions(
         (
             "Net.Interfaces.scopeId",
             "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.snapshot",
+            "-",
+            "Net.Routes.Snapshot",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.close",
+            "Net.Routes.Snapshot",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Routes.count",
+            "Net.Routes.Snapshot",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.family",
+            "Net.Routes.Snapshot,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.destinationWord",
+            "Net.Routes.Snapshot,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.prefixLength",
+            "Net.Routes.Snapshot,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.gatewayWord",
+            "Net.Routes.Snapshot,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.interfaceIndex",
+            "Net.Routes.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.metric",
+            "Net.Routes.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.flags",
+            "Net.Routes.Snapshot,UInt64",
             "UInt32",
             "AmbientIo,MayTrap",
         ),

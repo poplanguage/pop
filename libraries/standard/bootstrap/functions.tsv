@@ -156,3 +156,13 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 153	Net.Interfaces.addressWord	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64,Byte	UInt32	AmbientIo,MayTrap	false
 154	Net.Interfaces.prefixLength	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64	Byte	AmbientIo,MayTrap	false
 155	Net.Interfaces.scopeId	Pop.Standard	Net.Interfaces.Snapshot,UInt64,UInt64	UInt32	AmbientIo,MayTrap	false
+156	Net.Routes.snapshot	Pop.Standard	-	Net.Routes.Snapshot	AmbientIo,MayTrap	false
+157	Net.Routes.close	Pop.Standard	Net.Routes.Snapshot	Boolean	AmbientIo	false
+158	Net.Routes.count	Pop.Standard	Net.Routes.Snapshot	UInt64	AmbientIo,MayTrap	false
+159	Net.Routes.family	Pop.Standard	Net.Routes.Snapshot,UInt64	Byte	AmbientIo,MayTrap	false
+160	Net.Routes.destinationWord	Pop.Standard	Net.Routes.Snapshot,UInt64,Byte	UInt32	AmbientIo,MayTrap	false
+161	Net.Routes.prefixLength	Pop.Standard	Net.Routes.Snapshot,UInt64	Byte	AmbientIo,MayTrap	false
+162	Net.Routes.gatewayWord	Pop.Standard	Net.Routes.Snapshot,UInt64,Byte	UInt32	AmbientIo,MayTrap	false
+163	Net.Routes.interfaceIndex	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
+164	Net.Routes.metric	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
+165	Net.Routes.flags	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
