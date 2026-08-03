@@ -67,6 +67,8 @@ UDP source metadata.
 ABI 1.32 adds bounded TCP receive directly into a reusable `Bytes.Buffer`.
 ABI 1.33 adds bounded UDP receive directly into a reusable `Bytes.Buffer`.
 ABI 1.34 adds explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
+ABI 1.35 adds exact numeric-IPv6 TCP listen/connect and UDP bind endpoints with
+explicit scope IDs.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

@@ -3,7 +3,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use std::collections::BTreeMap;
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -29,6 +29,35 @@ pub extern "C" fn pop_rt_udp_bind(port: u16) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_udp_bind_ipv4(address: u32, port: u16) -> u64 {
     let Ok(socket) = UdpSocket::bind((Ipv4Addr::from(address), port)) else {
+        return 0;
+    };
+    let _ = socket.set_nonblocking(true);
+    let Ok(mut values) = sockets().lock() else {
+        return 0;
+    };
+    let handle = NEXT_UDP.fetch_add(1, Ordering::Relaxed);
+    if handle == 0 {
+        return 0;
+    }
+    values.insert(handle, socket);
+    handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_udp_bind_ipv6(
+    first: u32,
+    second: u32,
+    third: u32,
+    fourth: u32,
+    port: u16,
+    scope: u32,
+) -> u64 {
+    let mut octets = [0_u8; 16];
+    for (index, word) in [first, second, third, fourth].into_iter().enumerate() {
+        octets[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    let address = SocketAddrV6::new(Ipv6Addr::from(octets), port, 0, scope);
+    let Ok(socket) = UdpSocket::bind(address) else {
         return 0;
     };
     let _ = socket.set_nonblocking(true);

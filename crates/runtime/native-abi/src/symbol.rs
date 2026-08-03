@@ -32,9 +32,11 @@ pub const ACTOR_RELEASE_SYMBOL: &str = "pop_rt_actor_release";
 
 pub const TCP_LISTEN_SYMBOL: &str = "pop_rt_tcp_listen";
 pub const TCP_LISTEN_IPV4_SYMBOL: &str = "pop_rt_tcp_listen_ipv4";
+pub const TCP_LISTEN_IPV6_SYMBOL: &str = "pop_rt_tcp_listen_ipv6";
 pub const TCP_LOCAL_PORT_SYMBOL: &str = "pop_rt_tcp_local_port";
 pub const TCP_CONNECT_SYMBOL: &str = "pop_rt_tcp_connect";
 pub const TCP_CONNECT_IPV4_SYMBOL: &str = "pop_rt_tcp_connect_ipv4";
+pub const TCP_CONNECT_IPV6_SYMBOL: &str = "pop_rt_tcp_connect_ipv6";
 pub const TCP_ACCEPT_SYMBOL: &str = "pop_rt_tcp_accept";
 pub const TCP_SEND_SYMBOL: &str = "pop_rt_tcp_send";
 pub const TCP_RECEIVE_SYMBOL: &str = "pop_rt_tcp_receive";
@@ -45,6 +47,7 @@ pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
 
 pub const UDP_BIND_SYMBOL: &str = "pop_rt_udp_bind";
 pub const UDP_BIND_IPV4_SYMBOL: &str = "pop_rt_udp_bind_ipv4";
+pub const UDP_BIND_IPV6_SYMBOL: &str = "pop_rt_udp_bind_ipv6";
 pub const UDP_LOCAL_PORT_SYMBOL: &str = "pop_rt_udp_local_port";
 pub const UDP_SEND_TO_SYMBOL: &str = "pop_rt_udp_send_to";
 pub const UDP_RECEIVE_SYMBOL: &str = "pop_rt_udp_receive";
@@ -70,7 +73,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.34.
+/// Returns the native C symbol for an operation implemented through ABI 1.35.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -207,9 +210,11 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ActorRelease => Some(ACTOR_RELEASE_SYMBOL),
         RuntimeOperation::TcpListen => Some(TCP_LISTEN_SYMBOL),
         RuntimeOperation::TcpListenIpv4 => Some(TCP_LISTEN_IPV4_SYMBOL),
+        RuntimeOperation::TcpListenIpv6 => Some(TCP_LISTEN_IPV6_SYMBOL),
         RuntimeOperation::TcpLocalPort => Some(TCP_LOCAL_PORT_SYMBOL),
         RuntimeOperation::TcpConnect => Some(TCP_CONNECT_SYMBOL),
         RuntimeOperation::TcpConnectIpv4 => Some(TCP_CONNECT_IPV4_SYMBOL),
+        RuntimeOperation::TcpConnectIpv6 => Some(TCP_CONNECT_IPV6_SYMBOL),
         RuntimeOperation::TcpAccept => Some(TCP_ACCEPT_SYMBOL),
         RuntimeOperation::TcpSend => Some(TCP_SEND_SYMBOL),
         RuntimeOperation::TcpReceive => Some(TCP_RECEIVE_SYMBOL),
@@ -219,6 +224,7 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
         RuntimeOperation::UdpBind => Some(UDP_BIND_SYMBOL),
         RuntimeOperation::UdpBindIpv4 => Some(UDP_BIND_IPV4_SYMBOL),
+        RuntimeOperation::UdpBindIpv6 => Some(UDP_BIND_IPV6_SYMBOL),
         RuntimeOperation::UdpLocalPort => Some(UDP_LOCAL_PORT_SYMBOL),
         RuntimeOperation::UdpSendTo => Some(UDP_SEND_TO_SYMBOL),
         RuntimeOperation::UdpReceive => Some(UDP_RECEIVE_SYMBOL),

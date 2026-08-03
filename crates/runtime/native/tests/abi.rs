@@ -34,10 +34,11 @@ use pop_runtime_native::{
     pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
     pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
     pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
-    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_listen,
-    pop_rt_tcp_listen_ipv4, pop_rt_tcp_local_port, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer,
-    pop_rt_tcp_receive_bytes, pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8,
-    pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_close,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6,
+    pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6, pop_rt_tcp_local_port,
+    pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes, pop_rt_tcp_send,
+    pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
+    pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6, pop_rt_udp_close,
     pop_rt_udp_local_port, pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes,
     pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_unpin, request_abi_collection,
 };
@@ -61,7 +62,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 34);
+    assert_eq!(pop_rt_abi_minor(), 35);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -87,6 +88,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 32), 1);
     assert_eq!(pop_rt_supports_abi(1, 33), 1);
     assert_eq!(pop_rt_supports_abi(1, 34), 1);
+    assert_eq!(pop_rt_supports_abi(1, 35), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -360,6 +362,26 @@ fn native_ipv4_endpoints_bind_and_connect_explicit_addresses() {
     assert_eq!(pop_rt_tcp_close(listener), 1);
 
     let socket = pop_rt_udp_bind_ipv4(loopback, 0);
+    assert_ne!(socket, 0);
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_ipv6_endpoints_bind_and_connect_exact_addresses() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen_ipv6(0, 0, 0, 1, 0, 0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let stream = pop_rt_tcp_connect_ipv6(0, 0, 0, 1, port, 0);
+    assert_ne!(stream, 0);
+    assert_eq!(pop_rt_tcp_close(stream), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+
+    let socket = pop_rt_udp_bind_ipv6(0, 0, 0, 1, 0, 0);
     assert_ne!(socket, 0);
     assert_eq!(pop_rt_udp_close(socket), 1);
 }

@@ -39,6 +39,14 @@ fn insert(resource: TcpResource) -> u64 {
     handle
 }
 
+pub(crate) fn insert_listener(listener: TcpListener) -> u64 {
+    insert(TcpResource::Listener(listener))
+}
+
+pub(crate) fn insert_stream(stream: TcpStream) -> u64 {
+    insert(TcpResource::Stream(stream))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_tcp_listen(port: u16) -> u64 {
     pop_rt_tcp_listen_ipv4(u32::from(Ipv4Addr::LOCALHOST), port)
@@ -70,9 +78,6 @@ pub unsafe extern "C" fn pop_rt_tcp_local_port(handle: u64, output: *mut u16) ->
         TcpResource::Stream(stream) => stream.local_addr().ok(),
     };
     let Some(address) = address else { return 0 };
-    let std::net::SocketAddr::V4(address) = address else {
-        return 0;
-    };
     // SAFETY: the caller supplied a non-null scalar output slot.
     unsafe { output.write(address.port()) };
     1
