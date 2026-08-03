@@ -168,3 +168,8 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 165	Net.Routes.flags	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
 166	Net.Udp.joinMulticastIpv6	Pop.Standard	Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId	Boolean	AmbientIo	false
 167	Net.Udp.leaveMulticastIpv6	Pop.Standard	Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId	Boolean	AmbientIo	false
+168	Net.Tcp.setKeepAlive	Pop.Standard	Net.Tcp.Stream,Boolean	Boolean	AmbientIo	false
+169	Net.Tcp.keepAlive	Pop.Standard	Net.Tcp.Stream	Boolean	AmbientIo,MayTrap	false
+170	Net.Tcp.setKeepAliveIdleMilliseconds	Pop.Standard	Net.Tcp.Stream,UInt64	Boolean	AmbientIo	false
+171	Net.Tcp.setLingerMilliseconds	Pop.Standard	Net.Tcp.Stream,UInt64	Boolean	AmbientIo	false
+172	Net.Tcp.lingerMilliseconds	Pop.Standard	Net.Tcp.Stream	UInt64	AmbientIo,MayTrap	false

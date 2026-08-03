@@ -55,6 +55,8 @@ use std::net::{
     UdpSocket,
 };
 #[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -283,6 +285,84 @@ fn capture_routes() -> Vec<InterpreterRoute> {
 #[cfg(not(target_os = "linux"))]
 fn capture_routes() -> Vec<InterpreterRoute> {
     Vec::new()
+}
+
+#[cfg(unix)]
+fn interpreter_set_socket_i32(stream: &TcpStream, level: i32, option: i32, value: i32) -> bool {
+    let length = libc::socklen_t::try_from(std::mem::size_of_val(&value)).unwrap_or(0);
+    unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            level,
+            option,
+            (&raw const value).cast(),
+            length,
+        ) == 0
+    }
+}
+
+#[cfg(unix)]
+fn interpreter_socket_i32(stream: &TcpStream, level: i32, option: i32) -> Option<i32> {
+    let mut value = 0_i32;
+    let mut length = libc::socklen_t::try_from(std::mem::size_of_val(&value)).ok()?;
+    let accepted = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            level,
+            option,
+            (&raw mut value).cast(),
+            &raw mut length,
+        ) == 0
+    };
+    accepted.then_some(value)
+}
+
+#[cfg(unix)]
+fn interpreter_set_linger(stream: &TcpStream, milliseconds: u64) -> bool {
+    let seconds = milliseconds.saturating_add(999) / 1_000;
+    let Ok(seconds) = i32::try_from(seconds) else {
+        return false;
+    };
+    let linger = libc::linger {
+        l_onoff: i32::from(milliseconds != 0),
+        l_linger: seconds,
+    };
+    let length = libc::socklen_t::try_from(std::mem::size_of_val(&linger)).unwrap_or(0);
+    unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_LINGER,
+            (&raw const linger).cast(),
+            length,
+        ) == 0
+    }
+}
+
+#[cfg(unix)]
+fn interpreter_linger(stream: &TcpStream) -> Option<u64> {
+    let mut linger = libc::linger {
+        l_onoff: 0,
+        l_linger: 0,
+    };
+    let mut length = libc::socklen_t::try_from(std::mem::size_of_val(&linger)).ok()?;
+    if unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_LINGER,
+            (&raw mut linger).cast(),
+            &raw mut length,
+        )
+    } != 0
+    {
+        return None;
+    }
+    if linger.l_onoff == 0 {
+        Some(0)
+    } else {
+        u64::try_from(linger.l_linger).ok()?.checked_mul(1_000)
+    }
 }
 
 fn push_codec_event(
@@ -4536,7 +4616,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=167) => {
+            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=172) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::CallStandard {
@@ -6185,6 +6265,108 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     socket.leave_multicast_v6(&group, interface)
                 };
                 Ok(MirValue::Boolean(accepted.is_ok()))
+            }
+            168 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(enabled) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                #[cfg(unix)]
+                let accepted = interpreter_set_socket_i32(
+                    stream,
+                    libc::SOL_SOCKET,
+                    libc::SO_KEEPALIVE,
+                    i32::from(enabled),
+                );
+                #[cfg(not(unix))]
+                let accepted = false;
+                Ok(MirValue::Boolean(accepted))
+            }
+            169 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                #[cfg(unix)]
+                let enabled = interpreter_socket_i32(stream, libc::SOL_SOCKET, libc::SO_KEEPALIVE)
+                    .ok_or_else(|| self.runtime_invariant())?
+                    != 0;
+                #[cfg(not(unix))]
+                let enabled = false;
+                Ok(MirValue::Boolean(enabled))
+            }
+            170 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let milliseconds = unsigned(1)?;
+                if milliseconds == 0 {
+                    return Ok(MirValue::Boolean(false));
+                }
+                let seconds = milliseconds.saturating_add(999) / 1_000;
+                let Ok(seconds) = i32::try_from(seconds) else {
+                    return Ok(MirValue::Boolean(false));
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                let accepted = interpreter_set_socket_i32(
+                    stream,
+                    libc::IPPROTO_TCP,
+                    libc::TCP_KEEPIDLE,
+                    seconds,
+                );
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                let accepted = interpreter_set_socket_i32(
+                    stream,
+                    libc::IPPROTO_TCP,
+                    libc::TCP_KEEPALIVE,
+                    seconds,
+                );
+                #[cfg(not(any(
+                    target_os = "linux",
+                    target_os = "android",
+                    target_os = "macos",
+                    target_os = "ios"
+                )))]
+                let accepted = false;
+                Ok(MirValue::Boolean(accepted))
+            }
+            171 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let milliseconds = unsigned(1)?;
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                #[cfg(unix)]
+                let accepted = interpreter_set_linger(stream, milliseconds);
+                #[cfg(not(unix))]
+                let accepted = false;
+                Ok(MirValue::Boolean(accepted))
+            }
+            172 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                #[cfg(unix)]
+                let milliseconds =
+                    interpreter_linger(stream).ok_or_else(|| self.runtime_invariant())?;
+                #[cfg(not(unix))]
+                let milliseconds = 0;
+                integer(milliseconds, IntegerKind::UInt64)
             }
             #[cfg(unix)]
             114 | 115 if arguments.len() == 1 => {

@@ -437,6 +437,13 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                      local expectedHopLimit = UInt32(42)\n\
                      local hopLimitSet = Net.Tcp.setHopLimit(client, expectedHopLimit)\n\
                      local hopLimit = Net.Tcp.hopLimit(client)\n\
+                     local keepAliveSet = Net.Tcp.setKeepAlive(client, true)\n\
+                     local keepAlive = Net.Tcp.keepAlive(client)\n\
+                     local keepAliveIdleSet = Net.Tcp.setKeepAliveIdleMilliseconds(client, UInt64(30000))\n\
+                     local expectedLinger = UInt64(2000)\n\
+                     local lingerSet = Net.Tcp.setLingerMilliseconds(client, expectedLinger)\n\
+                     local linger = Net.Tcp.lingerMilliseconds(client)\n\
+                     local lingerDisabled = Net.Tcp.setLingerMilliseconds(client, UInt64(0))\n\
                      local expectedFamily = Byte(4)\n\
                      local expectedScope = UInt32(0)\n\
                      local localFamily = Net.Tcp.localAddressFamily(client)\n\
@@ -466,7 +473,7 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                          if local udpTransfer = Net.Udp.receive(udp, udpBuffer, UInt64(64)) then\n\
                              local validUdpTransfer = Net.Udp.transferredByteCount(udpTransfer) == expectedTransferCount and Net.Udp.sourceAddress(udpTransfer) == expectedAddress and Net.Udp.sourcePort(udpTransfer) == udpPort and Bytes.length(udpBuffer) == 16\n\
                              local udpClosed = Net.Udp.close(udp)\n\
-                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and localFamily == expectedFamily and peerFamily == expectedFamily and localScope == expectedScope and peerScope == expectedScope and clientPeerPort == tcpPort and writeClosed and readClosed and tcpClosed and udpFamily == expectedFamily and udpScope == expectedScope and udpBroadcastSet and udpBroadcast and udpHopSet and udpHop == expectedHopLimit and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
+                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and keepAliveSet and keepAlive and keepAliveIdleSet and lingerSet and linger == expectedLinger and lingerDisabled and localFamily == expectedFamily and peerFamily == expectedFamily and localScope == expectedScope and peerScope == expectedScope and clientPeerPort == tcpPort and writeClosed and readClosed and tcpClosed and udpFamily == expectedFamily and udpScope == expectedScope and udpBroadcastSet and udpBroadcast and udpHopSet and udpHop == expectedHopLimit and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
                                  return 0\n\
                              end\n\
                          end\n\
@@ -513,6 +520,11 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
         "pop_rt_tcp_accept",
         "pop_rt_tcp_send",
         "pop_rt_tcp_receive",
+        "pop_rt_tcp_set_keepalive",
+        "pop_rt_tcp_keepalive",
+        "pop_rt_tcp_set_keepalive_idle",
+        "pop_rt_tcp_set_linger",
+        "pop_rt_tcp_linger",
         "pop_rt_tcp_close",
         "pop_rt_udp_bind",
         "pop_rt_udp_send_to",

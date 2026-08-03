@@ -5322,3 +5322,29 @@ fn host_interface_and_route_snapshots_execute_in_mir_interpreter() {
         vec![MirValue::Boolean(true)]
     );
 }
+
+#[test]
+fn tcp_lifecycle_controls_execute_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local listener = Net.Tcp.listen(UInt16(0))\n\
+             local stream = Net.Tcp.connect(Net.Tcp.listenerLocalPort(listener))\n\
+             local keepAliveSet = Net.Tcp.setKeepAlive(stream, true)\n\
+             local keepAlive = Net.Tcp.keepAlive(stream)\n\
+             local keepAliveIdleSet = Net.Tcp.setKeepAliveIdleMilliseconds(stream, UInt64(30000))\n\
+             local lingerSet = Net.Tcp.setLingerMilliseconds(stream, UInt64(2000))\n\
+             local linger = Net.Tcp.lingerMilliseconds(stream)\n\
+             local lingerDisabled = Net.Tcp.setLingerMilliseconds(stream, UInt64(0))\n\
+             local lingerAfterDisable = Net.Tcp.lingerMilliseconds(stream)\n\
+             return keepAliveSet and keepAlive and keepAliveIdleSet and lingerSet and linger == UInt64(2000) and lingerDisabled and lingerAfterDisable == UInt64(0) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("TCP lifecycle controls"),
+        vec![MirValue::Boolean(true)]
+    );
+}
