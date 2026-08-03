@@ -23,7 +23,8 @@ use pop_mir::{
     is_managed_reference_type_id, verify_mir_bubble,
 };
 use pop_runtime_interface::{
-    AllocationClass, ArrayAllocationRequest, BarrierKind, CancellationObservation,
+    AllocationClass, ArrayAllocationRequest, AtomicBoolean, AtomicInt, AtomicLoadOrder,
+    AtomicReadModifyWriteOrder, AtomicStoreOrder, BarrierKind, CancellationObservation,
     CancellationTokenId, ChannelId, ChannelLifecycle, ChannelReceive, ChannelSendError,
     FfiBufferBorrowId, FfiBufferOpenFailure, FfiBufferOpenRequest, FfiBytesBorrowId,
     FfiCallbackCloseFailure, FfiCallbackLifetime, FfiCallbackOpenFailure, FfiCallbackOpenRequest,
@@ -1522,6 +1523,8 @@ enum PrivateValue {
     CancellationToken(Rc<RefCell<CancellationState>>),
     TaskGroup(Rc<RefCell<InterpreterTaskGroup>>),
     Channel(Rc<RefCell<ChannelLifecycle<InterpreterChannelValue>>>),
+    AtomicInt(AtomicInt),
+    AtomicBoolean(AtomicBoolean),
 }
 
 #[derive(Clone, Debug)]
@@ -3704,17 +3707,14 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         capacity,
                     )))),
                 );
-                let reference = match self.runtime.allocate_object(&ObjectAllocationRequest::new(
+                let Ok(reference) = self.runtime.allocate_object(&ObjectAllocationRequest::new(
                     RuntimeTypeId::new(endpoints.raw()),
                     AllocationClass::NurseryEligible,
                     ObjectMap::new(2, Vec::new())
                         .map_err(|_| ExecutionError::InvalidControlFlow)?,
-                )) {
-                    Ok(reference) => reference,
-                    Err(_) => {
-                        self.private_values.remove(&channel);
-                        return Ok(RuntimeValue::visible(MirValue::Nil));
-                    }
+                )) else {
+                    self.private_values.remove(&channel);
+                    return Ok(RuntimeValue::visible(MirValue::Nil));
                 };
                 return Ok(RuntimeValue::managed(
                     MirValue::Tuple(vec![
@@ -4265,6 +4265,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     self.arena,
                 )?)
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 2..=22) => {
+                self.evaluate_atomic_standard_call(function.raw(), arguments, values)?
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)
@@ -4362,6 +4369,178 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             self.runtime
                 .raise_trap(Trap::new(TrapKind::IntegerOverflow)),
         )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn evaluate_atomic_standard_call(
+        &mut self,
+        function: u32,
+        arguments: &[ValueId],
+        values: &BTreeMap<ValueId, RuntimeValue>,
+    ) -> Result<MirValue, ExecutionError> {
+        if let Some(order) = match function {
+            2 | 5 | 8 => Some(0),
+            3 | 6 | 9 => Some(1),
+            4 | 7 | 10 => Some(2),
+            11 => Some(3),
+            12 => Some(4),
+            _ => None,
+        } {
+            if !arguments.is_empty() {
+                return Err(ExecutionError::WrongArity);
+            }
+            return IntegerValue::parse_decimal(&order.to_string(), IntegerKind::Int64)
+                .map(MirValue::Integer)
+                .map_err(|_| ExecutionError::InvalidControlFlow);
+        }
+        let argument = |index: usize| {
+            arguments
+                .get(index)
+                .copied()
+                .ok_or(ExecutionError::WrongArity)
+                .and_then(|argument| value(values, argument))
+        };
+        let load_order = |index: usize| -> Result<AtomicLoadOrder, ExecutionError> {
+            match integer_i64(&argument(index)?.visible)? {
+                0 => Ok(AtomicLoadOrder::Relaxed),
+                1 => Ok(AtomicLoadOrder::Acquire),
+                2 => Ok(AtomicLoadOrder::SequentiallyConsistent),
+                _ => Err(ExecutionError::InvalidControlFlow),
+            }
+        };
+        let store_order = |index: usize| -> Result<AtomicStoreOrder, ExecutionError> {
+            match integer_i64(&argument(index)?.visible)? {
+                0 => Ok(AtomicStoreOrder::Relaxed),
+                1 => Ok(AtomicStoreOrder::Release),
+                2 => Ok(AtomicStoreOrder::SequentiallyConsistent),
+                _ => Err(ExecutionError::InvalidControlFlow),
+            }
+        };
+        let read_modify_write_order =
+            |index: usize| -> Result<AtomicReadModifyWriteOrder, ExecutionError> {
+                match integer_i64(&argument(index)?.visible)? {
+                    0 => Ok(AtomicReadModifyWriteOrder::Relaxed),
+                    1 => Ok(AtomicReadModifyWriteOrder::Acquire),
+                    2 => Ok(AtomicReadModifyWriteOrder::Release),
+                    3 => Ok(AtomicReadModifyWriteOrder::AcquireRelease),
+                    4 => Ok(AtomicReadModifyWriteOrder::SequentiallyConsistent),
+                    _ => Err(ExecutionError::InvalidControlFlow),
+                }
+            };
+        match function {
+            13 if arguments.len() == 1 => {
+                let initial = integer_i64(&argument(0)?.visible)?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::AtomicInt(AtomicInt::new(initial)));
+                Ok(MirValue::AtomicInt(symbol))
+            }
+            14 if arguments.len() == 1 => {
+                let MirValue::Boolean(initial) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let symbol = self.fresh_private_symbol();
+                self.private_values.insert(
+                    symbol,
+                    PrivateValue::AtomicBoolean(AtomicBoolean::new(initial)),
+                );
+                Ok(MirValue::AtomicBoolean(symbol))
+            }
+            15 if arguments.len() == 2 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::AtomicInt(state)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let loaded = state.load(load_order(1)?);
+                IntegerValue::parse_decimal(&loaded.to_string(), IntegerKind::Int64)
+                    .map(MirValue::Integer)
+                    .map_err(|_| ExecutionError::InvalidControlFlow)
+            }
+            16 if arguments.len() == 2 => {
+                let MirValue::AtomicBoolean(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::AtomicBoolean(state)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(state.load(load_order(1)?)))
+            }
+            17 if arguments.len() == 3 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let stored = integer_i64(&argument(1)?.visible)?;
+                let Some(PrivateValue::AtomicInt(state)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                state.store(stored, store_order(2)?);
+                Ok(MirValue::Boolean(true))
+            }
+            18 if arguments.len() == 3 => {
+                let MirValue::AtomicBoolean(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(stored) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::AtomicBoolean(state)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                state.store(stored, store_order(2)?);
+                Ok(MirValue::Boolean(true))
+            }
+            19 if arguments.len() == 3 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let stored = integer_i64(&argument(1)?.visible)?;
+                let Some(PrivateValue::AtomicInt(state)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let previous = state.swap(stored, read_modify_write_order(2)?);
+                IntegerValue::parse_decimal(&previous.to_string(), IntegerKind::Int64)
+                    .map(MirValue::Integer)
+                    .map_err(|_| ExecutionError::InvalidControlFlow)
+            }
+            20 if arguments.len() == 3 => {
+                let MirValue::AtomicBoolean(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(stored) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::AtomicBoolean(state)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(
+                    state.swap(stored, read_modify_write_order(2)?),
+                ))
+            }
+            21 if arguments.len() == 1 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::AtomicInt(_))
+                )))
+            }
+            22 if arguments.len() == 1 => {
+                let MirValue::AtomicBoolean(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::AtomicBoolean(_))
+                )))
+            }
+            _ => Err(ExecutionError::WrongArity),
+        }
     }
 
     fn verify_ffi_alignment(
@@ -4976,7 +5155,9 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::CancellationSource(_)
                         | PrivateValue::CancellationToken(_)
                         | PrivateValue::TaskGroup(_)
-                        | PrivateValue::Channel(_),
+                        | PrivateValue::Channel(_)
+                        | PrivateValue::AtomicInt(_)
+                        | PrivateValue::AtomicBoolean(_),
                     ) => Err(ExecutionError::TypeMismatch),
                     None => Err(ExecutionError::TypeMismatch),
                 }

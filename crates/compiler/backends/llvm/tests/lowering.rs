@@ -246,6 +246,16 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
     );
     let mir =
         lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Atomic MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Atomic MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Atomic MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
     let module = lower_mir_to_llvm_ir(
         &mir,
         front_end.types(),

@@ -47,6 +47,8 @@ pub enum MirValue {
         value: Option<Box<Self>>,
         closed: bool,
     },
+    AtomicInt(SymbolId),
+    AtomicBoolean(SymbolId),
     FfiHandle(u64),
     FfiBuffer(ManagedReference),
     Bytes(ManagedReference),
