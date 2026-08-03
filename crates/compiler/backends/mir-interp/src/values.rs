@@ -55,6 +55,8 @@ pub enum MirValue {
     NetUdpSocket(SymbolId),
     NetDnsResolver(SymbolId),
     NetDnsAnswers(SymbolId),
+    NetUnixListener(SymbolId),
+    NetUnixStream(SymbolId),
     NetSocketIoOutcome(pop_types::SocketIoOutcomeKind),
     NetTransfer {
         kind: pop_types::SocketIoOutcomeKind,

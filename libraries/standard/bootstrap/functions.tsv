@@ -114,3 +114,12 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 111	Net.Udp.hopLimit	Pop.Standard	Net.Udp.Socket	UInt32	AmbientIo,MayTrap	false
 112	Net.Udp.joinMulticastIpv4	Pop.Standard	Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address	Boolean	AmbientIo	false
 113	Net.Udp.leaveMulticastIpv4	Pop.Standard	Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address	Boolean	AmbientIo	false
+114	Net.Unix.listen	Pop.Standard	String	Net.Unix.Listener	AmbientIo,MayTrap	false
+115	Net.Unix.connect	Pop.Standard	String	Net.Unix.Stream	AmbientIo,MayTrap	false
+116	Net.Unix.accept	Pop.Standard	Net.Unix.Listener	Net.Unix.Stream?	AmbientIo	false
+117	Net.Unix.send	Pop.Standard	Net.Unix.Stream,Bytes	Net.Transfer	AmbientIo,MayTrap	false
+118	Net.Unix.receive	Pop.Standard	Net.Unix.Stream,Bytes.Buffer,UInt64	Net.Transfer	AmbientIo,MayTrap	false
+119	Net.Unix.shutdownRead	Pop.Standard	Net.Unix.Stream	Boolean	AmbientIo	false
+120	Net.Unix.shutdownWrite	Pop.Standard	Net.Unix.Stream	Boolean	AmbientIo	false
+121	Net.Unix.closeListener	Pop.Standard	Net.Unix.Listener	Boolean	AmbientIo	false
+122	Net.Unix.closeStream	Pop.Standard	Net.Unix.Stream	Boolean	AmbientIo	false

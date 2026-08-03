@@ -190,9 +190,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
         TcpSendBytes | UnixSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
-        TcpReceiveBuffer | UnixReceiveBuffer => {
-            signature(&[U64, U64, U64, WritableU64Pointer], U8)
-        }
+        TcpReceiveBuffer | UnixReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
         TcpNoDelay | UdpBroadcast => signature(&[U64, WritableU8Pointer], U8),
         TcpSetTtl | UdpSetTtl => signature(&[U64, U32], U8),
         TcpTtl | UdpTtl => signature(&[U64, WritableU32Pointer], U8),

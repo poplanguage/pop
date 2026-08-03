@@ -47,3 +47,5 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 145	Net.Udp.Transfer	Pop.Standard	0	Nominal	false
 146	Net.Dns.Resolver	Pop.Standard	0	Nominal	false
 147	Net.Dns.Answers	Pop.Standard	0	Nominal	false
+148	Net.Unix.Listener	Pop.Standard	0	Nominal	false
+149	Net.Unix.Stream	Pop.Standard	0	Nominal	false

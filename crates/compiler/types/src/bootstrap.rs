@@ -499,6 +499,8 @@ pub const NET_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(144);
 pub const NET_UDP_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(145);
 pub const NET_DNS_RESOLVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(146);
 pub const NET_DNS_ANSWERS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(147);
+pub const NET_UNIX_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(148);
+pub const NET_UNIX_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(149);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1279,6 +1281,8 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_UDP_TRANSFER_TYPE_ID, "Net.Udp.Transfer"),
         (NET_DNS_RESOLVER_TYPE_ID, "Net.Dns.Resolver"),
         (NET_DNS_ANSWERS_TYPE_ID, "Net.Dns.Answers"),
+        (NET_UNIX_LISTENER_TYPE_ID, "Net.Unix.Listener"),
+        (NET_UNIX_STREAM_TYPE_ID, "Net.Unix.Stream"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1474,7 +1478,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 114 {
+    if entries.len() != 123 {
         return Err(error(
             "standard function",
             2,
@@ -2017,6 +2021,60 @@ fn validate_standard_functions(
         (
             "Net.Udp.leaveMulticastIpv4",
             "Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.listen",
+            "String",
+            "Net.Unix.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.connect",
+            "String",
+            "Net.Unix.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.accept",
+            "Net.Unix.Listener",
+            "Net.Unix.Stream?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.send",
+            "Net.Unix.Stream,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.receive",
+            "Net.Unix.Stream,Bytes.Buffer,UInt64",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.shutdownRead",
+            "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.shutdownWrite",
+            "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.closeListener",
+            "Net.Unix.Listener",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.closeStream",
+            "Net.Unix.Stream",
             "Boolean",
             "AmbientIo",
         ),
