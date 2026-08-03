@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=77 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=80 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4196,6 +4196,40 @@ fn lower_net_standard_call(
                         arguments[1].raw()
                     ),
                 ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        78..=80 if arguments.len() == 2 => {
+            let operation = match function {
+                78 => RuntimeOperation::TcpListenIpv6,
+                79 => RuntimeOperation::TcpConnectIpv6,
+                _ => RuntimeOperation::UdpBindIpv6,
+            };
+            let handle = format!("{result}_handle");
+            let mut setup = Vec::new();
+            for index in 0..4 {
+                setup.push(format!(
+                    "{result}_word{index}_raw = call i64 @{}(i64 %v{}, i64 {index})",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ));
+                setup.push(format!(
+                    "{result}_word{index} = trunc i64 {result}_word{index}_raw to i32"
+                ));
+            }
+            setup.push(format!(
+                "{handle} = call i64 @{}(i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i16 %v{}, i32 0)",
+                native_runtime_symbol(operation),
+                arguments[1].raw()
+            ));
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                setup,
             );
             Ok(lines
                 .into_iter()

@@ -1470,7 +1470,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 78 {
+    if entries.len() != 81 {
         return Err(error(
             "standard function",
             2,
@@ -1802,6 +1802,24 @@ fn validate_standard_functions(
         (
             "Net.Udp.bindAt",
             "Net.Ipv4Address,UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.listenAt",
+            "Net.Ipv6Address,UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connectTo",
+            "Net.Ipv6Address,UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.bindAt",
+            "Net.Ipv6Address,UInt16",
             "Net.Udp.Socket",
             "AmbientIo,MayTrap",
         ),

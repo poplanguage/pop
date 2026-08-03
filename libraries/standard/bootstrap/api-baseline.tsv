@@ -417,3 +417,6 @@ api:342	Api	Pop.Standard	Pop.Net.Udp	sourcePort	sourcePort(Net.Udp.Transfer)->UI
 api:343	Api	Pop.Standard	Pop.Net.Tcp	listenAt	listenAt(Net.Ipv4Address,UInt16)->Net.Tcp.Listener	standard	implemented	false	architecture/decisions/0170-explicit-ipv4-transport-endpoints.md
 api:344	Api	Pop.Standard	Pop.Net.Tcp	connectTo	connectTo(Net.Ipv4Address,UInt16)->Net.Tcp.Stream	standard	implemented	false	architecture/decisions/0170-explicit-ipv4-transport-endpoints.md
 api:345	Api	Pop.Standard	Pop.Net.Udp	bindAt	bindAt(Net.Ipv4Address,UInt16)->Net.Udp.Socket	standard	implemented	false	architecture/decisions/0170-explicit-ipv4-transport-endpoints.md
+api:346	Api	Pop.Standard	Pop.Net.Tcp	listenAt	listenAt(Net.Ipv6Address,UInt16)->Net.Tcp.Listener	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
+api:347	Api	Pop.Standard	Pop.Net.Tcp	connectTo	connectTo(Net.Ipv6Address,UInt16)->Net.Tcp.Stream	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
+api:348	Api	Pop.Standard	Pop.Net.Udp	bindAt	bindAt(Net.Ipv6Address,UInt16)->Net.Udp.Socket	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md

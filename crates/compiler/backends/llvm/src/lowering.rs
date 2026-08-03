@@ -2473,6 +2473,9 @@ pub(crate) fn llvm_block_exit_label(
                             | 75
                             | 76
                             | 77
+                            | 78
+                            | 79
+                            | 80
                     ) =>
                 {
                     "continue"

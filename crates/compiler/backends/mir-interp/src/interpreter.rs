@@ -45,7 +45,7 @@ use pop_types::{
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Write as _};
-use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
+use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::rc::Rc;
 
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
@@ -4290,7 +4290,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=77) => {
+            } if matches!(function.raw(), 35..=58 | 64..=80) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5268,6 +5268,60 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 } else {
                     let socket = UdpSocket::bind((Ipv4Addr::from(address), port))
                         .map_err(|_| self.runtime_invariant())?;
+                    socket
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::UdpSocket(socket));
+                    Ok(MirValue::NetUdpSocket(symbol))
+                }
+            }
+            78..=80 if arguments.len() == 2 => {
+                let MirValue::Record { ref fields, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if fields.len() != 4 {
+                    return Err(ExecutionError::TypeMismatch);
+                }
+                let word = |index: usize| {
+                    u32::try_from(integer_u64(&fields[index].1)?)
+                        .map_err(|_| ExecutionError::TypeMismatch)
+                };
+                let address = Ipv6Addr::new(
+                    u16::try_from(word(0)? >> 16).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(0)? & 0xffff).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(1)? >> 16).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(1)? & 0xffff).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(2)? >> 16).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(2)? & 0xffff).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(3)? >> 16).map_err(|_| ExecutionError::TypeMismatch)?,
+                    u16::try_from(word(3)? & 0xffff).map_err(|_| ExecutionError::TypeMismatch)?,
+                );
+                let port = u16::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                if function == 78 {
+                    let listener =
+                        TcpListener::bind((address, port)).map_err(|_| self.runtime_invariant())?;
+                    listener
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::TcpListener(listener));
+                    Ok(MirValue::NetTcpListener(symbol))
+                } else if function == 79 {
+                    let stream = TcpStream::connect((address, port))
+                        .map_err(|_| self.runtime_invariant())?;
+                    stream
+                        .set_nonblocking(true)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let symbol = self.fresh_private_symbol();
+                    self.private_values
+                        .insert(symbol, PrivateValue::TcpStream(stream));
+                    Ok(MirValue::NetTcpStream(symbol))
+                } else {
+                    let socket =
+                        UdpSocket::bind((address, port)).map_err(|_| self.runtime_invariant())?;
                     socket
                         .set_nonblocking(true)
                         .map_err(|_| self.runtime_invariant())?;
