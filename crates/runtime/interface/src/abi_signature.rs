@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 107] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 116] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -128,6 +128,15 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 107] = [
     RuntimeOperation::DnsAnswerIpv4,
     RuntimeOperation::DnsAnswerIpv6Word,
     RuntimeOperation::DnsAnswersClose,
+    RuntimeOperation::TlsClientSystemConfig,
+    RuntimeOperation::TlsClientRootConfig,
+    RuntimeOperation::TlsServerConfig,
+    RuntimeOperation::TlsConfigClose,
+    RuntimeOperation::TlsClientHandshake,
+    RuntimeOperation::TlsServerHandshake,
+    RuntimeOperation::TlsSendBytes,
+    RuntimeOperation::TlsReceiveBuffer,
+    RuntimeOperation::TlsClose,
 ];
 
 impl RuntimeAbiSignature {
@@ -175,8 +184,10 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpKeepalive, TcpLinger, TcpListen, TcpListenIpv4, TcpListenIpv6, TcpLocalPort, TcpNoDelay,
         TcpReceive, TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend,
         TcpSendBytes, TcpSendBytesUntil, TcpSetKeepalive, TcpSetKeepaliveIdle, TcpSetLinger,
-        TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4, UdpBindIpv6,
-        UdpBroadcast, UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4, UdpJoinMulticastIpv6,
+        TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, TlsClientHandshake, TlsClientRootConfig,
+        TlsClientSystemConfig, TlsClose, TlsConfigClose, TlsReceiveBuffer, TlsSendBytes,
+        TlsServerConfig, TlsServerHandshake, UdpBind, UdpBindIpv4, UdpBindIpv6, UdpBroadcast,
+        UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4, UdpJoinMulticastIpv6,
         UdpLeaveMulticastIpv4, UdpLeaveMulticastIpv6, UdpLocalPort, UdpReceive, UdpReceiveBuffer,
         UdpReceiveBufferUntil, UdpReceiveBytes, UdpSendBytesTo, UdpSendBytesToUntil, UdpSendTo,
         UdpSetBroadcast, UdpSetTtl, UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen,
@@ -202,7 +213,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorCreate => signature(&[U64, U64, U64], U64),
         AtomicRelease | ActorActivate | ActorCompleteExit | ActorRelease | TcpClose | UdpClose
         | DnsResolverClose | DnsAnswersClose | UnixClose | MonotonicClockClose | DeadlineClose
-        | NetInterfacesClose | NetRoutesClose => signature(&[U64], U8),
+        | NetInterfacesClose | NetRoutesClose | TlsConfigClose | TlsClose => signature(&[U64], U8),
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
@@ -213,9 +224,11 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {
             signature(&[U32, U32, U32, U32, U16, U32], U64)
         }
-        DnsResolverCreate | MonotonicClockCreate | NetInterfacesSnapshot | NetRoutesSnapshot => {
-            signature(&[], U64)
-        }
+        DnsResolverCreate
+        | MonotonicClockCreate
+        | NetInterfacesSnapshot
+        | NetRoutesSnapshot
+        | TlsClientSystemConfig => signature(&[], U64),
         DnsResolve => signature(&[U64, U64, U16], U64),
         DnsAnswerCount | NetInterfaceCount | NetRouteCount => {
             signature(&[U64, WritableU64Pointer], U8)
@@ -226,12 +239,20 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         }
         DnsAnswerIpv6Word => signature(&[U64, U64, U8, WritableU32Pointer], U8),
         TcpLocalPort | UdpLocalPort => signature(&[U64, WritableU16Pointer], U8),
-        TcpAccept | UnixListen | UnixConnect | UnixAccept => signature(&[U64], U64),
+        TcpAccept | UnixListen | UnixConnect | UnixAccept | TlsClientRootConfig => {
+            signature(&[U64], U64)
+        }
         TcpSend => signature(&[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer], U8),
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
-        TcpSendBytes | UnixSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
+        TcpSendBytes
+        | UnixSendBytes
+        | TlsSendBytes
+        | NetInterfaceName
+        | NetInterfaceAddressCount => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
-        TcpReceiveBuffer | UnixReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
+        TcpReceiveBuffer | UnixReceiveBuffer | TlsReceiveBuffer => {
+            signature(&[U64, U64, U64, WritableU64Pointer], U8)
+        }
         TcpNoDelay | TcpKeepalive | UdpBroadcast => signature(&[U64, WritableU8Pointer], U8),
         TcpSetTtl | UdpSetTtl => signature(&[U64, U32], U8),
         TcpTtl | UdpTtl => signature(&[U64, WritableU32Pointer], U8),
@@ -303,11 +324,11 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
             ],
             U8,
         ),
-        NetInterfaceName | NetInterfaceAddressCount => {
-            signature(&[U64, U64, WritableU64Pointer], U8)
-        }
         NetInterfaceAddressPart => signature(&[U64, U64, U64, U8, U8, WritableU32Pointer], U8),
         NetRoutePart => signature(&[U64, U64, U8, U8, WritableU32Pointer], U8),
+        TlsServerConfig => signature(&[U64, U64], U64),
+        TlsClientHandshake => signature(&[U64, U64, U64, U64, U64], U64),
+        TlsServerHandshake => signature(&[U64, U64, U64, U64], U64),
         _ => return None,
     })
 }

@@ -1,7 +1,6 @@
 //! Explicit loopback TCP capability handles for the native runtime.
 #![allow(unsafe_code)]
 #![allow(clippy::missing_safety_doc)]
-
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -14,14 +13,12 @@ use pop_runtime_native_abi::SocketIoStatus;
 use crate::allocate_immutable_bytes;
 use crate::byte_buffer::append_bytes;
 use crate::state::lock_abi_runtime;
-
 pub(crate) enum TcpResource {
     Listener(TcpListener),
     Stream(TcpStream),
 }
 
 static NEXT_TCP: AtomicU64 = AtomicU64::new(1);
-
 pub(crate) fn resources() -> &'static Mutex<BTreeMap<u64, TcpResource>> {
     static RESOURCES: OnceLock<Mutex<BTreeMap<u64, TcpResource>>> = OnceLock::new();
     RESOURCES.get_or_init(|| Mutex::new(BTreeMap::new()))
@@ -45,6 +42,17 @@ pub(crate) fn insert_listener(listener: TcpListener) -> u64 {
 
 pub(crate) fn insert_stream(stream: TcpStream) -> u64 {
     insert(TcpResource::Stream(stream))
+}
+
+pub(crate) fn take_stream(handle: u64) -> Option<TcpStream> {
+    let mut values = resources().lock().ok()?;
+    match values.remove(&handle)? {
+        TcpResource::Stream(stream) => Some(stream),
+        listener @ TcpResource::Listener(_) => {
+            values.insert(handle, listener);
+            None
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

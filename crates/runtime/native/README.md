@@ -82,6 +82,8 @@ ABI 1.43 adds immutable host network-interface snapshots.
 ABI 1.44 adds immutable Linux route-table snapshots.
 ABI 1.45 adds typed IPv6 UDP multicast membership controls.
 ABI 1.46 adds TCP keepalive, keepalive-idle, and linger controls.
+ABI 1.47 adds owned TLS client/server configurations, bounded handshakes,
+managed-byte transfer, and stream closure.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

@@ -55,6 +55,15 @@ pub const TCP_SET_LINGER_SYMBOL: &str = "pop_rt_tcp_set_linger";
 pub const TCP_LINGER_SYMBOL: &str = "pop_rt_tcp_linger";
 pub const TCP_ENDPOINT_PART_SYMBOL: &str = "pop_rt_tcp_endpoint_part";
 pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
+pub const TLS_CLIENT_SYSTEM_CONFIG_SYMBOL: &str = "pop_rt_tls_client_system_config";
+pub const TLS_CLIENT_ROOT_CONFIG_SYMBOL: &str = "pop_rt_tls_client_root_config";
+pub const TLS_SERVER_CONFIG_SYMBOL: &str = "pop_rt_tls_server_config";
+pub const TLS_CONFIG_CLOSE_SYMBOL: &str = "pop_rt_tls_config_close";
+pub const TLS_CLIENT_HANDSHAKE_SYMBOL: &str = "pop_rt_tls_client_handshake";
+pub const TLS_SERVER_HANDSHAKE_SYMBOL: &str = "pop_rt_tls_server_handshake";
+pub const TLS_SEND_BYTES_SYMBOL: &str = "pop_rt_tls_send_bytes";
+pub const TLS_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_tls_receive_buffer";
+pub const TLS_CLOSE_SYMBOL: &str = "pop_rt_tls_close";
 
 pub const UDP_BIND_SYMBOL: &str = "pop_rt_udp_bind";
 pub const UDP_BIND_IPV4_SYMBOL: &str = "pop_rt_udp_bind_ipv4";
@@ -132,7 +141,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.46.
+/// Returns the native C symbol for an operation implemented through ABI 1.47.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -292,6 +301,15 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::TcpLinger => Some(TCP_LINGER_SYMBOL),
         RuntimeOperation::TcpEndpointPart => Some(TCP_ENDPOINT_PART_SYMBOL),
         RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
+        RuntimeOperation::TlsClientSystemConfig => Some(TLS_CLIENT_SYSTEM_CONFIG_SYMBOL),
+        RuntimeOperation::TlsClientRootConfig => Some(TLS_CLIENT_ROOT_CONFIG_SYMBOL),
+        RuntimeOperation::TlsServerConfig => Some(TLS_SERVER_CONFIG_SYMBOL),
+        RuntimeOperation::TlsConfigClose => Some(TLS_CONFIG_CLOSE_SYMBOL),
+        RuntimeOperation::TlsClientHandshake => Some(TLS_CLIENT_HANDSHAKE_SYMBOL),
+        RuntimeOperation::TlsServerHandshake => Some(TLS_SERVER_HANDSHAKE_SYMBOL),
+        RuntimeOperation::TlsSendBytes => Some(TLS_SEND_BYTES_SYMBOL),
+        RuntimeOperation::TlsReceiveBuffer => Some(TLS_RECEIVE_BUFFER_SYMBOL),
+        RuntimeOperation::TlsClose => Some(TLS_CLOSE_SYMBOL),
         RuntimeOperation::UdpBind => Some(UDP_BIND_SYMBOL),
         RuntimeOperation::UdpBindIpv4 => Some(UDP_BIND_IPV4_SYMBOL),
         RuntimeOperation::UdpBindIpv6 => Some(UDP_BIND_IPV6_SYMBOL),

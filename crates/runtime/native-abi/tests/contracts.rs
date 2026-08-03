@@ -22,7 +22,10 @@ use pop_runtime_native_abi::{
     TCP_LOCAL_PORT_SYMBOL, TCP_NO_DELAY_SYMBOL, TCP_RECEIVE_BUFFER_SYMBOL, TCP_RECEIVE_SYMBOL,
     TCP_SEND_SYMBOL, TCP_SET_KEEPALIVE_IDLE_SYMBOL, TCP_SET_KEEPALIVE_SYMBOL,
     TCP_SET_LINGER_SYMBOL, TCP_SET_NO_DELAY_SYMBOL, TCP_SET_TTL_SYMBOL, TCP_SHUTDOWN_SYMBOL,
-    TCP_TTL_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, UDP_BIND_SYMBOL,
+    TCP_TTL_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TLS_CLIENT_HANDSHAKE_SYMBOL,
+    TLS_CLIENT_ROOT_CONFIG_SYMBOL, TLS_CLIENT_SYSTEM_CONFIG_SYMBOL, TLS_CLOSE_SYMBOL,
+    TLS_CONFIG_CLOSE_SYMBOL, TLS_RECEIVE_BUFFER_SYMBOL, TLS_SEND_BYTES_SYMBOL,
+    TLS_SERVER_CONFIG_SYMBOL, TLS_SERVER_HANDSHAKE_SYMBOL, TextViewGetRuneAbi, UDP_BIND_SYMBOL,
     UDP_BROADCAST_SYMBOL, UDP_CLOSE_SYMBOL, UDP_ENDPOINT_PART_SYMBOL,
     UDP_JOIN_MULTICAST_IPV4_SYMBOL, UDP_LEAVE_MULTICAST_IPV4_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
     UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, UDP_SET_BROADCAST_SYMBOL, UDP_SET_TTL_SYMBOL,
@@ -33,7 +36,7 @@ use pop_runtime_native_abi::{
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 46);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 47);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
@@ -277,6 +280,15 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::TcpLinger,
         RuntimeOperation::TcpEndpointPart,
         RuntimeOperation::TcpClose,
+        RuntimeOperation::TlsClientSystemConfig,
+        RuntimeOperation::TlsClientRootConfig,
+        RuntimeOperation::TlsServerConfig,
+        RuntimeOperation::TlsConfigClose,
+        RuntimeOperation::TlsClientHandshake,
+        RuntimeOperation::TlsServerHandshake,
+        RuntimeOperation::TlsSendBytes,
+        RuntimeOperation::TlsReceiveBuffer,
+        RuntimeOperation::TlsClose,
         RuntimeOperation::UdpBind,
         RuntimeOperation::UdpBindIpv4,
         RuntimeOperation::UdpBindIpv6,
@@ -378,6 +390,27 @@ fn tcp_symbols_are_exact_and_closed() {
 }
 
 #[test]
+fn tls_symbols_are_exact_and_closed() {
+    let symbols = [
+        TLS_CLIENT_SYSTEM_CONFIG_SYMBOL,
+        TLS_CLIENT_ROOT_CONFIG_SYMBOL,
+        TLS_SERVER_CONFIG_SYMBOL,
+        TLS_CONFIG_CLOSE_SYMBOL,
+        TLS_CLIENT_HANDSHAKE_SYMBOL,
+        TLS_SERVER_HANDSHAKE_SYMBOL,
+        TLS_SEND_BYTES_SYMBOL,
+        TLS_RECEIVE_BUFFER_SYMBOL,
+        TLS_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_tls_"))
+    );
+}
+
+#[test]
 fn udp_symbols_are_exact_and_closed() {
     let symbols = [
         UDP_BIND_SYMBOL,
@@ -433,7 +466,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 46);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 47);
 }
 
 #[test]

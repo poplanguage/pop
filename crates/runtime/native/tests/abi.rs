@@ -46,9 +46,12 @@ use pop_runtime_native::{
     pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes, pop_rt_tcp_send,
     pop_rt_tcp_send_bytes, pop_rt_tcp_set_keepalive, pop_rt_tcp_set_keepalive_idle,
     pop_rt_tcp_set_linger, pop_rt_tcp_set_no_delay, pop_rt_tcp_set_ttl, pop_rt_tcp_shutdown,
-    pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_udp_bind,
-    pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6, pop_rt_udp_broadcast, pop_rt_udp_close,
-    pop_rt_udp_endpoint_part, pop_rt_udp_join_multicast_ipv4, pop_rt_udp_join_multicast_ipv6,
+    pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
+    pop_rt_tls_client_handshake, pop_rt_tls_client_root_config, pop_rt_tls_close,
+    pop_rt_tls_config_close, pop_rt_tls_receive, pop_rt_tls_send_bytes, pop_rt_tls_server_config,
+    pop_rt_tls_server_handshake, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6,
+    pop_rt_udp_broadcast, pop_rt_udp_close, pop_rt_udp_endpoint_part,
+    pop_rt_udp_join_multicast_ipv4, pop_rt_udp_join_multicast_ipv6,
     pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_leave_multicast_ipv6, pop_rt_udp_local_port,
     pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_buffer_until,
     pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
@@ -76,7 +79,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 46);
+    assert_eq!(pop_rt_abi_minor(), 47);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -114,6 +117,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 44), 1);
     assert_eq!(pop_rt_supports_abi(1, 45), 1);
     assert_eq!(pop_rt_supports_abi(1, 46), 1);
+    assert_eq!(pop_rt_supports_abi(1, 47), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -570,6 +574,95 @@ fn native_tcp_transfers_owning_bytes_with_exact_counts() {
     assert_eq!(pop_rt_tcp_close(client), 1);
     assert_eq!(pop_rt_tcp_close(server), 1);
     assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tls_completes_verified_loopback_handshake_and_transfer() {
+    let _guard = abi_test_lock();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate = allocate_immutable_bytes(cert.der().as_ref());
+    let private_key = allocate_immutable_bytes(&signing_key.serialize_der());
+    let client_config = pop_rt_tls_client_root_config(certificate);
+    let server_config = pop_rt_tls_server_config(certificate, private_key);
+    assert_ne!(client_config, 0);
+    assert_ne!(server_config, 0);
+
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client_tcp = pop_rt_tcp_connect(port);
+    assert_ne!(client_tcp, 0);
+    let mut server_tcp = 0;
+    for _ in 0..1000 {
+        server_tcp = pop_rt_tcp_accept(listener);
+        if server_tcp != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server_tcp, 0);
+
+    let clock = pop_rt_monotonic_clock_create();
+    let deadline = pop_rt_deadline_after(clock, 5, 0);
+    let cancellation_source = pop_rt_cancel_source_create();
+    let cancellation = pop_rt_cancel_source_token(cancellation_source);
+    let server = std::thread::spawn(move || {
+        pop_rt_tls_server_handshake(server_config, server_tcp, deadline, cancellation)
+    });
+    let server_name = allocate_utf8_string_literal(b"localhost");
+    let client = pop_rt_tls_client_handshake(
+        client_config,
+        client_tcp,
+        server_name,
+        deadline,
+        cancellation,
+    );
+    let server = server.join().expect("server handshake thread");
+    assert_ne!(client, 0);
+    assert_ne!(server, 0);
+
+    let payload = allocate_immutable_bytes(b"encrypted Pop Net");
+    let mut written = 0;
+    assert_eq!(
+        unsafe { pop_rt_tls_send_bytes(client, payload, &raw mut written) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(written, 17);
+    let mut output = [0_u8; 32];
+    let mut received = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_tls_receive(
+                server,
+                output.as_mut_ptr(),
+                output.len() as u64,
+                &raw mut received,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    let received = usize::try_from(received).expect("received count fits host address space");
+    assert_eq!(&output[..received], b"encrypted Pop Net");
+
+    assert_eq!(pop_rt_tls_close(client), 1);
+    assert_eq!(pop_rt_tls_close(server), 1);
+    assert_eq!(pop_rt_tls_config_close(client_config), 1);
+    assert_eq!(pop_rt_tls_config_close(server_config), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+    assert_eq!(pop_rt_deadline_close(deadline), 1);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(pop_rt_cancel_token_release(cancellation), 1);
+    assert_eq!(pop_rt_cancel_source_release(cancellation_source), 1);
 }
 
 #[test]

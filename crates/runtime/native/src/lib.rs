@@ -1,5 +1,4 @@
 //! Native host facade for the Pop Lang Runtime Interface.
-
 mod actor;
 mod allocation;
 mod atomic;
@@ -33,13 +32,13 @@ mod tcp;
 mod tcp_control;
 mod tcp_endpoint;
 mod text;
+mod tls;
 mod udp;
 mod udp_control;
 #[cfg(unix)]
 mod unix_socket;
 mod utf8;
 mod view;
-
 pub use actor::*;
 pub use allocation::*;
 pub use atomic::*;
@@ -72,6 +71,7 @@ pub use tcp::*;
 pub use tcp_control::*;
 pub use tcp_endpoint::*;
 pub use text::*;
+pub use tls::*;
 pub use udp::*;
 pub use udp_control::*;
 #[cfg(unix)]

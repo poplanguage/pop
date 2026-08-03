@@ -69,6 +69,8 @@ ABI 1.43 appends immutable host network-interface snapshots.
 ABI 1.44 appends immutable Linux route-table snapshots.
 ABI 1.45 appends typed IPv6 UDP multicast membership controls.
 ABI 1.46 appends TCP keepalive, keepalive-idle, and linger controls.
+ABI 1.47 appends owned TLS client/server configurations, bounded handshakes,
+managed-byte transfer, and stream closure.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the
