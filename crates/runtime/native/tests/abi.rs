@@ -34,7 +34,9 @@ use pop_runtime_native::{
     pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
     pop_rt_task_cancellation_requested, pop_rt_tcp_accept, pop_rt_tcp_close, pop_rt_tcp_connect,
     pop_rt_tcp_listen, pop_rt_tcp_local_port, pop_rt_tcp_receive, pop_rt_tcp_send,
-    pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
+    pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_close,
+    pop_rt_udp_local_port, pop_rt_udp_receive, pop_rt_udp_send_to, pop_rt_unpin,
+    request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -254,6 +256,26 @@ fn native_tcp_handles_fail_closed_without_a_capability() {
         0
     );
     assert_eq!(pop_rt_tcp_close(0), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_handles_fail_closed_without_a_capability() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket != 0 {
+        assert_eq!(pop_rt_udp_close(socket), 1);
+    }
+    let mut port = 0_u16;
+    let mut address = 0_u32;
+    let mut bytes = [0_u8; 1];
+    assert_eq!(unsafe { pop_rt_udp_local_port(0, &raw mut port) }, 0);
+    assert_eq!(unsafe { pop_rt_udp_send_to(0, 0, 1, bytes.as_ptr(), 1) }, 0);
+    assert_eq!(
+        unsafe { pop_rt_udp_receive(0, bytes.as_mut_ptr(), 1, &raw mut address, &raw mut port,) },
+        0
+    );
+    assert_eq!(pop_rt_udp_close(0), 0);
 }
 
 #[test]

@@ -3064,6 +3064,28 @@ fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
 }
 
 #[test]
+fn bounded_udp_native_bridge_follows_adr_0163_without_resolver_authority() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0163-bounded-udp-native-handles.md"));
+    let udp = read_required(root.join("crates/runtime/native/src/udp.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for function in [
+        "pop_rt_udp_bind",
+        "pop_rt_udp_local_port",
+        "pop_rt_udp_send_to",
+        "pop_rt_udp_receive",
+        "pop_rt_udp_close",
+    ] {
+        assert_eq!(udp.matches(function).count(), 1);
+    }
+    assert!(tests.contains("native_udp_handles_fail_closed_without_a_capability"));
+    for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {
+        assert!(!udp.contains(forbidden));
+    }
+}
+
+#[test]
 fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
     let root = repository_root();
     let adr =

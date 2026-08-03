@@ -23,6 +23,7 @@ mod storage;
 mod task;
 mod tcp;
 mod text;
+mod udp;
 mod utf8;
 mod view;
 
@@ -48,5 +49,6 @@ pub use storage::*;
 pub use task::*;
 pub use tcp::*;
 pub use text::*;
+pub use udp::*;
 pub use utf8::*;
 pub use view::*;
