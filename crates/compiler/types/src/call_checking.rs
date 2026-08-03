@@ -3944,20 +3944,18 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             .iter()
             .map(TypedExpression::type_id)
             .collect();
-        let candidates: Vec<_> = arity_candidates
-            .into_iter()
-            .filter_map(|(function, parameter_names, result_names)| {
-                let parameter_types = parameter_names
-                    .iter()
-                    .map(|name| self.resolver.arena().source_type(name))
-                    .collect::<Option<Vec<_>>>()?;
-                let result_types = result_names
-                    .iter()
-                    .map(|name| self.resolver.arena().source_type(name))
-                    .collect::<Option<Vec<_>>>()?;
-                Some((*function, parameter_types, result_types))
-            })
-            .collect();
+        let mut candidates = Vec::new();
+        for (function, parameter_names, result_names) in arity_candidates {
+            let mut parameter_types = Vec::with_capacity(parameter_names.len());
+            for name in parameter_names {
+                parameter_types.push(self.standard_function_type(name)?);
+            }
+            let mut result_types = Vec::with_capacity(result_names.len());
+            for name in result_names {
+                result_types.push(self.standard_function_type(name)?);
+            }
+            candidates.push((*function, parameter_types, result_types));
+        }
         let Some((function, _, result_types)) = candidates
             .iter()
             .find(|(_, parameter_types, _)| *parameter_types == argument_types)
@@ -3981,6 +3979,23 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             },
             results: result_types.clone(),
         })
+    }
+
+    fn standard_function_type(&mut self, name: &str) -> Option<TypeId> {
+        if let Some(type_id) = self.resolver.arena().source_type(name) {
+            return Some(type_id);
+        }
+        let entry = *self.resolver.schema().type_by_source_name(name)?;
+        if entry.arity() != 0 {
+            return None;
+        }
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+            .ok()
     }
 
     pub(crate) fn check_static_method_invocation(

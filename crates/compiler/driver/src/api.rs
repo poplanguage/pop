@@ -984,8 +984,9 @@ pub enum NativeExportValidationError {
     },
 }
 
-/// Verifies that native Standard adapters bind exactly to trusted bootstrap
-/// metadata before either contract is used for analysis or linking.
+/// Verifies that native prelude adapters bind exactly to trusted bootstrap
+/// metadata before either contract is used for analysis or linking. Qualified
+/// non-prelude operations use their separately verified `RuntimeOperation` ABI.
 ///
 /// # Errors
 ///
@@ -995,7 +996,11 @@ pub fn validate_standard_native_exports(
     bootstrap: &BootstrapSchema,
     exports: &[NativeExport],
 ) -> Result<(), NativeExportValidationError> {
-    let entries = bootstrap.standard_functions();
+    let entries: Vec<_> = bootstrap
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.is_in_prelude())
+        .collect();
     if entries.len() != exports.len() {
         return Err(NativeExportValidationError::ExportCount {
             expected: entries.len(),

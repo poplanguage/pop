@@ -5402,12 +5402,12 @@ impl Verifier<'_> {
                     let parameters = entry
                         .parameter_types()
                         .iter()
-                        .map(|name| self.arena.source_type(name))
+                        .map(|name| standard_function_type(self.arena, &schema, name))
                         .collect::<Option<Vec<_>>>()?;
                     let results = entry
                         .result_types()
                         .iter()
-                        .map(|name| self.arena.source_type(name))
+                        .map(|name| standard_function_type(self.arena, &schema, name))
                         .collect::<Option<Vec<_>>>()?;
                     Some(HirCallableSignature {
                         is_async: false,
@@ -6171,6 +6171,22 @@ impl Verifier<'_> {
                 .push(HirVerificationError::UnknownFunction { function, span });
         }
     }
+}
+
+fn standard_function_type(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    name: &str,
+) -> Option<TypeId> {
+    arena.source_type(name).or_else(|| {
+        let entry = schema.type_by_source_name(name)?;
+        (entry.arity() == 0).then(|| {
+            arena.find(&SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+        })?
+    })
 }
 
 fn valid_hir_unary_operator(

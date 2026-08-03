@@ -89,6 +89,39 @@ fn standard_print_overloads_have_stable_typed_prelude_identities() {
 }
 
 #[test]
+fn atomic_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let atomic: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Atomic."))
+        .collect();
+
+    assert_eq!(atomic.len(), 21);
+    assert_eq!(atomic.first().expect("first Atomic function").id().raw(), 2);
+    assert_eq!(atomic.last().expect("last Atomic function").id().raw(), 22);
+    assert!(
+        atomic
+            .iter()
+            .all(|entry| { entry.owner_bubble() == "Pop.Standard" && !entry.is_in_prelude() })
+    );
+    assert_eq!(
+        schema
+            .standard_functions_by_source_name("Atomic.loadInt")
+            .next()
+            .expect("qualified Atomic load")
+            .parameter_types(),
+        ["Atomic.Int", "Atomic.LoadOrder"]
+    );
+    assert!(
+        schema
+            .standard_functions_by_source_name("loadInt")
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
 fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();

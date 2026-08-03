@@ -29,6 +29,22 @@ use crate::{
     MirFfiCallbackAbi, MirFfiCallbackFingerprint, MirFfiCallbackSignature, MirFfiLayoutCatalog,
 };
 
+fn standard_function_type(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    name: &str,
+) -> Option<TypeId> {
+    arena.source_type(name).or_else(|| {
+        let entry = schema.type_by_source_name(name)?;
+        (entry.arity() == 0).then(|| {
+            arena.find(&SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+        })?
+    })
+}
+
 fn canonical_arguments_match(
     arena: &TypeArena,
     types: &[TypeId],
@@ -6745,16 +6761,34 @@ fn verify_callable_instruction(
             arguments,
             ..
         } => {
-            let parameter = match function.raw() {
-                0 => arena.source_type("Int"),
-                1 => arena.source_type("String"),
-                _ => {
-                    errors.push(MirVerificationError::UnknownStandardFunction(*function));
-                    None
-                }
-            };
-            if let Some(parameter) = parameter {
-                verify_call_signature(instruction, arguments, &[parameter], &[], values, errors);
+            let signature = embedded_bootstrap_schema().ok().and_then(|bootstrap| {
+                let entry = bootstrap
+                    .standard_functions()
+                    .iter()
+                    .find(|entry| entry.id() == *function)?;
+                let parameters = entry
+                    .parameter_types()
+                    .iter()
+                    .map(|name| standard_function_type(arena, &bootstrap, name))
+                    .collect::<Option<Vec<_>>>()?;
+                let results = entry
+                    .result_types()
+                    .iter()
+                    .map(|name| standard_function_type(arena, &bootstrap, name))
+                    .collect::<Option<Vec<_>>>()?;
+                Some((parameters, results))
+            });
+            if let Some((parameters, results)) = signature {
+                verify_call_signature(
+                    instruction,
+                    arguments,
+                    &parameters,
+                    &results,
+                    values,
+                    errors,
+                );
+            } else {
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
             }
         }
         MirInstructionKind::CallDirectMethod {

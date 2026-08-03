@@ -1405,14 +1405,14 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 2 {
+    if entries.len() != 23 {
         return Err(error(
             "standard function",
             2,
-            "bootstrap requires exactly two standard functions",
+            "bootstrap requires the exact trusted standard function inventory",
         ));
     }
-    for (index, (entry, parameter_type)) in entries.iter().zip(["Int", "String"]).enumerate() {
+    for (index, (entry, parameter_type)) in entries[..2].iter().zip(["Int", "String"]).enumerate() {
         if entry.id.raw() != u32::try_from(index).unwrap_or(u32::MAX)
             || entry.source_name != "print"
             || entry.owner_bubble != "Pop.Standard"
@@ -1425,6 +1425,123 @@ fn validate_standard_functions(
                 "standard function",
                 index + 3,
                 "invalid trusted print contract",
+            ));
+        }
+    }
+    let atomic = [
+        ("Atomic.relaxedLoadOrder", "-", "Atomic.LoadOrder", "-"),
+        ("Atomic.acquireLoadOrder", "-", "Atomic.LoadOrder", "-"),
+        (
+            "Atomic.sequentiallyConsistentLoadOrder",
+            "-",
+            "Atomic.LoadOrder",
+            "-",
+        ),
+        ("Atomic.relaxedStoreOrder", "-", "Atomic.StoreOrder", "-"),
+        ("Atomic.releaseStoreOrder", "-", "Atomic.StoreOrder", "-"),
+        (
+            "Atomic.sequentiallyConsistentStoreOrder",
+            "-",
+            "Atomic.StoreOrder",
+            "-",
+        ),
+        (
+            "Atomic.relaxedReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.acquireReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.releaseReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.acquireReleaseReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.sequentiallyConsistentReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        ("Atomic.int", "Int", "Atomic.Int", "Synchronizes"),
+        (
+            "Atomic.boolean",
+            "Boolean",
+            "Atomic.Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.loadInt",
+            "Atomic.Int,Atomic.LoadOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.loadBoolean",
+            "Atomic.Boolean,Atomic.LoadOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.storeInt",
+            "Atomic.Int,Int,Atomic.StoreOrder",
+            "Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.storeBoolean",
+            "Atomic.Boolean,Boolean,Atomic.StoreOrder",
+            "Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.swapInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.swapBoolean",
+            "Atomic.Boolean,Boolean,Atomic.ReadModifyWriteOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
+        ),
+        ("Atomic.releaseInt", "Atomic.Int", "Boolean", "Synchronizes"),
+        (
+            "Atomic.releaseBoolean",
+            "Atomic.Boolean",
+            "Boolean",
+            "Synchronizes",
+        ),
+    ];
+    for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
+        let parameters = schema_list(expected.1);
+        let results = schema_list(expected.2);
+        let effects = schema_list(expected.3);
+        if entry.id.raw() != u32::try_from(offset + 2).unwrap_or(u32::MAX)
+            || entry.source_name != expected.0
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.parameter_types != parameters
+            || entry.result_types != results
+            || entry.effects != effects
+            || entry.prelude
+        {
+            return Err(error(
+                "standard function",
+                offset + 5,
+                "invalid trusted Atomic function contract",
             ));
         }
     }

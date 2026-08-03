@@ -83,6 +83,49 @@ fn allocating_functions_declare_effects_and_emit_precise_safe_points_and_array_m
 }
 
 #[test]
+fn atomic_standard_calls_keep_precise_synchronization_effects() {
+    let (mir, _) = lower(
+        "namespace Main\n\
+         public function update(value: Int): Boolean\n\
+             local state = Atomic.int(value)\n\
+             local current = Atomic.loadInt(state, Atomic.acquireLoadOrder())\n\
+             local stored = Atomic.storeInt(state, current + 1, Atomic.releaseStoreOrder())\n\
+             return stored and Atomic.releaseInt(state)\n\
+         end\n",
+    );
+    let function = &mir.functions()[0];
+    assert!(function.effects().contains(MirEffect::Synchronizes));
+    assert!(function.effects().contains(MirEffect::MayTrap));
+    assert!(!function.effects().contains(MirEffect::AmbientIo));
+    let calls: Vec<_> = function
+        .blocks()
+        .iter()
+        .flat_map(pop_mir::MirBlock::instructions)
+        .filter_map(|instruction| match instruction.kind() {
+            MirInstructionKind::CallStandard {
+                function,
+                declared_effects,
+                ..
+            } => Some((function.raw(), *declared_effects)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        calls
+            .iter()
+            .map(|(function, _)| *function)
+            .collect::<Vec<_>>(),
+        [13, 3, 15, 6, 17, 21]
+    );
+    assert!(
+        calls
+            .iter()
+            .filter(|(function, _)| matches!(function, 3 | 6))
+            .all(|(_, effects)| effects.is_empty())
+    );
+}
+
+#[test]
 fn checked_operations_name_every_portable_trap_kind() {
     let (mir, _) = lower(
         "namespace Main\n\

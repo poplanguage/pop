@@ -306,6 +306,55 @@ fn directional_channel_intrinsics_reject_endpoint_and_payload_mismatches() {
 }
 
 #[test]
+fn atomic_standard_calls_preserve_handle_value_and_order_types() {
+    let order = check_function(
+        "namespace Example\n\
+         public function order(): Atomic.LoadOrder\n\
+             return Atomic.acquireLoadOrder()\n\
+         end\n",
+        "order",
+    );
+    assert!(
+        order.result.diagnostics().is_empty(),
+        "{}",
+        order.result.diagnostic_snapshot()
+    );
+
+    let integer = check_function(
+        "namespace Example\n\
+         public function update(value: Int): Boolean\n\
+             local state: Atomic.Int = Atomic.int(value)\n\
+             local loaded: Int = Atomic.loadInt(state, Atomic.acquireLoadOrder())\n\
+             local swapped: Int = Atomic.swapInt(state, loaded + 1, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local stored = Atomic.storeInt(state, swapped, Atomic.releaseStoreOrder())\n\
+             return stored and Atomic.releaseInt(state)\n\
+         end\n",
+        "update",
+    );
+    assert!(
+        integer.result.diagnostics().is_empty(),
+        "{}",
+        integer.result.diagnostic_snapshot()
+    );
+
+    let boolean = check_function(
+        "namespace Example\n\
+         public function update(value: Boolean): Boolean\n\
+             local state: Atomic.Boolean = Atomic.boolean(value)\n\
+             local loaded = Atomic.loadBoolean(state, Atomic.relaxedLoadOrder())\n\
+             local swapped = Atomic.swapBoolean(state, not loaded, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
+             return Atomic.storeBoolean(state, swapped, Atomic.sequentiallyConsistentStoreOrder()) and Atomic.releaseBoolean(state)\n\
+         end\n",
+        "update",
+    );
+    assert!(
+        boolean.result.diagnostics().is_empty(),
+        "{}",
+        boolean.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
 fn await_requires_async_context_and_exact_task_operand() {
     let outside = check_function(
         "namespace Example\n\
