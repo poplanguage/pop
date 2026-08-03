@@ -327,8 +327,13 @@ fn atomic_standard_calls_preserve_handle_value_and_order_types() {
              local loaded: Int = Atomic.loadInt(state, Atomic.acquireLoadOrder())\n\
              local swapped: Int = Atomic.swapInt(state, loaded + 1, Atomic.acquireReleaseReadModifyWriteOrder())\n\
              local observed: Int = Atomic.compareExchangeInt(state, swapped, loaded, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local added: Int = Atomic.fetchAddInt(state, 4, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local subtracted: Int = Atomic.fetchSubtractInt(state, 2, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local masked: Int = Atomic.fetchAndInt(state, 255, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local combined: Int = Atomic.fetchOrInt(state, 16, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local toggled: Int = Atomic.fetchXorInt(state, 3, Atomic.acquireReleaseReadModifyWriteOrder())\n\
              local stored = Atomic.storeInt(state, swapped, Atomic.releaseStoreOrder())\n\
-             return observed == swapped and stored and Atomic.releaseInt(state)\n\
+             return observed == swapped and added >= 0 and subtracted >= 0 and masked >= 0 and combined >= 0 and toggled >= 0 and stored and Atomic.releaseInt(state)\n\
          end\n",
         "update",
     );

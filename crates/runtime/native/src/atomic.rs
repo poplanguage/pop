@@ -1,6 +1,5 @@
 //! Typed native handles for the backend-neutral Atomic contract.
-#![allow(unsafe_code)]
-#![allow(clippy::missing_safety_doc)]
+#![allow(unsafe_code, clippy::missing_safety_doc)]
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -21,7 +20,6 @@ enum NativeAtomic {
 }
 
 static NEXT_ATOMIC: AtomicU64 = AtomicU64::new(1);
-
 fn registry() -> &'static Mutex<BTreeMap<u64, NativeAtomic>> {
     static REGISTRY: OnceLock<Mutex<BTreeMap<u64, NativeAtomic>>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(BTreeMap::new()))
@@ -79,13 +77,11 @@ fn compare_order(success: u8, failure: u8) -> Option<AtomicCompareExchangeOrder>
     AtomicCompareExchangeOrder::new(read_modify_write_order(success)?, load_order(failure)?)
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_atomic_int_create(value: i64) -> u64 {
     insert(NativeAtomic::Integer(AtomicInt::new(value)))
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_int_load(handle: u64, order: u8, output: *mut u64) -> u8 {
     let Some(order) = load_order(order) else {
@@ -120,7 +116,6 @@ pub extern "C" fn pop_rt_atomic_int_store(handle: u64, value: i64, order: u8) ->
     STATUS_SUCCESS
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_int_swap(
     handle: u64,
@@ -145,7 +140,6 @@ pub unsafe extern "C" fn pop_rt_atomic_int_swap(
     STATUS_SUCCESS
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_int_compare_exchange(
     handle: u64,
@@ -177,6 +171,46 @@ pub unsafe extern "C" fn pop_rt_atomic_int_compare_exchange(
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum AtomicIntFetchOperation {
+    Add,
+    Subtract,
+    And,
+    Or,
+    Xor,
+}
+
+pub(crate) unsafe fn atomic_int_fetch(
+    handle: u64,
+    value: i64,
+    order: u8,
+    output: *mut u64,
+    operation: AtomicIntFetchOperation,
+) -> u8 {
+    let Some(order) = read_modify_write_order(order) else {
+        return STATUS_FAILURE;
+    };
+    if output.is_null() {
+        return STATUS_FAILURE;
+    }
+    let Ok(values) = registry().lock() else {
+        return STATUS_FAILURE;
+    };
+    let Some(NativeAtomic::Integer(value_ref)) = values.get(&handle) else {
+        return STATUS_FAILURE;
+    };
+    let previous = match operation {
+        AtomicIntFetchOperation::Add => value_ref.fetch_add(value, order),
+        AtomicIntFetchOperation::Subtract => value_ref.fetch_subtract(value, order),
+        AtomicIntFetchOperation::And => value_ref.fetch_and(value, order),
+        AtomicIntFetchOperation::Or => value_ref.fetch_or(value, order),
+        AtomicIntFetchOperation::Xor => value_ref.fetch_xor(value, order),
+    };
+    // SAFETY: the caller supplied a non-null scalar output pointer.
+    unsafe { output.write(previous.cast_unsigned()) };
+    STATUS_SUCCESS
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_atomic_bool_create(value: u8) -> u64 {
     if value > 1 {
@@ -185,7 +219,6 @@ pub extern "C" fn pop_rt_atomic_bool_create(value: u8) -> u64 {
     insert(NativeAtomic::Boolean(AtomicBoolean::new(value == 1)))
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_bool_load(handle: u64, order: u8, output: *mut u8) -> u8 {
     let Some(order) = load_order(order) else {
@@ -223,7 +256,6 @@ pub extern "C" fn pop_rt_atomic_bool_store(handle: u64, value: u8, order: u8) ->
     STATUS_SUCCESS
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_bool_swap(
     handle: u64,
@@ -248,7 +280,6 @@ pub unsafe extern "C" fn pop_rt_atomic_bool_swap(
     STATUS_SUCCESS
 }
 
-#[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pop_rt_atomic_bool_compare_exchange(
     handle: u64,

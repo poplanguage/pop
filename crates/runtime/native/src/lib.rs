@@ -3,6 +3,7 @@
 mod actor;
 mod allocation;
 mod atomic;
+mod atomic_fetch;
 mod binding;
 mod byte_buffer;
 mod channel;
@@ -30,6 +31,7 @@ mod view;
 pub use actor::*;
 pub use allocation::*;
 pub use atomic::*;
+pub use atomic_fetch::*;
 pub use binding::*;
 pub use byte_buffer::*;
 pub use channel::*;

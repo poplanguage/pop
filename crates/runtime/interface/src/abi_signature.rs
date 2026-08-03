@@ -20,12 +20,17 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 31] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 36] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
     RuntimeOperation::AtomicIntSwap,
     RuntimeOperation::AtomicIntCompareExchange,
+    RuntimeOperation::AtomicIntFetchAdd,
+    RuntimeOperation::AtomicIntFetchSubtract,
+    RuntimeOperation::AtomicIntFetchAnd,
+    RuntimeOperation::AtomicIntFetchOr,
+    RuntimeOperation::AtomicIntFetchXor,
     RuntimeOperation::AtomicBoolCreate,
     RuntimeOperation::AtomicBoolLoad,
     RuntimeOperation::AtomicBoolStore,
@@ -83,16 +88,22 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorActivate, ActorBeginExit, ActorCompleteExit, ActorCreate, ActorRelease,
         ActorTryReceive, ActorTrySend, ActorTrySendHandle, AtomicBoolCompareExchange,
         AtomicBoolCreate, AtomicBoolLoad, AtomicBoolStore, AtomicBoolSwap,
-        AtomicIntCompareExchange, AtomicIntCreate, AtomicIntLoad, AtomicIntStore, AtomicIntSwap,
-        AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort, TcpReceive,
-        TcpSend, UdpBind, UdpClose, UdpLocalPort, UdpReceive, UdpSendTo,
+        AtomicIntCompareExchange, AtomicIntCreate, AtomicIntFetchAdd, AtomicIntFetchAnd,
+        AtomicIntFetchOr, AtomicIntFetchSubtract, AtomicIntFetchXor, AtomicIntLoad, AtomicIntStore,
+        AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort,
+        TcpReceive, TcpSend, UdpBind, UdpClose, UdpLocalPort, UdpReceive, UdpSendTo,
     };
 
     Some(match operation {
         AtomicIntCreate => signature(&[I64], U64),
         AtomicIntLoad => signature(&[U64, U8, WritableU64Pointer], U8),
         AtomicIntStore => signature(&[U64, I64, U8], U8),
-        AtomicIntSwap => signature(&[U64, I64, U8, WritableU64Pointer], U8),
+        AtomicIntSwap
+        | AtomicIntFetchAdd
+        | AtomicIntFetchSubtract
+        | AtomicIntFetchAnd
+        | AtomicIntFetchOr
+        | AtomicIntFetchXor => signature(&[U64, I64, U8, WritableU64Pointer], U8),
         AtomicIntCompareExchange => signature(&[U64, I64, I64, U8, U8, WritableU64Pointer], U8),
         AtomicBoolCreate => signature(&[U8], U64),
         AtomicBoolLoad => signature(&[U64, U8, WritableU8Pointer], U8),

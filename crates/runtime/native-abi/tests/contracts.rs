@@ -9,21 +9,23 @@ use pop_runtime_native_abi::{
     ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
     ATOMIC_BOOL_CREATE_SYMBOL, ATOMIC_BOOL_LOAD_SYMBOL, ATOMIC_BOOL_STORE_SYMBOL,
     ATOMIC_BOOL_SWAP_SYMBOL, ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL, ATOMIC_INT_CREATE_SYMBOL,
-    ATOMIC_INT_LOAD_SYMBOL, ATOMIC_INT_STORE_SYMBOL, ATOMIC_INT_SWAP_SYMBOL, ATOMIC_RELEASE_SYMBOL,
-    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
-    ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
-    CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL,
-    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, SocketIoStatus,
-    TCP_ACCEPT_SYMBOL, TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL,
-    TCP_LOCAL_PORT_SYMBOL, TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL,
-    TextViewGetRuneAbi, UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
-    UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, symbol,
+    ATOMIC_INT_FETCH_ADD_SYMBOL, ATOMIC_INT_FETCH_AND_SYMBOL, ATOMIC_INT_FETCH_OR_SYMBOL,
+    ATOMIC_INT_FETCH_SUBTRACT_SYMBOL, ATOMIC_INT_FETCH_XOR_SYMBOL, ATOMIC_INT_LOAD_SYMBOL,
+    ATOMIC_INT_STORE_SYMBOL, ATOMIC_INT_SWAP_SYMBOL, ATOMIC_RELEASE_SYMBOL, ActorLifecycleStatus,
+    ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi, ChannelReceiveStatus,
+    ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
+    GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL, IterationCollectionKind,
+    NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, SocketIoStatus, TCP_ACCEPT_SYMBOL,
+    TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL, TCP_LOCAL_PORT_SYMBOL,
+    TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi,
+    UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL, UDP_RECEIVE_SYMBOL,
+    UDP_SEND_TO_SYMBOL, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 29);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 30);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
@@ -52,6 +54,11 @@ fn atomic_symbols_are_typed_and_closed() {
         ATOMIC_INT_STORE_SYMBOL,
         ATOMIC_INT_SWAP_SYMBOL,
         ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL,
+        ATOMIC_INT_FETCH_ADD_SYMBOL,
+        ATOMIC_INT_FETCH_SUBTRACT_SYMBOL,
+        ATOMIC_INT_FETCH_AND_SYMBOL,
+        ATOMIC_INT_FETCH_OR_SYMBOL,
+        ATOMIC_INT_FETCH_XOR_SYMBOL,
         ATOMIC_BOOL_CREATE_SYMBOL,
         ATOMIC_BOOL_LOAD_SYMBOL,
         ATOMIC_BOOL_STORE_SYMBOL,
@@ -204,6 +211,11 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::AtomicIntStore,
         RuntimeOperation::AtomicIntSwap,
         RuntimeOperation::AtomicIntCompareExchange,
+        RuntimeOperation::AtomicIntFetchAdd,
+        RuntimeOperation::AtomicIntFetchSubtract,
+        RuntimeOperation::AtomicIntFetchAnd,
+        RuntimeOperation::AtomicIntFetchOr,
+        RuntimeOperation::AtomicIntFetchXor,
         RuntimeOperation::AtomicBoolCreate,
         RuntimeOperation::AtomicBoolLoad,
         RuntimeOperation::AtomicBoolStore,
@@ -290,7 +302,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 29);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 30);
 }
 
 #[test]

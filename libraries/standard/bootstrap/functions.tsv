@@ -59,3 +59,8 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 56	Net.Udp.datagramByte	Pop.Standard	Net.Udp.Datagram	Byte	-	false
 57	Net.Udp.datagramAddress	Pop.Standard	Net.Udp.Datagram	UInt32	-	false
 58	Net.Udp.datagramPort	Pop.Standard	Net.Udp.Datagram	UInt16	-	false
+59	Atomic.fetchAddInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
+60	Atomic.fetchSubtractInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
+61	Atomic.fetchAndInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
+62	Atomic.fetchOrInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
+63	Atomic.fetchXorInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false

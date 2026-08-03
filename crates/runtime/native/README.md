@@ -60,6 +60,8 @@ ABI 1.28 adds nonblocking TCP/UDP I/O with a closed transport status and separat
 byte-count outputs.
 ABI 1.29 adds opaque local-Actor reference admission while retaining exact
 incarnation checks inside the native lifecycle registry.
+ABI 1.30 adds typed Atomic integer add, subtract, and bitwise fetch operations
+with exact prior-value results.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

@@ -54,6 +54,27 @@ fn integer_and_boolean_operations_return_exact_observed_values() {
     let failure = integer.compare_exchange(13, 19, order);
     assert!(!failure.exchanged());
     assert_eq!(failure.previous(), 17);
+    assert_eq!(
+        integer.fetch_add(5, AtomicReadModifyWriteOrder::AcquireRelease),
+        17
+    );
+    assert_eq!(
+        integer.fetch_subtract(2, AtomicReadModifyWriteOrder::AcquireRelease),
+        22
+    );
+    assert_eq!(
+        integer.fetch_and(12, AtomicReadModifyWriteOrder::AcquireRelease),
+        20
+    );
+    assert_eq!(
+        integer.fetch_or(3, AtomicReadModifyWriteOrder::AcquireRelease),
+        4
+    );
+    assert_eq!(
+        integer.fetch_xor(15, AtomicReadModifyWriteOrder::AcquireRelease),
+        7
+    );
+    assert_eq!(integer.load(AtomicLoadOrder::Relaxed), 8);
 
     let boolean = AtomicBoolean::new(false);
     boolean.store(true, AtomicStoreOrder::Release);

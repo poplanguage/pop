@@ -108,6 +108,26 @@ impl AtomicInt {
         self.value.swap(value, read_modify_write_order(order))
     }
 
+    pub fn fetch_add(&self, value: i64, order: AtomicReadModifyWriteOrder) -> i64 {
+        self.value.fetch_add(value, read_modify_write_order(order))
+    }
+
+    pub fn fetch_subtract(&self, value: i64, order: AtomicReadModifyWriteOrder) -> i64 {
+        self.value.fetch_sub(value, read_modify_write_order(order))
+    }
+
+    pub fn fetch_and(&self, value: i64, order: AtomicReadModifyWriteOrder) -> i64 {
+        self.value.fetch_and(value, read_modify_write_order(order))
+    }
+
+    pub fn fetch_or(&self, value: i64, order: AtomicReadModifyWriteOrder) -> i64 {
+        self.value.fetch_or(value, read_modify_write_order(order))
+    }
+
+    pub fn fetch_xor(&self, value: i64, order: AtomicReadModifyWriteOrder) -> i64 {
+        self.value.fetch_xor(value, read_modify_write_order(order))
+    }
+
     pub fn compare_exchange(
         &self,
         current: i64,

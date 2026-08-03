@@ -1466,7 +1466,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 59 {
+    if entries.len() != 64 {
         return Err(error(
             "standard function",
             2,
@@ -1717,6 +1717,36 @@ fn validate_standard_functions(
         ("Net.Udp.datagramByte", "Net.Udp.Datagram", "Byte", "-"),
         ("Net.Udp.datagramAddress", "Net.Udp.Datagram", "UInt32", "-"),
         ("Net.Udp.datagramPort", "Net.Udp.Datagram", "UInt16", "-"),
+        (
+            "Atomic.fetchAddInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchSubtractInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchAndInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchOrInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchXorInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

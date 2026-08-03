@@ -579,7 +579,7 @@ pub(crate) fn lower_instruction(
                 "call void @pop_std_print_string(i64 %v{})",
                 arguments[0].raw()
             ),
-            2..=24 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
+            2..=24 | 59..=63 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
             25..=34 => lower_actor_standard_call(
                 &result,
                 function.raw(),
@@ -3559,6 +3559,34 @@ fn lower_atomic_standard_call(
                 },
             ]);
             Ok(lines.join("\n"))
+        }
+        59..=63 if arguments.len() == 3 => {
+            let operation = match function {
+                59 => RuntimeOperation::AtomicIntFetchAdd,
+                60 => RuntimeOperation::AtomicIntFetchSubtract,
+                61 => RuntimeOperation::AtomicIntFetchAnd,
+                62 => RuntimeOperation::AtomicIntFetchOr,
+                63 => RuntimeOperation::AtomicIntFetchXor,
+                _ => unreachable!(),
+            };
+            Ok([
+                format!("{result}_order = trunc i64 %v{} to i8", arguments[2].raw()),
+                format!("{result}_output = alloca i64"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 %v{}, i8 {result}_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                ),
+                format!("{result}_valid = icmp eq i8 {result}_status, 1"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result} = load i64, ptr {result}_output"),
+            ]
+            .join("\n"))
         }
         _ => Err(unsupported()),
     }

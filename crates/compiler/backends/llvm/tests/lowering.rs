@@ -223,6 +223,11 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
              local previous = Atomic.swapInt(integer, 9, Atomic.acquireReleaseReadModifyWriteOrder())\n\
              local exchangedFrom = Atomic.compareExchangeInt(integer, 9, 15, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
              local mismatchObserved = Atomic.compareExchangeInt(integer, 9, 20, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
+             local addedFrom = Atomic.fetchAddInt(integer, 5, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local subtractedFrom = Atomic.fetchSubtractInt(integer, 2, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local andFrom = Atomic.fetchAndInt(integer, 12, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local orFrom = Atomic.fetchOrInt(integer, 3, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local xorFrom = Atomic.fetchXorInt(integer, 15, Atomic.acquireReleaseReadModifyWriteOrder())\n\
              local stored = Atomic.storeInt(integer, 12, Atomic.releaseStoreOrder())\n\
              local boolean = Atomic.boolean(false)\n\
              local priorBoolean = Atomic.swapBoolean(boolean, true, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
@@ -230,7 +235,7 @@ fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
              local mismatchBoolean = Atomic.compareExchangeBoolean(boolean, true, true, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
              local loadedBoolean = Atomic.loadBoolean(boolean, Atomic.sequentiallyConsistentLoadOrder())\n\
              local released = Atomic.releaseInt(integer) and Atomic.releaseBoolean(boolean)\n\
-             if loaded == 4 and previous == 4 and exchangedFrom == 9 and mismatchObserved == 15 and stored and not priorBoolean and exchangedBoolean and not mismatchBoolean and not loadedBoolean and released then\n\
+             if loaded == 4 and previous == 4 and exchangedFrom == 9 and mismatchObserved == 15 and addedFrom == 15 and subtractedFrom == 20 and andFrom == 18 and orFrom == 0 and xorFrom == 3 and stored and not priorBoolean and exchangedBoolean and not mismatchBoolean and not loadedBoolean and released then\n\
                  return 0\n\
              end\n\
              return 1\n\

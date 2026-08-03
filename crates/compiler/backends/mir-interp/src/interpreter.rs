@@ -4276,7 +4276,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 2..=24) => {
+            } if matches!(function.raw(), 2..=24 | 59..=63) => {
                 self.evaluate_atomic_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::CallStandard {
@@ -4597,6 +4597,27 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 Ok(MirValue::Boolean(
                     state.compare_exchange(current, new, order).previous(),
                 ))
+            }
+            59..=63 if arguments.len() == 3 => {
+                let MirValue::AtomicInt(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let operand = integer_i64(&argument(1)?.visible)?;
+                let order = read_modify_write_order(2)?;
+                let Some(PrivateValue::AtomicInt(state)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let previous = match function {
+                    59 => state.fetch_add(operand, order),
+                    60 => state.fetch_subtract(operand, order),
+                    61 => state.fetch_and(operand, order),
+                    62 => state.fetch_or(operand, order),
+                    63 => state.fetch_xor(operand, order),
+                    _ => unreachable!(),
+                };
+                IntegerValue::parse_decimal(&previous.to_string(), IntegerKind::Int64)
+                    .map(MirValue::Integer)
+                    .map_err(|_| ExecutionError::InvalidControlFlow)
             }
             _ => Err(ExecutionError::WrongArity),
         }
