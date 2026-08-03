@@ -138,6 +138,7 @@ pub enum RuntimeOperation {
     TcpReceive,
     TcpSendBytes,
     TcpReceiveBytes,
+    TcpReceiveBuffer,
     TcpClose,
     UdpBind,
     UdpLocalPort,

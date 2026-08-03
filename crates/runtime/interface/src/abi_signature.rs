@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 40] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 41] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -53,6 +53,7 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 40] = [
     RuntimeOperation::TcpReceive,
     RuntimeOperation::TcpSendBytes,
     RuntimeOperation::TcpReceiveBytes,
+    RuntimeOperation::TcpReceiveBuffer,
     RuntimeOperation::TcpClose,
     RuntimeOperation::UdpBind,
     RuntimeOperation::UdpLocalPort,
@@ -95,8 +96,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicIntCompareExchange, AtomicIntCreate, AtomicIntFetchAdd, AtomicIntFetchAnd,
         AtomicIntFetchOr, AtomicIntFetchSubtract, AtomicIntFetchXor, AtomicIntLoad, AtomicIntStore,
         AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort,
-        TcpReceive, TcpReceiveBytes, TcpSend, TcpSendBytes, UdpBind, UdpClose, UdpLocalPort,
-        UdpReceive, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
+        TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend, TcpSendBytes, UdpBind, UdpClose,
+        UdpLocalPort, UdpReceive, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
     };
 
     Some(match operation {
@@ -130,6 +131,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
         TcpSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
+        TcpReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
         UdpSendTo => signature(
             &[U64, U32, U16, ReadOnlyU8Pointer, U64, WritableU64Pointer],
             U8,

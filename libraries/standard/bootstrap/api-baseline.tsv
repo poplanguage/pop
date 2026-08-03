@@ -58,6 +58,7 @@ type:140	Type	Pop.Standard	Pop.Net.Udp	Socket	Net.Udp.Socket	standard	implemente
 type:141	Type	Pop.Standard	Pop.Net	SocketIoOutcome	Net.SocketIoOutcome	standard	implemented	false	architecture/decisions/0167-typed-loopback-net-transport-adapters.md
 type:142	Type	Pop.Standard	Pop.Net.Tcp	Receive	Net.Tcp.Receive	standard	implemented	false	architecture/decisions/0167-typed-loopback-net-transport-adapters.md
 type:143	Type	Pop.Standard	Pop.Net.Udp	Datagram	Net.Udp.Datagram	standard	implemented	false	architecture/decisions/0167-typed-loopback-net-transport-adapters.md
+type:144	Type	Pop.Standard	Pop.Net	Transfer	Net.Transfer	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
 attribute:0	Attribute	Pop.Standard	Pop	CompileTime	@CompileTime	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md
 attribute:1	Attribute	Pop.Standard	Pop	AttributeUsage	@AttributeUsage	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md
 attribute:2	Attribute	Pop.Standard	Pop	AttributeValidator	@AttributeValidator	prelude	implemented	true	architecture/10-udas-compile-time-and-reflection.md
@@ -401,3 +402,9 @@ api:328	Api	Pop.Standard	Pop.Atomic	fetchSubtractInt	fetchSubtractInt(Atomic.Int
 api:329	Api	Pop.Standard	Pop.Atomic	fetchAndInt	fetchAndInt(Atomic.Int,Int,Atomic.ReadModifyWriteOrder)->Int	standard	implemented	false	architecture/decisions/0168-atomic-integer-fetch-operations.md
 api:330	Api	Pop.Standard	Pop.Atomic	fetchOrInt	fetchOrInt(Atomic.Int,Int,Atomic.ReadModifyWriteOrder)->Int	standard	implemented	false	architecture/decisions/0168-atomic-integer-fetch-operations.md
 api:331	Api	Pop.Standard	Pop.Atomic	fetchXorInt	fetchXorInt(Atomic.Int,Int,Atomic.ReadModifyWriteOrder)->Int	standard	implemented	false	architecture/decisions/0168-atomic-integer-fetch-operations.md
+api:332	Api	Pop.Standard	Pop.Net.Tcp	send	send(Net.Tcp.Stream,Bytes)->Net.Transfer	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
+api:333	Api	Pop.Standard	Pop.Net.Tcp	receive	receive(Net.Tcp.Stream,Bytes.Buffer,UInt64)->Net.Transfer	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
+api:334	Api	Pop.Standard	Pop.Net	transferProgress	transferProgress(Net.Transfer)->Boolean	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
+api:335	Api	Pop.Standard	Pop.Net	transferWouldBlock	transferWouldBlock(Net.Transfer)->Boolean	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
+api:336	Api	Pop.Standard	Pop.Net	transferClosed	transferClosed(Net.Transfer)->Boolean	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md
+api:337	Api	Pop.Standard	Pop.Net	transferredByteCount	transferredByteCount(Net.Transfer)->UInt64	standard	implemented	false	architecture/decisions/0169-bounded-owning-bytes-transport-abi.md

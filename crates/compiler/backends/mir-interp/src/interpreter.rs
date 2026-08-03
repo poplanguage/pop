@@ -4290,7 +4290,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58) => {
+            } if matches!(function.raw(), 35..=58 | 64..=69) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5061,6 +5061,97 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     57 => integer(u64::from(address), IntegerKind::UInt32),
                     _ => integer(u64::from(port), IntegerKind::UInt16),
                 }
+            }
+            64 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Bytes(reference) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .immutable_bytes_length(reference)
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut bytes =
+                    vec![0; usize::try_from(length).map_err(|_| ExecutionError::TypeMismatch)?];
+                self.runtime
+                    .immutable_bytes_read(reference, 0, &mut bytes)
+                    .map_err(|_| self.runtime_invariant())?;
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get_mut(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let (kind, count) = match stream.write(&bytes) {
+                    Ok(0) if !bytes.is_empty() => (pop_types::SocketIoOutcomeKind::Closed, 0),
+                    Ok(count) => (
+                        pop_types::SocketIoOutcomeKind::Progress,
+                        u64::try_from(count).map_err(|_| self.runtime_invariant())?,
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::SocketIoOutcomeKind::WouldBlock, 0)
+                    }
+                    Err(error) if closed_error(&error) => {
+                        (pop_types::SocketIoOutcomeKind::Closed, 0)
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTransfer { kind, count })
+            }
+            65 if arguments.len() == 3 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::ByteBuffer(buffer) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let capacity = usize::try_from(unsigned(2)?)
+                    .ok()
+                    .filter(|capacity| *capacity > 0)
+                    .ok_or(ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get_mut(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let mut bytes = vec![0; capacity];
+                let (kind, count) = match stream.read(&mut bytes) {
+                    Ok(0) => (pop_types::SocketIoOutcomeKind::Closed, 0),
+                    Ok(count) => {
+                        bytes.truncate(count);
+                        self.runtime
+                            .byte_buffer_append(buffer, &bytes)
+                            .map_err(|_| self.runtime_invariant())?;
+                        (
+                            pop_types::SocketIoOutcomeKind::Progress,
+                            u64::try_from(count).map_err(|_| self.runtime_invariant())?,
+                        )
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::SocketIoOutcomeKind::WouldBlock, 0)
+                    }
+                    Err(error) if closed_error(&error) => {
+                        (pop_types::SocketIoOutcomeKind::Closed, 0)
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTransfer { kind, count })
+            }
+            66..=68 if arguments.len() == 1 => {
+                let MirValue::NetTransfer { kind, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let expected = match function {
+                    66 => pop_types::SocketIoOutcomeKind::Progress,
+                    67 => pop_types::SocketIoOutcomeKind::WouldBlock,
+                    _ => pop_types::SocketIoOutcomeKind::Closed,
+                };
+                Ok(MirValue::Boolean(kind == expected))
+            }
+            69 if arguments.len() == 1 => {
+                let MirValue::NetTransfer { count, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                integer(count, IntegerKind::UInt64)
             }
             _ => Err(ExecutionError::WrongArity),
         }

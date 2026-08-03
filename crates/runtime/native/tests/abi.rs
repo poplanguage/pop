@@ -17,28 +17,29 @@ use pop_runtime_native::{
     pop_rt_atomic_int_create, pop_rt_atomic_int_fetch_add, pop_rt_atomic_int_fetch_and,
     pop_rt_atomic_int_fetch_or, pop_rt_atomic_int_fetch_subtract, pop_rt_atomic_int_fetch_xor,
     pop_rt_atomic_int_load, pop_rt_atomic_int_store, pop_rt_atomic_int_swap, pop_rt_atomic_release,
-    pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_write_byte,
-    pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8, pop_rt_cancel_source_create,
-    pop_rt_cancel_source_release, pop_rt_cancel_source_token, pop_rt_cancel_token_release,
-    pop_rt_channel_close, pop_rt_channel_create, pop_rt_channel_release_receiver,
-    pop_rt_channel_release_sender, pop_rt_channel_retain_receiver, pop_rt_channel_retain_sender,
-    pop_rt_channel_try_receive, pop_rt_channel_try_send, pop_rt_codec_read_event,
-    pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close,
-    pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open,
-    pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow,
-    pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2,
-    pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next,
-    pop_rt_list_add, pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked,
-    pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root,
-    pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat,
-    pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi,
-    pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set,
-    pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept, pop_rt_tcp_close,
-    pop_rt_tcp_connect, pop_rt_tcp_listen, pop_rt_tcp_local_port, pop_rt_tcp_receive,
-    pop_rt_tcp_receive_bytes, pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8,
-    pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_close, pop_rt_udp_local_port,
-    pop_rt_udp_receive, pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
-    pop_rt_unpin, request_abi_collection,
+    pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_length,
+    pop_rt_byte_buffer_write_byte, pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8,
+    pop_rt_cancel_source_create, pop_rt_cancel_source_release, pop_rt_cancel_source_token,
+    pop_rt_cancel_token_release, pop_rt_channel_close, pop_rt_channel_create,
+    pop_rt_channel_release_receiver, pop_rt_channel_release_sender, pop_rt_channel_retain_receiver,
+    pop_rt_channel_retain_sender, pop_rt_channel_try_receive, pop_rt_channel_try_send,
+    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow,
+    pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length,
+    pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write,
+    pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set,
+    pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make,
+    pop_rt_iteration_next, pop_rt_list_add, pop_rt_list_create, pop_rt_list_get,
+    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create,
+    pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
+    pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
+    pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
+    pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_listen, pop_rt_tcp_local_port,
+    pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes, pop_rt_tcp_send,
+    pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
+    pop_rt_udp_bind, pop_rt_udp_close, pop_rt_udp_local_port, pop_rt_udp_receive,
+    pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_unpin,
+    request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -60,7 +61,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 31);
+    assert_eq!(pop_rt_abi_minor(), 32);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -83,6 +84,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 29), 1);
     assert_eq!(pop_rt_supports_abi(1, 30), 1);
     assert_eq!(pop_rt_supports_abi(1, 31), 1);
+    assert_eq!(pop_rt_supports_abi(1, 32), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -334,6 +336,55 @@ fn native_tcp_transfers_owning_bytes_with_exact_counts() {
     }
     assert_ne!(received_bytes, 0);
     assert_eq!(count, 16);
+    assert_eq!(pop_rt_tcp_close(client), 1);
+    assert_eq!(pop_rt_tcp_close(server), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_receives_directly_into_a_reusable_buffer() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client = pop_rt_tcp_connect(port);
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_tcp_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"buffered Pop Net");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    let buffer = pop_rt_byte_buffer_create(64);
+    assert_ne!(buffer, 0);
+    for _ in 0..1000 {
+        let status = unsafe { pop_rt_tcp_receive_buffer(server, buffer, 64, &raw mut count) };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_eq!(count, 16);
+    let mut length = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_length(buffer, &raw mut length) },
+        1
+    );
+    assert_eq!(length, 16);
     assert_eq!(pop_rt_tcp_close(client), 1);
     assert_eq!(pop_rt_tcp_close(server), 1);
     assert_eq!(pop_rt_tcp_close(listener), 1);

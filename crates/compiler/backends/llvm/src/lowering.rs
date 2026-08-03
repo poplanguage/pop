@@ -2454,6 +2454,14 @@ pub(crate) fn llvm_block_exit_label(
                 MirInstructionKind::ListLength { .. }
                 | MirInstructionKind::ListGetChecked { .. }
                 | MirInstructionKind::ByteBufferLength { .. } => "load",
+                MirInstructionKind::CallStandard { function, .. }
+                    if matches!(
+                        function.raw(),
+                        35 | 36 | 37 | 38 | 40 | 41 | 51 | 52 | 53 | 54 | 64 | 65
+                    ) =>
+                {
+                    "continue"
+                }
                 _ => return None,
             };
             Some(format!("v{}_{suffix}", instruction.result().raw()))

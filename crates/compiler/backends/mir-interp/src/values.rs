@@ -54,6 +54,10 @@ pub enum MirValue {
     NetTcpStream(SymbolId),
     NetUdpSocket(SymbolId),
     NetSocketIoOutcome(pop_types::SocketIoOutcomeKind),
+    NetTransfer {
+        kind: pop_types::SocketIoOutcomeKind,
+        count: u64,
+    },
     NetTcpReceive {
         kind: pop_types::TcpReceiveKind,
         value: Option<u8>,

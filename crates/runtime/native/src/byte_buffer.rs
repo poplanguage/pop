@@ -7,6 +7,20 @@ use pop_runtime_interface::{
 
 use crate::state::{abi_byte_buffers, lock_abi_runtime};
 
+pub(crate) fn append_bytes(reference: u64, bytes: &[u8]) -> u8 {
+    let Ok(mut buffers) = abi_byte_buffers().lock() else {
+        return 0;
+    };
+    let Some(buffer) = buffers.get_mut(&reference) else {
+        return 0;
+    };
+    if buffer.try_reserve(bytes.len()).is_err() {
+        return 0;
+    }
+    buffer.extend_from_slice(bytes);
+    1
+}
+
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_byte_buffer_create(capacity: u64) -> u64 {

@@ -405,6 +405,10 @@ fn typed_actor_mailboxes_lower_and_execute_through_native_abi() {
 }
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one executable source keeps the TCP and UDP transport assertions connected"
+)]
 fn typed_net_transports_lower_and_execute_through_native_abi() {
     let source = SourceFile::new(
         FileId::from_raw(0),
@@ -418,6 +422,15 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                  local sent = Net.Tcp.sendByte(client, Byte(65))\n\
                  local received = Net.Tcp.receiveByte(server)\n\
                  if local byte = Net.Tcp.receivedByte(received) then\n\
+                     local payload = Text.encodeUtf8(\"buffered Pop Net\")\n\
+                     local sentBytes = Net.Tcp.send(client, payload)\n\
+                     local receivedBuffer = Bytes.withCapacity(64)\n\
+                     local receivedBytes = Net.Tcp.receive(server, receivedBuffer, UInt64(64))\n\
+                     while Net.transferWouldBlock(receivedBytes) do\n\
+                         receivedBytes = Net.Tcp.receive(server, receivedBuffer, UInt64(64))\n\
+                     end\n\
+                     local receivedLength = Bytes.length(receivedBuffer)\n\
+                     local expectedTransferCount = UInt64(16)\n\
                      local expectedTcpByte = Byte(65)\n\
                      local tcpClosed = Net.Tcp.closeStream(client) and Net.Tcp.closeStream(server) and Net.Tcp.closeListener(listener)\n\
                      local udp = Net.Udp.bind(UInt16(0))\n\
@@ -428,7 +441,7 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                          local expectedAddress = UInt32(2130706433)\n\
                          local validDatagram = Net.Udp.datagramByte(datagram) == expectedUdpByte and Net.Udp.datagramAddress(datagram) == expectedAddress and Net.Udp.datagramPort(datagram) == udpPort\n\
                          local udpClosed = Net.Udp.close(udp)\n\
-                         if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and udpClosed then\n\
+                         if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and udpClosed then\n\
                              return 0\n\
                          end\n\
                      end\n\

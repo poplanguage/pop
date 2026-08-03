@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=69 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4018,6 +4018,77 @@ fn lower_net_standard_call(
             format!("{result} = trunc i64 {result}_shifted to i16"),
         ]
         .join("\n")),
+        64 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_written = alloca i64"),
+                    format!("store i64 0, ptr {result}_written"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::TcpSendBytes),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_written"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        65 if arguments.len() == 3 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_received = alloca i64"),
+                    format!("store i64 0, ptr {result}_received"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::TcpReceiveBuffer),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_received"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        66..=68 if arguments.len() == 1 => Ok([
+            format!("{result}_tag = and i64 %v{}, 3", arguments[0].raw()),
+            format!("{result} = icmp eq i64 {result}_tag, {}", function - 66),
+        ]
+        .join("\n")),
+        69 if arguments.len() == 1 => {
+            Ok(format!("{result} = lshr i64 %v{}, 2", arguments[0].raw()))
+        }
         _ => Err(unsupported()),
     }
 }

@@ -64,3 +64,9 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 61	Atomic.fetchAndInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
 62	Atomic.fetchOrInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
 63	Atomic.fetchXorInt	Pop.Standard	Atomic.Int,Int,Atomic.ReadModifyWriteOrder	Int	Synchronizes,MayTrap	false
+64	Net.Tcp.send	Pop.Standard	Net.Tcp.Stream,Bytes	Net.Transfer	AmbientIo,MayTrap	false
+65	Net.Tcp.receive	Pop.Standard	Net.Tcp.Stream,Bytes.Buffer,UInt64	Net.Transfer	AmbientIo,MayTrap	false
+66	Net.transferProgress	Pop.Standard	Net.Transfer	Boolean	-	false
+67	Net.transferWouldBlock	Pop.Standard	Net.Transfer	Boolean	-	false
+68	Net.transferClosed	Pop.Standard	Net.Transfer	Boolean	-	false
+69	Net.transferredByteCount	Pop.Standard	Net.Transfer	UInt64	-	false

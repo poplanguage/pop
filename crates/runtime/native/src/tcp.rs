@@ -12,6 +12,7 @@ use pop_runtime_interface::RuntimeAdapter;
 use pop_runtime_native_abi::SocketIoStatus;
 
 use crate::allocate_immutable_bytes;
+use crate::byte_buffer::append_bytes;
 use crate::state::lock_abi_runtime;
 
 enum TcpResource {
@@ -237,6 +238,37 @@ pub unsafe extern "C" fn pop_rt_tcp_receive_bytes(
         return SocketIoStatus::Failure as u8;
     }
     unsafe { bytes.write(reference) };
+    status
+}
+
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_rt_tcp_receive_buffer(
+    handle: u64,
+    buffer: u64,
+    capacity: u64,
+    received: *mut u64,
+) -> u8 {
+    if buffer == 0 || received.is_null() || capacity == 0 {
+        return SocketIoStatus::Failure as u8;
+    }
+    let Ok(length) = usize::try_from(capacity) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let mut output = vec![0; length];
+    // SAFETY: the temporary output and caller count slot remain valid for this call.
+    let status = unsafe { pop_rt_tcp_receive(handle, output.as_mut_ptr(), capacity, received) };
+    if status != SocketIoStatus::Progress as u8 {
+        return status;
+    }
+    // SAFETY: the successful receive initialized the non-null count slot.
+    let count = unsafe { received.read() };
+    let Ok(count) = usize::try_from(count) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    if append_bytes(buffer, &output[..count]) == 0 {
+        return SocketIoStatus::Failure as u8;
+    }
     status
 }
 

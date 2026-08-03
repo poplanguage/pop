@@ -64,6 +64,7 @@ ABI 1.30 adds typed Atomic integer add, subtract, and bitwise fetch operations
 with exact prior-value results.
 ABI 1.31 adds bounded owning-`Bytes` TCP/UDP transfers with exact counts and
 UDP source metadata.
+ABI 1.32 adds bounded TCP receive directly into a reusable `Bytes.Buffer`.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact
