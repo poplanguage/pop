@@ -2,7 +2,7 @@
 #![allow(unsafe_code)]
 #![allow(clippy::missing_safety_doc)]
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::udp::sockets;
 
@@ -139,6 +139,58 @@ pub extern "C" fn pop_rt_udp_leave_multicast_ipv4(handle: u64, group: u32, inter
     u8::from(
         socket
             .leave_multicast_v4(&Ipv4Addr::from(group), &Ipv4Addr::from(interface))
+            .is_ok(),
+    )
+}
+
+fn ipv6(first: u32, second: u32, third: u32, fourth: u32) -> Ipv6Addr {
+    let mut octets = [0_u8; 16];
+    for (index, word) in [first, second, third, fourth].into_iter().enumerate() {
+        octets[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    Ipv6Addr::from(octets)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_udp_join_multicast_ipv6(
+    handle: u64,
+    first: u32,
+    second: u32,
+    third: u32,
+    fourth: u32,
+    interface: u32,
+) -> u8 {
+    let Ok(values) = sockets().lock() else {
+        return 0;
+    };
+    let Some(socket) = values.get(&handle) else {
+        return 0;
+    };
+    u8::from(
+        socket
+            .join_multicast_v6(&ipv6(first, second, third, fourth), interface)
+            .is_ok(),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_udp_leave_multicast_ipv6(
+    handle: u64,
+    first: u32,
+    second: u32,
+    third: u32,
+    fourth: u32,
+    interface: u32,
+) -> u8 {
+    let Ok(values) = sockets().lock() else {
+        return 0;
+    };
+    let Some(socket) = values.get(&handle) else {
+        return 0;
+    };
+    u8::from(
+        socket
+            .leave_multicast_v6(&ipv6(first, second, third, fourth), interface)
             .is_ok(),
     )
 }

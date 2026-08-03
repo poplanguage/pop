@@ -198,6 +198,8 @@ pub enum RuntimeOperation {
     NetRoutesClose,
     NetRouteCount,
     NetRoutePart,
+    UdpJoinMulticastIpv6,
+    UdpLeaveMulticastIpv6,
     DnsResolverCreate,
     DnsResolverClose,
     DnsResolve,

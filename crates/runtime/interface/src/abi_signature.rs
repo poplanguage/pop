@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 100] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 102] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -113,6 +113,8 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 100] = [
     RuntimeOperation::NetRoutesClose,
     RuntimeOperation::NetRouteCount,
     RuntimeOperation::NetRoutePart,
+    RuntimeOperation::UdpJoinMulticastIpv6,
+    RuntimeOperation::UdpLeaveMulticastIpv6,
     RuntimeOperation::DnsResolverCreate,
     RuntimeOperation::DnsResolverClose,
     RuntimeOperation::DnsResolve,
@@ -169,10 +171,11 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend, TcpSendBytes,
         TcpSendBytesUntil, TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4,
         UdpBindIpv6, UdpBroadcast, UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4,
-        UdpLeaveMulticastIpv4, UdpLocalPort, UdpReceive, UdpReceiveBuffer, UdpReceiveBufferUntil,
-        UdpReceiveBytes, UdpSendBytesTo, UdpSendBytesToUntil, UdpSendTo, UdpSetBroadcast,
-        UdpSetTtl, UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen, UnixReceiveBuffer,
-        UnixReceiveBufferUntil, UnixSendBytes, UnixSendBytesUntil, UnixShutdown,
+        UdpJoinMulticastIpv6, UdpLeaveMulticastIpv4, UdpLeaveMulticastIpv6, UdpLocalPort,
+        UdpReceive, UdpReceiveBuffer, UdpReceiveBufferUntil, UdpReceiveBytes, UdpSendBytesTo,
+        UdpSendBytesToUntil, UdpSendTo, UdpSetBroadcast, UdpSetTtl, UdpTtl, UnixAccept, UnixClose,
+        UnixConnect, UnixListen, UnixReceiveBuffer, UnixReceiveBufferUntil, UnixSendBytes,
+        UnixSendBytesUntil, UnixShutdown,
     };
 
     Some(match operation {
@@ -269,6 +272,9 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ),
         UdpEndpointPart => signature(&[U64, U8, U8, WritableU32Pointer], U8),
         UdpJoinMulticastIpv4 | UdpLeaveMulticastIpv4 => signature(&[U64, U32, U32], U8),
+        UdpJoinMulticastIpv6 | UdpLeaveMulticastIpv6 => {
+            signature(&[U64, U32, U32, U32, U32, U32], U8)
+        }
         MonotonicClockNow => signature(&[U64, WritableU64Pointer, WritableU32Pointer], U8),
         DeadlineAfter => signature(&[U64, U64, U32], U64),
         TcpSendBytesUntil | UnixSendBytesUntil => {

@@ -99,6 +99,8 @@ pub const NET_ROUTES_SNAPSHOT_SYMBOL: &str = "pop_rt_net_routes_snapshot";
 pub const NET_ROUTES_CLOSE_SYMBOL: &str = "pop_rt_net_routes_close";
 pub const NET_ROUTE_COUNT_SYMBOL: &str = "pop_rt_net_route_count";
 pub const NET_ROUTE_PART_SYMBOL: &str = "pop_rt_net_route_part";
+pub const UDP_JOIN_MULTICAST_IPV6_SYMBOL: &str = "pop_rt_udp_join_multicast_ipv6";
+pub const UDP_LEAVE_MULTICAST_IPV6_SYMBOL: &str = "pop_rt_udp_leave_multicast_ipv6";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -125,7 +127,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.44.
+/// Returns the native C symbol for an operation implemented through ABI 1.45.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -328,6 +330,8 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::NetRoutesClose => Some(NET_ROUTES_CLOSE_SYMBOL),
         RuntimeOperation::NetRouteCount => Some(NET_ROUTE_COUNT_SYMBOL),
         RuntimeOperation::NetRoutePart => Some(NET_ROUTE_PART_SYMBOL),
+        RuntimeOperation::UdpJoinMulticastIpv6 => Some(UDP_JOIN_MULTICAST_IPV6_SYMBOL),
+        RuntimeOperation::UdpLeaveMulticastIpv6 => Some(UDP_LEAVE_MULTICAST_IPV6_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),
