@@ -31,3 +31,5 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 129	Actor.Ref	Pop.Standard	1	Nominal	false
 130	Actor.Inbox	Pop.Standard	1	Nominal	false
 131	Actor.Reply	Pop.Standard	1	Nominal	false
+132	Atomic.Int	Pop.Standard	0	Nominal	false
+133	Atomic.Boolean	Pop.Standard	0	Nominal	false

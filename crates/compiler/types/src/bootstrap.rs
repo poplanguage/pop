@@ -477,6 +477,10 @@ pub const ACTOR_REF_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(129);
 pub const ACTOR_INBOX_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(130);
 /// Stable compiler-known identity of single-use `Actor.Reply<T>`.
 pub const ACTOR_REPLY_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(131);
+/// Stable compiler-known identity of the native signed-64 Atomic integer.
+pub const ATOMIC_INT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(132);
+/// Stable compiler-known identity of the native Boolean Atomic value.
+pub const ATOMIC_BOOLEAN_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(133);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1221,6 +1225,29 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
                 "standard type",
                 2,
                 "invalid trusted actor type contract",
+            ));
+        }
+    }
+    for (id, source_name) in [
+        (ATOMIC_INT_TYPE_ID, "Atomic.Int"),
+        (ATOMIC_BOOLEAN_TYPE_ID, "Atomic.Boolean"),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required Atomic type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 0
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted Atomic type contract",
             ));
         }
     }

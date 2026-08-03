@@ -2974,7 +2974,10 @@ fn atomic_runtime_operation_vocabulary_follows_adr_0160() {
         read_required(root.join("architecture/decisions/0160-atomic-operation-vocabulary.md"));
     let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
     let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let types = read_required(root.join("libraries/standard/bootstrap/prelude-types.tsv"));
     assert!(adr.contains("- Status: accepted"));
+    assert!(types.contains("132\tAtomic.Int\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("133\tAtomic.Boolean\tPop.Standard\t0\tNominal\tfalse"));
     for name in [
         "AtomicIntCreate",
         "AtomicIntLoad",

@@ -8,3 +8,7 @@ Atomic integer and Boolean create/load/store/swap/strong-compare-exchange
 operations plus one typed release operation. Native symbol resolution maps
 each operation to the closed ABI symbols from ADR 0157. HIR/MIR lowering and
 public compiler call checking remain subsequent implementation layers.
+
+The trusted Standard bootstrap also reserves nominal `Atomic.Int` and
+`Atomic.Boolean` identities. They are non-prelude types; constructors and
+methods must remain explicitly typed.
