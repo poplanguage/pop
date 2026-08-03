@@ -1,5 +1,6 @@
 //! Versioned backend-neutral Pop Lang Runtime Interface contracts.
 
+mod abi_signature;
 mod actor;
 mod adapter;
 mod allocation;
@@ -15,6 +16,7 @@ mod reference;
 mod scheduler;
 mod task;
 
+pub use abi_signature::*;
 pub use actor::*;
 pub use adapter::*;
 pub use allocation::*;
