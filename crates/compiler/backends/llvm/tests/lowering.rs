@@ -9418,3 +9418,53 @@ fn generated_codec_closed_graph_verifies_symmetric_static_lowering() {
     assert!(!llvm.contains("retained-adapters.popc"), "{llvm}");
     assert!(!llvm.to_ascii_lowercase().contains("registry"), "{llvm}");
 }
+
+#[test]
+fn bounded_network_waits_lower_from_typed_pop_to_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/net-wait.pop",
+        "namespace Main\n\
+         private function run(): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local socket = Net.Udp.bind(UInt16(0))\n\
+             local buffer = Bytes.withCapacity(16)\n\
+             local waited = Net.Udp.receiveUntil(socket, buffer, UInt64(16), deadline, cancel)\n\
+             local timedOut = Net.Udp.waitTimedOut(waited)\n\
+             return timedOut and Net.Udp.close(socket) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
+         end\n",
+    )
+    .expect("bounded wait source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(7),
+        NamespaceId::from_raw(7),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(
+        front_end.hir().expect("bounded wait HIR"),
+        front_end.types(),
+    )
+    .expect("bounded wait MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default(),
+    )
+    .expect("bounded wait LLVM lowering");
+    if let Err(error) = module.verify() {
+        panic!("bounded wait LLVM must verify: {error:?}\n{module}");
+    }
+    let llvm = module.to_string();
+    assert!(llvm.contains("@pop_rt_udp_receive_buffer_until"), "{llvm}");
+    assert!(llvm.contains("@pop_rt_deadline_after"), "{llvm}");
+}

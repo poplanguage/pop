@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 473);
+    assert_eq!(baseline.entries().len(), 492);
 
     let prelude_names = baseline
         .entries()
@@ -477,6 +477,25 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Time", "liveDeadlineExpired"),
             ("Pop.Time", "closeLiveDeadline"),
             ("Pop.Time", "closeMonotonicClock"),
+            ("Pop.Net", "WaitTransfer"),
+            ("Pop.Net.Udp", "WaitTransfer"),
+            ("Pop.Net", "waitProgress"),
+            ("Pop.Net", "waitClosed"),
+            ("Pop.Net", "waitTimedOut"),
+            ("Pop.Net", "waitCancelled"),
+            ("Pop.Net", "waitedByteCount"),
+            ("Pop.Net.Tcp", "sendUntil"),
+            ("Pop.Net.Tcp", "receiveUntil"),
+            ("Pop.Net.Udp", "sendUntil"),
+            ("Pop.Net.Udp", "receiveUntil"),
+            ("Pop.Net.Udp", "waitProgress"),
+            ("Pop.Net.Udp", "waitTimedOut"),
+            ("Pop.Net.Udp", "waitCancelled"),
+            ("Pop.Net.Udp", "waitedByteCount"),
+            ("Pop.Net.Udp", "waitSourceAddress"),
+            ("Pop.Net.Udp", "waitSourcePort"),
+            ("Pop.Net.Unix", "sendUntil"),
+            ("Pop.Net.Unix", "receiveUntil"),
         ]
     );
 }

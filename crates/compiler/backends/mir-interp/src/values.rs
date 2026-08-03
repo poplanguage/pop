@@ -64,6 +64,16 @@ pub enum MirValue {
         kind: pop_types::SocketIoOutcomeKind,
         count: u64,
     },
+    NetWaitTransfer {
+        kind: u8,
+        count: u64,
+    },
+    NetUdpWaitTransfer {
+        kind: u8,
+        address: u32,
+        port: u16,
+        count: u64,
+    },
     NetUdpTransfer {
         address: u32,
         port: u16,

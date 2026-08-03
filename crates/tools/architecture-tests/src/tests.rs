@@ -3493,6 +3493,8 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             // ABI 1.41 appends explicit non-prelude live monotonic capabilities.
             "150\tTime.MonotonicClock\tPop.Standard\t0\tNominal\tfalse",
             "151\tTime.LiveDeadline\tPop.Standard\t0\tNominal\tfalse",
+            "152\tNet.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
+            "153\tNet.Udp.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

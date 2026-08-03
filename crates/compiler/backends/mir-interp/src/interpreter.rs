@@ -4307,7 +4307,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=122) => {
+            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=144) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::CallStandard {
@@ -5933,6 +5933,47 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     removed,
                     Some(PrivateValue::UnixStream(_))
                 )))
+            }
+            128..=131 if arguments.len() == 1 => {
+                let MirValue::NetWaitTransfer { kind, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(
+                    kind == u8::try_from(function - 128).unwrap_or(u8::MAX),
+                ))
+            }
+            132 if arguments.len() == 1 => {
+                let MirValue::NetWaitTransfer { count, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                integer(count, IntegerKind::UInt64)
+            }
+            137..=139 if arguments.len() == 1 => {
+                let MirValue::NetUdpWaitTransfer { kind, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let expected = match function {
+                    137 => 0,
+                    138 => 2,
+                    _ => 3,
+                };
+                Ok(MirValue::Boolean(kind == expected))
+            }
+            140..=142 if arguments.len() == 1 => {
+                let MirValue::NetUdpWaitTransfer {
+                    address,
+                    port,
+                    count,
+                    ..
+                } = argument(0)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                match function {
+                    140 => integer(count, IntegerKind::UInt64),
+                    141 => integer(u64::from(address), IntegerKind::UInt32),
+                    _ => integer(u64::from(port), IntegerKind::UInt16),
+                }
             }
             _ => Err(ExecutionError::WrongArity),
         }

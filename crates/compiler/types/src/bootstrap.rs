@@ -503,6 +503,8 @@ pub const NET_UNIX_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(148
 pub const NET_UNIX_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(149);
 pub const TIME_MONOTONIC_CLOCK_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(150);
 pub const TIME_LIVE_DEADLINE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(151);
+pub const NET_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(152);
+pub const NET_UDP_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(153);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1287,6 +1289,8 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_UNIX_STREAM_TYPE_ID, "Net.Unix.Stream"),
         (TIME_MONOTONIC_CLOCK_TYPE_ID, "Time.MonotonicClock"),
         (TIME_LIVE_DEADLINE_TYPE_ID, "Time.LiveDeadline"),
+        (NET_WAIT_TRANSFER_TYPE_ID, "Net.WaitTransfer"),
+        (NET_UDP_WAIT_TRANSFER_TYPE_ID, "Net.Udp.WaitTransfer"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1482,7 +1486,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 128 {
+    if entries.len() != 145 {
         return Err(error(
             "standard function",
             2,
@@ -2111,6 +2115,83 @@ fn validate_standard_functions(
             "Time.MonotonicClock",
             "Boolean",
             "AmbientIo",
+        ),
+        ("Net.waitProgress", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitClosed", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitTimedOut", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitCancelled", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitedByteCount", "Net.WaitTransfer", "UInt64", "-"),
+        (
+            "Net.Tcp.sendUntil",
+            "Net.Tcp.Stream,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.receiveUntil",
+            "Net.Tcp.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.sendUntil",
+            "Net.Udp.Socket,UInt32,UInt16,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receiveUntil",
+            "Net.Udp.Socket,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.Udp.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.waitProgress",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitTimedOut",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitCancelled",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitedByteCount",
+            "Net.Udp.WaitTransfer",
+            "UInt64",
+            "-",
+        ),
+        (
+            "Net.Udp.waitSourceAddress",
+            "Net.Udp.WaitTransfer",
+            "UInt32",
+            "-",
+        ),
+        (
+            "Net.Udp.waitSourcePort",
+            "Net.Udp.WaitTransfer",
+            "UInt16",
+            "-",
+        ),
+        (
+            "Net.Unix.sendUntil",
+            "Net.Unix.Stream,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.receiveUntil",
+            "Net.Unix.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
