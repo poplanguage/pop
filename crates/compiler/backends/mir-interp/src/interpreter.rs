@@ -5934,6 +5934,85 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     Some(PrivateValue::UnixStream(_))
                 )))
             }
+            133 | 134 | 135 | 143 | 144 => {
+                let (base, base_count, deadline_index, cancel_index) = match function {
+                    133 => (64, 2, 2, 3),
+                    134 => (65, 3, 3, 4),
+                    135 => (70, 4, 4, 5),
+                    143 => (117, 2, 2, 3),
+                    144 => (118, 3, 3, 4),
+                    _ => unreachable!(),
+                };
+                if arguments.len() != cancel_index + 1 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let deadline = argument(deadline_index)?.visible.clone();
+                let cancel = argument(cancel_index)?.visible.clone();
+                loop {
+                    if self.wait_cancelled(&cancel)? {
+                        break Ok(MirValue::NetWaitTransfer { kind: 3, count: 0 });
+                    }
+                    let attempt =
+                        self.evaluate_net_standard_call(base, &arguments[..base_count], values)?;
+                    let MirValue::NetTransfer { kind, count } = attempt else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    match kind {
+                        pop_types::SocketIoOutcomeKind::Progress => {
+                            break Ok(MirValue::NetWaitTransfer { kind: 0, count });
+                        }
+                        pop_types::SocketIoOutcomeKind::Closed => {
+                            break Ok(MirValue::NetWaitTransfer { kind: 1, count: 0 });
+                        }
+                        pop_types::SocketIoOutcomeKind::WouldBlock => {
+                            if self.wait_deadline_retry(&deadline)? {
+                                continue;
+                            }
+                            break Ok(MirValue::NetWaitTransfer { kind: 2, count: 0 });
+                        }
+                    }
+                }
+            }
+            136 if arguments.len() == 5 => {
+                let deadline = argument(3)?.visible.clone();
+                let cancel = argument(4)?.visible.clone();
+                loop {
+                    if self.wait_cancelled(&cancel)? {
+                        break Ok(MirValue::NetUdpWaitTransfer {
+                            kind: 3,
+                            address: 0,
+                            port: 0,
+                            count: 0,
+                        });
+                    }
+                    match self.evaluate_net_standard_call(71, &arguments[..3], values)? {
+                        MirValue::NetUdpTransfer {
+                            address,
+                            port,
+                            count,
+                        } => {
+                            break Ok(MirValue::NetUdpWaitTransfer {
+                                kind: 0,
+                                address,
+                                port,
+                                count: u64::from(count),
+                            });
+                        }
+                        MirValue::Nil => {
+                            if self.wait_deadline_retry(&deadline)? {
+                                continue;
+                            }
+                            break Ok(MirValue::NetUdpWaitTransfer {
+                                kind: 2,
+                                address: 0,
+                                port: 0,
+                                count: 0,
+                            });
+                        }
+                        _ => return Err(ExecutionError::TypeMismatch),
+                    }
+                }
+            }
             128..=131 if arguments.len() == 1 => {
                 let MirValue::NetWaitTransfer { kind, .. } = argument(0)?.visible else {
                     return Err(ExecutionError::TypeMismatch);
@@ -5977,6 +6056,32 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             }
             _ => Err(ExecutionError::WrongArity),
         }
+    }
+
+    fn wait_cancelled(&mut self, cancel: &MirValue) -> Result<bool, ExecutionError> {
+        let MirValue::CancellationToken(symbol) = cancel else {
+            return Err(ExecutionError::TypeMismatch);
+        };
+        let Some(PrivateValue::CancellationToken(state)) = self.private_values.get(symbol) else {
+            return Err(self.runtime_invariant());
+        };
+        Ok(state.borrow().requested)
+    }
+
+    fn wait_deadline_retry(&mut self, deadline: &MirValue) -> Result<bool, ExecutionError> {
+        let MirValue::TimeLiveDeadline(symbol) = deadline else {
+            return Err(ExecutionError::TypeMismatch);
+        };
+        let Some(PrivateValue::LiveDeadline { target, .. }) = self.private_values.get(symbol)
+        else {
+            return Err(self.runtime_invariant());
+        };
+        let remaining = target.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(1)));
+        Ok(true)
     }
 
     fn evaluate_live_time_standard_call(

@@ -5270,3 +5270,28 @@ fn live_monotonic_deadlines_execute_as_owned_capabilities() {
         vec![MirValue::Boolean(true)]
     );
 }
+
+#[test]
+fn bounded_udp_wait_reports_timeout_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local socket = Net.Udp.bind(UInt16(0))\n\
+             local buffer = Bytes.withCapacity(16)\n\
+             local waited = Net.Udp.receiveUntil(socket, buffer, UInt64(16), deadline, cancel)\n\
+             local timedOut = Net.Udp.waitTimedOut(waited)\n\
+             return timedOut\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("bounded UDP wait execution"),
+        vec![MirValue::Boolean(true)]
+    );
+}
