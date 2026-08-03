@@ -15,6 +15,8 @@ mod ffi_bytes;
 mod ffi_callback;
 mod foreign;
 mod identity;
+#[cfg(unix)]
+mod interfaces;
 mod iteration;
 mod list;
 mod monotonic_time;
@@ -51,6 +53,8 @@ pub use ffi_bytes::*;
 pub use ffi_callback::*;
 pub use foreign::*;
 pub use identity::*;
+#[cfg(unix)]
+pub use interfaces::*;
 pub use iteration::*;
 pub use list::*;
 pub use monotonic_time::*;

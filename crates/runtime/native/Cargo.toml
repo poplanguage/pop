@@ -21,6 +21,7 @@ harness = false
 pop-runtime-collector.workspace = true
 pop-runtime-interface.workspace = true
 pop-runtime-native-abi.workspace = true
+libc.workspace = true
 
 [lints]
 workspace = true

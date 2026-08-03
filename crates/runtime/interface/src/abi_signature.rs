@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 88] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 96] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -101,6 +101,14 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 88] = [
     RuntimeOperation::UdpReceiveBufferUntil,
     RuntimeOperation::UnixSendBytesUntil,
     RuntimeOperation::UnixReceiveBufferUntil,
+    RuntimeOperation::NetInterfacesSnapshot,
+    RuntimeOperation::NetInterfacesClose,
+    RuntimeOperation::NetInterfaceCount,
+    RuntimeOperation::NetInterfaceName,
+    RuntimeOperation::NetInterfaceIndex,
+    RuntimeOperation::NetInterfaceFlags,
+    RuntimeOperation::NetInterfaceAddressCount,
+    RuntimeOperation::NetInterfaceAddressPart,
     RuntimeOperation::DnsResolverCreate,
     RuntimeOperation::DnsResolverClose,
     RuntimeOperation::DnsResolve,
@@ -149,7 +157,9 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicIntSwap, AtomicRelease, DeadlineAfter, DeadlineClose, DeadlineExpired,
         DnsAnswerCount, DnsAnswerFamily, DnsAnswerIpv4, DnsAnswerIpv6Word, DnsAnswersClose,
         DnsResolve, DnsResolverClose, DnsResolverCreate, MonotonicClockClose, MonotonicClockCreate,
-        MonotonicClockNow, TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpConnectIpv6,
+        MonotonicClockNow, NetInterfaceAddressCount, NetInterfaceAddressPart, NetInterfaceCount,
+        NetInterfaceFlags, NetInterfaceIndex, NetInterfaceName, NetInterfacesClose,
+        NetInterfacesSnapshot, TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpConnectIpv6,
         TcpEndpointPart, TcpListen, TcpListenIpv4, TcpListenIpv6, TcpLocalPort, TcpNoDelay,
         TcpReceive, TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend,
         TcpSendBytes, TcpSendBytesUntil, TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind,
@@ -178,9 +188,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicBoolCompareExchange => signature(&[U64, U8, U8, U8, U8, WritableU8Pointer], U8),
         ActorCreate => signature(&[U64, U64, U64], U64),
         AtomicRelease | ActorActivate | ActorCompleteExit | ActorRelease | TcpClose | UdpClose
-        | DnsResolverClose | DnsAnswersClose | UnixClose | MonotonicClockClose | DeadlineClose => {
-            signature(&[U64], U8)
-        }
+        | DnsResolverClose | DnsAnswersClose | UnixClose | MonotonicClockClose | DeadlineClose
+        | NetInterfacesClose => signature(&[U64], U8),
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
@@ -192,11 +201,13 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {
             signature(&[U32, U32, U32, U32, U16, U32], U64)
         }
-        DnsResolverCreate | MonotonicClockCreate => signature(&[], U64),
+        DnsResolverCreate | MonotonicClockCreate | NetInterfacesSnapshot => signature(&[], U64),
         DnsResolve => signature(&[U64, U64, U16], U64),
         DnsAnswerCount => signature(&[U64, WritableU64Pointer], U8),
         DnsAnswerFamily | DeadlineExpired => signature(&[U64, U64, WritableU8Pointer], U8),
-        DnsAnswerIpv4 => signature(&[U64, U64, WritableU32Pointer], U8),
+        DnsAnswerIpv4 | NetInterfaceIndex | NetInterfaceFlags => {
+            signature(&[U64, U64, WritableU32Pointer], U8)
+        }
         DnsAnswerIpv6Word => signature(&[U64, U64, U8, WritableU32Pointer], U8),
         TcpLocalPort | UdpLocalPort => signature(&[U64, WritableU16Pointer], U8),
         TcpAccept | UnixListen | UnixConnect | UnixAccept => signature(&[U64], U64),
@@ -271,6 +282,10 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
             ],
             U8,
         ),
+        NetInterfaceCount | NetInterfaceName | NetInterfaceAddressCount => {
+            signature(&[U64, U64, WritableU64Pointer], U8)
+        }
+        NetInterfaceAddressPart => signature(&[U64, U64, U64, U8, U8, WritableU32Pointer], U8),
         _ => return None,
     })
 }

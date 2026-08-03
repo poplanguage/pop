@@ -78,6 +78,7 @@ ABI 1.39 adds UDP endpoint facts, broadcast, hop-limit, and IPv4 multicast contr
 ABI 1.40 adds Unix-domain listener, stream, transfer, half-close, and close capabilities.
 ABI 1.41 adds explicit live monotonic clocks and owned deadline capabilities.
 ABI 1.42 adds deadline- and cancellation-aware TCP, UDP, and Unix transfers.
+ABI 1.43 adds immutable host network-interface snapshots.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

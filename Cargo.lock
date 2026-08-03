@@ -877,6 +877,7 @@ version = "0.1.0"
 name = "pop-runtime-native"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pop-runtime-collector",
  "pop-runtime-interface",
  "pop-runtime-native-abi",

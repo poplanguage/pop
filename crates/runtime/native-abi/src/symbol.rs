@@ -87,6 +87,14 @@ pub const UDP_SEND_BYTES_TO_UNTIL_SYMBOL: &str = "pop_rt_udp_send_bytes_to_until
 pub const UDP_RECEIVE_BUFFER_UNTIL_SYMBOL: &str = "pop_rt_udp_receive_buffer_until";
 pub const UNIX_SEND_BYTES_UNTIL_SYMBOL: &str = "pop_rt_unix_send_bytes_until";
 pub const UNIX_RECEIVE_BUFFER_UNTIL_SYMBOL: &str = "pop_rt_unix_receive_buffer_until";
+pub const NET_INTERFACES_SNAPSHOT_SYMBOL: &str = "pop_rt_net_interfaces_snapshot";
+pub const NET_INTERFACES_CLOSE_SYMBOL: &str = "pop_rt_net_interfaces_close";
+pub const NET_INTERFACE_COUNT_SYMBOL: &str = "pop_rt_net_interface_count";
+pub const NET_INTERFACE_NAME_SYMBOL: &str = "pop_rt_net_interface_name";
+pub const NET_INTERFACE_INDEX_SYMBOL: &str = "pop_rt_net_interface_index";
+pub const NET_INTERFACE_FLAGS_SYMBOL: &str = "pop_rt_net_interface_flags";
+pub const NET_INTERFACE_ADDRESS_COUNT_SYMBOL: &str = "pop_rt_net_interface_address_count";
+pub const NET_INTERFACE_ADDRESS_PART_SYMBOL: &str = "pop_rt_net_interface_address_part";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -113,7 +121,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.42.
+/// Returns the native C symbol for an operation implemented through ABI 1.43.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -304,6 +312,14 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UdpReceiveBufferUntil => Some(UDP_RECEIVE_BUFFER_UNTIL_SYMBOL),
         RuntimeOperation::UnixSendBytesUntil => Some(UNIX_SEND_BYTES_UNTIL_SYMBOL),
         RuntimeOperation::UnixReceiveBufferUntil => Some(UNIX_RECEIVE_BUFFER_UNTIL_SYMBOL),
+        RuntimeOperation::NetInterfacesSnapshot => Some(NET_INTERFACES_SNAPSHOT_SYMBOL),
+        RuntimeOperation::NetInterfacesClose => Some(NET_INTERFACES_CLOSE_SYMBOL),
+        RuntimeOperation::NetInterfaceCount => Some(NET_INTERFACE_COUNT_SYMBOL),
+        RuntimeOperation::NetInterfaceName => Some(NET_INTERFACE_NAME_SYMBOL),
+        RuntimeOperation::NetInterfaceIndex => Some(NET_INTERFACE_INDEX_SYMBOL),
+        RuntimeOperation::NetInterfaceFlags => Some(NET_INTERFACE_FLAGS_SYMBOL),
+        RuntimeOperation::NetInterfaceAddressCount => Some(NET_INTERFACE_ADDRESS_COUNT_SYMBOL),
+        RuntimeOperation::NetInterfaceAddressPart => Some(NET_INTERFACE_ADDRESS_PART_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),
