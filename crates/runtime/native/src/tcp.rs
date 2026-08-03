@@ -15,14 +15,14 @@ use crate::allocate_immutable_bytes;
 use crate::byte_buffer::append_bytes;
 use crate::state::lock_abi_runtime;
 
-enum TcpResource {
+pub(crate) enum TcpResource {
     Listener(TcpListener),
     Stream(TcpStream),
 }
 
 static NEXT_TCP: AtomicU64 = AtomicU64::new(1);
 
-fn resources() -> &'static Mutex<BTreeMap<u64, TcpResource>> {
+pub(crate) fn resources() -> &'static Mutex<BTreeMap<u64, TcpResource>> {
     static RESOURCES: OnceLock<Mutex<BTreeMap<u64, TcpResource>>> = OnceLock::new();
     RESOURCES.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
@@ -295,90 +295,6 @@ fn is_closed(error: &std::io::Error) -> bool {
             | std::io::ErrorKind::ConnectionReset
             | std::io::ErrorKind::NotConnected
     )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pop_rt_tcp_shutdown(handle: u64, direction: u8) -> u8 {
-    let direction = match direction {
-        0 => Shutdown::Read,
-        1 => Shutdown::Write,
-        2 => Shutdown::Both,
-        _ => return 0,
-    };
-    let Ok(values) = resources().lock() else {
-        return 0;
-    };
-    let Some(TcpResource::Stream(stream)) = values.get(&handle) else {
-        return 0;
-    };
-    u8::from(stream.shutdown(direction).is_ok())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pop_rt_tcp_set_no_delay(handle: u64, enabled: u8) -> u8 {
-    let enabled = match enabled {
-        0 => false,
-        1 => true,
-        _ => return 0,
-    };
-    let Ok(values) = resources().lock() else {
-        return 0;
-    };
-    let Some(TcpResource::Stream(stream)) = values.get(&handle) else {
-        return 0;
-    };
-    u8::from(stream.set_nodelay(enabled).is_ok())
-}
-
-#[allow(unsafe_code)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_rt_tcp_no_delay(handle: u64, output: *mut u8) -> u8 {
-    if output.is_null() {
-        return 0;
-    }
-    let Ok(values) = resources().lock() else {
-        return 0;
-    };
-    let Some(TcpResource::Stream(stream)) = values.get(&handle) else {
-        return 0;
-    };
-    let Ok(enabled) = stream.nodelay() else {
-        return 0;
-    };
-    // SAFETY: the caller supplied a non-null scalar output slot.
-    unsafe { output.write(u8::from(enabled)) };
-    1
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pop_rt_tcp_set_ttl(handle: u64, ttl: u32) -> u8 {
-    let Ok(values) = resources().lock() else {
-        return 0;
-    };
-    let Some(TcpResource::Stream(stream)) = values.get(&handle) else {
-        return 0;
-    };
-    u8::from(stream.set_ttl(ttl).is_ok())
-}
-
-#[allow(unsafe_code)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_rt_tcp_ttl(handle: u64, output: *mut u32) -> u8 {
-    if output.is_null() {
-        return 0;
-    }
-    let Ok(values) = resources().lock() else {
-        return 0;
-    };
-    let Some(TcpResource::Stream(stream)) = values.get(&handle) else {
-        return 0;
-    };
-    let Ok(ttl) = stream.ttl() else {
-        return 0;
-    };
-    // SAFETY: the caller supplied a non-null scalar output slot.
-    unsafe { output.write(ttl) };
-    1
 }
 
 #[unsafe(no_mangle)]
