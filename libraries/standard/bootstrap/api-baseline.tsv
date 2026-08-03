@@ -351,3 +351,7 @@ api:285	Api	Pop.Standard	Pop.Net	routeDestination	routeDestination(Net.Route)->N
 api:286	Api	Pop.Standard	Pop.Net	routeNextHop	routeNextHop(Net.Route)->Net.Address?	standard	implemented	false	architecture/decisions/0155-immutable-network-interface-and-route-facts.md
 api:287	Api	Pop.Standard	Pop.Net	routeInterfaceId	routeInterfaceId(Net.Route)->Net.InterfaceId	standard	implemented	false	architecture/decisions/0155-immutable-network-interface-and-route-facts.md
 api:288	Api	Pop.Standard	Pop.Net	routeMetric	routeMetric(Net.Route)->UInt32	standard	implemented	false	architecture/decisions/0155-immutable-network-interface-and-route-facts.md
+api:289	Api	Pop.Standard	Pop.Net	DnsName	record DnsName(String)	standard	implemented	false	architecture/decisions/0159-bounded-dns-name-values.md
+api:290	Api	Pop.Standard	Pop.Net	parseDnsName	parseDnsName(String)->Net.DnsName?	standard	implemented	false	architecture/decisions/0159-bounded-dns-name-values.md
+api:291	Api	Pop.Standard	Pop.Net	formatDnsName	formatDnsName(Net.DnsName)->String	standard	implemented	false	architecture/decisions/0159-bounded-dns-name-values.md
+api:292	Api	Pop.Standard	Pop.Net	dnsNameLabelCount	dnsNameLabelCount(Net.DnsName)->UInt32	standard	implemented	false	architecture/decisions/0159-bounded-dns-name-values.md

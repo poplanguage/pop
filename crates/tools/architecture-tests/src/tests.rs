@@ -2859,6 +2859,42 @@ fn immutable_network_facts_follow_adr_0155_without_host_query_authority() {
 }
 
 #[test]
+fn bounded_dns_names_follow_adr_0159_without_resolver_authority() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0159-bounded-dns-name-values.md"));
+    let dns = read_required(root.join("crates/libraries/standard/pop/src/netDns.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record DnsName",
+        "public function parseDnsName",
+        "public function formatDnsName",
+        "public function dnsNameLabelCount",
+    ] {
+        assert_eq!(dns.matches(declaration).count(), 1);
+    }
+    for forbidden in [
+        "Dns.lookup",
+        "resolve",
+        "Environment",
+        "Socket.",
+        "Dynamic",
+        "Any",
+    ] {
+        assert!(!dns.contains(forbidden));
+    }
+    for name in [
+        "DnsName",
+        "parseDnsName",
+        "formatDnsName",
+        "dnsNameLabelCount",
+    ] {
+        assert!(baseline.contains(&format!("\tPop.Net\t{name}\t")));
+    }
+}
+
+#[test]
 fn typed_atomic_state_follows_adr_0156_without_backend_or_pointer_leakage() {
     let root = repository_root();
     let adr = read_required(
