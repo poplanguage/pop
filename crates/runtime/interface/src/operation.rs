@@ -131,6 +131,11 @@ pub enum RuntimeOperation {
     TcpSend,
     TcpReceive,
     TcpClose,
+    UdpBind,
+    UdpLocalPort,
+    UdpSendTo,
+    UdpReceive,
+    UdpClose,
     InitializeModule,
     InitializeBubble,
 }

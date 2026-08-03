@@ -3087,6 +3087,8 @@ fn bounded_udp_native_bridge_follows_adr_0163_without_resolver_authority() {
     let root = repository_root();
     let adr = read_required(root.join("architecture/decisions/0163-bounded-udp-native-handles.md"));
     let udp = read_required(root.join("crates/runtime/native/src/udp.rs"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
     let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
     assert!(adr.contains("- Status: accepted"));
     for function in [
@@ -3097,6 +3099,21 @@ fn bounded_udp_native_bridge_follows_adr_0163_without_resolver_authority() {
         "pop_rt_udp_close",
     ] {
         assert_eq!(udp.matches(function).count(), 1);
+    }
+    for name in [
+        "UdpBind",
+        "UdpLocalPort",
+        "UdpSendTo",
+        "UdpReceive",
+        "UdpClose",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name}"))
+                .count(),
+            1
+        );
     }
     assert!(tests.contains("native_udp_handles_fail_closed_without_a_capability"));
     for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {

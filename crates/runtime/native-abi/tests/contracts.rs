@@ -15,7 +15,9 @@ use pop_runtime_native_abi::{
     CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL,
     IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TCP_ACCEPT_SYMBOL,
     TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL, TCP_LOCAL_PORT_SYMBOL,
-    TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, symbol,
+    TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi,
+    UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL, UDP_RECEIVE_SYMBOL,
+    UDP_SEND_TO_SYMBOL, symbol,
 };
 
 #[test]
@@ -210,6 +212,11 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::TcpSend,
         RuntimeOperation::TcpReceive,
         RuntimeOperation::TcpClose,
+        RuntimeOperation::UdpBind,
+        RuntimeOperation::UdpLocalPort,
+        RuntimeOperation::UdpSendTo,
+        RuntimeOperation::UdpReceive,
+        RuntimeOperation::UdpClose,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
     ];
@@ -237,6 +244,23 @@ fn tcp_symbols_are_exact_and_closed() {
         symbols
             .iter()
             .all(|symbol| symbol.starts_with("pop_rt_tcp_"))
+    );
+}
+
+#[test]
+fn udp_symbols_are_exact_and_closed() {
+    let symbols = [
+        UDP_BIND_SYMBOL,
+        UDP_LOCAL_PORT_SYMBOL,
+        UDP_SEND_TO_SYMBOL,
+        UDP_RECEIVE_SYMBOL,
+        UDP_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_udp_"))
     );
 }
 
