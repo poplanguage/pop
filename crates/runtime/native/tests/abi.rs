@@ -44,7 +44,9 @@ use pop_runtime_native::{
     pop_rt_udp_join_multicast_ipv4, pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_local_port,
     pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes,
     pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl,
-    pop_rt_udp_ttl, pop_rt_unpin, request_abi_collection,
+    pop_rt_udp_ttl, pop_rt_unix_accept, pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen,
+    pop_rt_unix_receive_buffer, pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin,
+    request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -66,7 +68,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 39);
+    assert_eq!(pop_rt_abi_minor(), 40);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -97,6 +99,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 37), 1);
     assert_eq!(pop_rt_supports_abi(1, 38), 1);
     assert_eq!(pop_rt_supports_abi(1, 39), 1);
+    assert_eq!(pop_rt_supports_abi(1, 40), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -588,6 +591,51 @@ fn native_udp_exposes_endpoint_broadcast_hop_limit_and_multicast_controls() {
         assert_eq!(pop_rt_udp_leave_multicast_ipv4(socket, group, interface), 1);
     }
     assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[cfg(unix)]
+#[test]
+#[allow(unsafe_code)]
+fn native_unix_stream_transfers_into_reusable_buffers() {
+    let _guard = abi_test_lock();
+    let path = std::env::temp_dir().join(format!("pop-runtime-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let encoded_path = allocate_utf8_string_literal(path.to_string_lossy().as_bytes());
+    let listener = unsafe { pop_rt_unix_listen(encoded_path) };
+    assert_ne!(listener, 0);
+    let client = unsafe { pop_rt_unix_connect(encoded_path) };
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_unix_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"Pop Unix");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_unix_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 8);
+    let buffer = pop_rt_byte_buffer_create(32);
+    for _ in 0..1000 {
+        let status = unsafe { pop_rt_unix_receive_buffer(server, buffer, 32, &raw mut count) };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_eq!(count, 8);
+    assert_eq!(pop_rt_unix_shutdown(client, 1), 1);
+    assert_eq!(pop_rt_unix_close(client), 1);
+    assert_eq!(pop_rt_unix_close(server), 1);
+    assert_eq!(pop_rt_unix_close(listener), 1);
+    std::fs::remove_file(path).expect("remove owned Unix socket path");
 }
 
 #[test]

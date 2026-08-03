@@ -23,13 +23,14 @@ use pop_runtime_native_abi::{
     UDP_BROADCAST_SYMBOL, UDP_CLOSE_SYMBOL, UDP_ENDPOINT_PART_SYMBOL,
     UDP_JOIN_MULTICAST_IPV4_SYMBOL, UDP_LEAVE_MULTICAST_IPV4_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
     UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, UDP_SET_BROADCAST_SYMBOL, UDP_SET_TTL_SYMBOL,
-    UDP_TTL_SYMBOL, symbol,
+    UDP_TTL_SYMBOL, UNIX_ACCEPT_SYMBOL, UNIX_CLOSE_SYMBOL, UNIX_CONNECT_SYMBOL, UNIX_LISTEN_SYMBOL,
+    UNIX_RECEIVE_BUFFER_SYMBOL, UNIX_SEND_BYTES_SYMBOL, UNIX_SHUTDOWN_SYMBOL, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 39);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 40);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
@@ -271,6 +272,13 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::UdpJoinMulticastIpv4,
         RuntimeOperation::UdpLeaveMulticastIpv4,
         RuntimeOperation::UdpClose,
+        RuntimeOperation::UnixListen,
+        RuntimeOperation::UnixConnect,
+        RuntimeOperation::UnixAccept,
+        RuntimeOperation::UnixSendBytes,
+        RuntimeOperation::UnixReceiveBuffer,
+        RuntimeOperation::UnixShutdown,
+        RuntimeOperation::UnixClose,
         RuntimeOperation::DnsResolverCreate,
         RuntimeOperation::DnsResolverClose,
         RuntimeOperation::DnsResolve,
@@ -341,6 +349,25 @@ fn udp_symbols_are_exact_and_closed() {
 }
 
 #[test]
+fn unix_symbols_are_exact_and_closed() {
+    let symbols = [
+        UNIX_LISTEN_SYMBOL,
+        UNIX_CONNECT_SYMBOL,
+        UNIX_ACCEPT_SYMBOL,
+        UNIX_SEND_BYTES_SYMBOL,
+        UNIX_RECEIVE_BUFFER_SYMBOL,
+        UNIX_SHUTDOWN_SYMBOL,
+        UNIX_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_unix_"))
+    );
+}
+
+#[test]
 fn codec_event_abi_has_closed_widths_and_statuses() {
     assert!(std::mem::size_of::<CodecWriteEventAbi>() > 0);
     assert!(std::mem::size_of::<CodecReadEventAbi>() > 0);
@@ -353,7 +380,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 39);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 40);
 }
 
 #[test]

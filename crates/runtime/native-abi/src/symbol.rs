@@ -68,6 +68,13 @@ pub const UDP_TTL_SYMBOL: &str = "pop_rt_udp_ttl";
 pub const UDP_JOIN_MULTICAST_IPV4_SYMBOL: &str = "pop_rt_udp_join_multicast_ipv4";
 pub const UDP_LEAVE_MULTICAST_IPV4_SYMBOL: &str = "pop_rt_udp_leave_multicast_ipv4";
 pub const UDP_CLOSE_SYMBOL: &str = "pop_rt_udp_close";
+pub const UNIX_LISTEN_SYMBOL: &str = "pop_rt_unix_listen";
+pub const UNIX_CONNECT_SYMBOL: &str = "pop_rt_unix_connect";
+pub const UNIX_ACCEPT_SYMBOL: &str = "pop_rt_unix_accept";
+pub const UNIX_SEND_BYTES_SYMBOL: &str = "pop_rt_unix_send_bytes";
+pub const UNIX_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_unix_receive_buffer";
+pub const UNIX_SHUTDOWN_SYMBOL: &str = "pop_rt_unix_shutdown";
+pub const UNIX_CLOSE_SYMBOL: &str = "pop_rt_unix_close";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -94,7 +101,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.39.
+/// Returns the native C symbol for an operation implemented through ABI 1.40.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -266,6 +273,13 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UdpJoinMulticastIpv4 => Some(UDP_JOIN_MULTICAST_IPV4_SYMBOL),
         RuntimeOperation::UdpLeaveMulticastIpv4 => Some(UDP_LEAVE_MULTICAST_IPV4_SYMBOL),
         RuntimeOperation::UdpClose => Some(UDP_CLOSE_SYMBOL),
+        RuntimeOperation::UnixListen => Some(UNIX_LISTEN_SYMBOL),
+        RuntimeOperation::UnixConnect => Some(UNIX_CONNECT_SYMBOL),
+        RuntimeOperation::UnixAccept => Some(UNIX_ACCEPT_SYMBOL),
+        RuntimeOperation::UnixSendBytes => Some(UNIX_SEND_BYTES_SYMBOL),
+        RuntimeOperation::UnixReceiveBuffer => Some(UNIX_RECEIVE_BUFFER_SYMBOL),
+        RuntimeOperation::UnixShutdown => Some(UNIX_SHUTDOWN_SYMBOL),
+        RuntimeOperation::UnixClose => Some(UNIX_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),

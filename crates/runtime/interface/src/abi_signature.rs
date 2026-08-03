@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 69] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 76] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -82,6 +82,13 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 69] = [
     RuntimeOperation::UdpJoinMulticastIpv4,
     RuntimeOperation::UdpLeaveMulticastIpv4,
     RuntimeOperation::UdpClose,
+    RuntimeOperation::UnixListen,
+    RuntimeOperation::UnixConnect,
+    RuntimeOperation::UnixAccept,
+    RuntimeOperation::UnixSendBytes,
+    RuntimeOperation::UnixReceiveBuffer,
+    RuntimeOperation::UnixShutdown,
+    RuntimeOperation::UnixClose,
     RuntimeOperation::DnsResolverCreate,
     RuntimeOperation::DnsResolverClose,
     RuntimeOperation::DnsResolve,
@@ -135,7 +142,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4, UdpBindIpv6, UdpBroadcast, UdpClose,
         UdpEndpointPart, UdpJoinMulticastIpv4, UdpLeaveMulticastIpv4, UdpLocalPort, UdpReceive,
         UdpReceiveBuffer, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo, UdpSetBroadcast, UdpSetTtl,
-        UdpTtl,
+        UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen, UnixReceiveBuffer, UnixSendBytes,
+        UnixShutdown,
     };
 
     Some(match operation {
@@ -161,26 +169,30 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
-        ActorBeginExit | TcpShutdown | TcpSetNoDelay | UdpSetBroadcast => signature(&[U64, U8], U8),
+        ActorBeginExit | TcpShutdown | TcpSetNoDelay | UdpSetBroadcast | UnixShutdown => {
+            signature(&[U64, U8], U8)
+        }
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),
         TcpListenIpv4 | TcpConnectIpv4 | UdpBindIpv4 => signature(&[U32, U16], U64),
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {
             signature(&[U32, U32, U32, U32, U16, U32], U64)
         }
         DnsResolverCreate => signature(&[], U64),
-        DnsResolverClose | DnsAnswersClose => signature(&[U64], U8),
+        DnsResolverClose | DnsAnswersClose | UnixClose => signature(&[U64], U8),
         DnsResolve => signature(&[U64, U64, U16], U64),
         DnsAnswerCount => signature(&[U64, WritableU64Pointer], U8),
         DnsAnswerFamily => signature(&[U64, U64, WritableU8Pointer], U8),
         DnsAnswerIpv4 => signature(&[U64, U64, WritableU32Pointer], U8),
         DnsAnswerIpv6Word => signature(&[U64, U64, U8, WritableU32Pointer], U8),
         TcpLocalPort | UdpLocalPort => signature(&[U64, WritableU16Pointer], U8),
-        TcpAccept => signature(&[U64], U64),
+        TcpAccept | UnixListen | UnixConnect | UnixAccept => signature(&[U64], U64),
         TcpSend => signature(&[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer], U8),
         TcpReceive => signature(&[U64, WritableU8Pointer, U64, WritableU64Pointer], U8),
-        TcpSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
+        TcpSendBytes | UnixSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
-        TcpReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
+        TcpReceiveBuffer | UnixReceiveBuffer => {
+            signature(&[U64, U64, U64, WritableU64Pointer], U8)
+        }
         TcpNoDelay | UdpBroadcast => signature(&[U64, WritableU8Pointer], U8),
         TcpSetTtl | UdpSetTtl => signature(&[U64, U32], U8),
         TcpTtl | UdpTtl => signature(&[U64, WritableU32Pointer], U8),

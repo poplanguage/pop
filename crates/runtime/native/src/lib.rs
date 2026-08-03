@@ -29,6 +29,8 @@ mod tcp_endpoint;
 mod text;
 mod udp;
 mod udp_control;
+#[cfg(unix)]
+mod unix_socket;
 mod utf8;
 mod view;
 
@@ -60,5 +62,7 @@ pub use tcp_endpoint::*;
 pub use text::*;
 pub use udp::*;
 pub use udp_control::*;
+#[cfg(unix)]
+pub use unix_socket::*;
 pub use utf8::*;
 pub use view::*;
