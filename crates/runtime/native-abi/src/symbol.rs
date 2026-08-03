@@ -152,6 +152,17 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ChannelClose => Some("pop_rt_channel_close"),
         RuntimeOperation::ChannelTrySend => Some("pop_rt_channel_try_send"),
         RuntimeOperation::ChannelTryReceive => Some("pop_rt_channel_try_receive"),
+        RuntimeOperation::AtomicIntCreate => Some(ATOMIC_INT_CREATE_SYMBOL),
+        RuntimeOperation::AtomicIntLoad => Some(ATOMIC_INT_LOAD_SYMBOL),
+        RuntimeOperation::AtomicIntStore => Some(ATOMIC_INT_STORE_SYMBOL),
+        RuntimeOperation::AtomicIntSwap => Some(ATOMIC_INT_SWAP_SYMBOL),
+        RuntimeOperation::AtomicIntCompareExchange => Some(ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL),
+        RuntimeOperation::AtomicBoolCreate => Some(ATOMIC_BOOL_CREATE_SYMBOL),
+        RuntimeOperation::AtomicBoolLoad => Some(ATOMIC_BOOL_LOAD_SYMBOL),
+        RuntimeOperation::AtomicBoolStore => Some(ATOMIC_BOOL_STORE_SYMBOL),
+        RuntimeOperation::AtomicBoolSwap => Some(ATOMIC_BOOL_SWAP_SYMBOL),
+        RuntimeOperation::AtomicBoolCompareExchange => Some(ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL),
+        RuntimeOperation::AtomicRelease => Some(ATOMIC_RELEASE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake
         | RuntimeOperation::CaptureLoad

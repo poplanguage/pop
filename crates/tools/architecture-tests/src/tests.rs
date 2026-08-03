@@ -2968,6 +2968,46 @@ fn atomic_native_handles_follow_adr_0157_without_dynamic_dispatch() {
 }
 
 #[test]
+fn atomic_runtime_operation_vocabulary_follows_adr_0160() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0160-atomic-operation-vocabulary.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for name in [
+        "AtomicIntCreate",
+        "AtomicIntLoad",
+        "AtomicIntStore",
+        "AtomicIntSwap",
+        "AtomicIntCompareExchange",
+        "AtomicBoolCreate",
+        "AtomicBoolLoad",
+        "AtomicBoolStore",
+        "AtomicBoolSwap",
+        "AtomicBoolCompareExchange",
+        "AtomicRelease",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+    }
+    for name in [
+        "RuntimeOperation::AtomicIntCreate",
+        "RuntimeOperation::AtomicIntLoad",
+        "RuntimeOperation::AtomicIntStore",
+        "RuntimeOperation::AtomicIntSwap",
+        "RuntimeOperation::AtomicIntCompareExchange",
+        "RuntimeOperation::AtomicBoolCreate",
+        "RuntimeOperation::AtomicBoolLoad",
+        "RuntimeOperation::AtomicBoolStore",
+        "RuntimeOperation::AtomicBoolSwap",
+        "RuntimeOperation::AtomicBoolCompareExchange",
+        "RuntimeOperation::AtomicRelease",
+    ] {
+        assert_eq!(symbols.matches(name).count(), 1);
+    }
+}
+
+#[test]
 fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
     let root = repository_root();
     let adr =
