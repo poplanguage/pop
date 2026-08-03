@@ -44,11 +44,11 @@ use pop_runtime_native::{
     pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6,
     pop_rt_udp_broadcast, pop_rt_udp_close, pop_rt_udp_endpoint_part,
     pop_rt_udp_join_multicast_ipv4, pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_local_port,
-    pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes,
-    pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl,
-    pop_rt_udp_ttl, pop_rt_unix_accept, pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen,
-    pop_rt_unix_receive_buffer, pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin,
-    request_abi_collection,
+    pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_buffer_until,
+    pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
+    pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl, pop_rt_udp_ttl, pop_rt_unix_accept,
+    pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen, pop_rt_unix_receive_buffer,
+    pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -70,7 +70,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 41);
+    assert_eq!(pop_rt_abi_minor(), 42);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -103,6 +103,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 39), 1);
     assert_eq!(pop_rt_supports_abi(1, 40), 1);
     assert_eq!(pop_rt_supports_abi(1, 41), 1);
+    assert_eq!(pop_rt_supports_abi(1, 42), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -143,6 +144,67 @@ fn native_monotonic_clock_owns_bounded_deadlines() {
         unsafe { pop_rt_deadline_expired(clock, owned_deadline, &raw mut expired) },
         0
     );
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_wait_distinguishes_timeout_and_cancellation() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    let buffer = pop_rt_byte_buffer_create(16);
+    let clock = pop_rt_monotonic_clock_create();
+    let source = pop_rt_cancel_source_create();
+    let token = pop_rt_cancel_source_token(source);
+    assert_ne!(socket, 0);
+    assert_ne!(buffer, 0);
+    assert_ne!(clock, 0);
+    assert_ne!(source, 0);
+    assert_ne!(token, 0);
+
+    let expired = pop_rt_deadline_after(clock, 0, 0);
+    let mut address = 0;
+    let mut port = 0;
+    let mut received = 0;
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive_buffer_until(
+                socket,
+                buffer,
+                16,
+                expired,
+                token,
+                &raw mut address,
+                &raw mut port,
+                &raw mut received,
+            )
+        },
+        4
+    );
+
+    let pending = pop_rt_deadline_after(clock, 1, 0);
+    assert_eq!(pop_rt_task_cancel(source), 1);
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive_buffer_until(
+                socket,
+                buffer,
+                16,
+                pending,
+                token,
+                &raw mut address,
+                &raw mut port,
+                &raw mut received,
+            )
+        },
+        5
+    );
+
+    assert_eq!(pop_rt_deadline_close(expired), 1);
+    assert_eq!(pop_rt_deadline_close(pending), 1);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(pop_rt_cancel_source_release(source), 1);
+    assert_eq!(pop_rt_cancel_token_release(token), 1);
+    assert_eq!(pop_rt_udp_close(socket), 1);
 }
 
 #[test]

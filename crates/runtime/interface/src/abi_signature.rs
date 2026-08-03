@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 82] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 88] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -95,6 +95,12 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 82] = [
     RuntimeOperation::DeadlineAfter,
     RuntimeOperation::DeadlineExpired,
     RuntimeOperation::DeadlineClose,
+    RuntimeOperation::TcpSendBytesUntil,
+    RuntimeOperation::TcpReceiveBufferUntil,
+    RuntimeOperation::UdpSendBytesToUntil,
+    RuntimeOperation::UdpReceiveBufferUntil,
+    RuntimeOperation::UnixSendBytesUntil,
+    RuntimeOperation::UnixReceiveBufferUntil,
     RuntimeOperation::DnsResolverCreate,
     RuntimeOperation::DnsResolverClose,
     RuntimeOperation::DnsResolve,
@@ -145,12 +151,13 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         DnsResolve, DnsResolverClose, DnsResolverCreate, MonotonicClockClose, MonotonicClockCreate,
         MonotonicClockNow, TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpConnectIpv6,
         TcpEndpointPart, TcpListen, TcpListenIpv4, TcpListenIpv6, TcpLocalPort, TcpNoDelay,
-        TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend, TcpSendBytes, TcpSetNoDelay,
-        TcpSetTtl, TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4, UdpBindIpv6, UdpBroadcast, UdpClose,
-        UdpEndpointPart, UdpJoinMulticastIpv4, UdpLeaveMulticastIpv4, UdpLocalPort, UdpReceive,
-        UdpReceiveBuffer, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo, UdpSetBroadcast, UdpSetTtl,
-        UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen, UnixReceiveBuffer, UnixSendBytes,
-        UnixShutdown,
+        TcpReceive, TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend,
+        TcpSendBytes, TcpSendBytesUntil, TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind,
+        UdpBindIpv4, UdpBindIpv6, UdpBroadcast, UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4,
+        UdpLeaveMulticastIpv4, UdpLocalPort, UdpReceive, UdpReceiveBuffer, UdpReceiveBufferUntil,
+        UdpReceiveBytes, UdpSendBytesTo, UdpSendBytesToUntil, UdpSendTo, UdpSetBroadcast,
+        UdpSetTtl, UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen, UnixReceiveBuffer,
+        UnixReceiveBufferUntil, UnixSendBytes, UnixSendBytesUntil, UnixShutdown,
     };
 
     Some(match operation {
@@ -244,6 +251,26 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         UdpJoinMulticastIpv4 | UdpLeaveMulticastIpv4 => signature(&[U64, U32, U32], U8),
         MonotonicClockNow => signature(&[U64, WritableU64Pointer, WritableU32Pointer], U8),
         DeadlineAfter => signature(&[U64, U64, U32], U64),
+        TcpSendBytesUntil | UnixSendBytesUntil => {
+            signature(&[U64, U64, U64, U64, WritableU64Pointer], U8)
+        }
+        TcpReceiveBufferUntil | UnixReceiveBufferUntil => {
+            signature(&[U64, U64, U64, U64, U64, WritableU64Pointer], U8)
+        }
+        UdpSendBytesToUntil => signature(&[U64, U32, U16, U64, U64, U64, WritableU64Pointer], U8),
+        UdpReceiveBufferUntil => signature(
+            &[
+                U64,
+                U64,
+                U64,
+                U64,
+                U64,
+                WritableU32Pointer,
+                WritableU16Pointer,
+                WritableU64Pointer,
+            ],
+            U8,
+        ),
         _ => return None,
     })
 }

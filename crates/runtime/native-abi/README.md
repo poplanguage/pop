@@ -64,6 +64,7 @@ ABI 1.38 appends family-preserving TCP local/peer endpoint inspection.
 ABI 1.39 appends UDP endpoint facts, broadcast, hop-limit, and IPv4 multicast controls.
 ABI 1.40 appends Unix-domain listener, stream, transfer, half-close, and close capabilities.
 ABI 1.41 appends explicit live monotonic clocks and owned deadline capabilities.
+ABI 1.42 appends deadline- and cancellation-aware TCP, UDP, and Unix transfers.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the

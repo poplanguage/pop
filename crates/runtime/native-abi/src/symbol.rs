@@ -81,6 +81,12 @@ pub const MONOTONIC_CLOCK_CLOSE_SYMBOL: &str = "pop_rt_monotonic_clock_close";
 pub const DEADLINE_AFTER_SYMBOL: &str = "pop_rt_deadline_after";
 pub const DEADLINE_EXPIRED_SYMBOL: &str = "pop_rt_deadline_expired";
 pub const DEADLINE_CLOSE_SYMBOL: &str = "pop_rt_deadline_close";
+pub const TCP_SEND_BYTES_UNTIL_SYMBOL: &str = "pop_rt_tcp_send_bytes_until";
+pub const TCP_RECEIVE_BUFFER_UNTIL_SYMBOL: &str = "pop_rt_tcp_receive_buffer_until";
+pub const UDP_SEND_BYTES_TO_UNTIL_SYMBOL: &str = "pop_rt_udp_send_bytes_to_until";
+pub const UDP_RECEIVE_BUFFER_UNTIL_SYMBOL: &str = "pop_rt_udp_receive_buffer_until";
+pub const UNIX_SEND_BYTES_UNTIL_SYMBOL: &str = "pop_rt_unix_send_bytes_until";
+pub const UNIX_RECEIVE_BUFFER_UNTIL_SYMBOL: &str = "pop_rt_unix_receive_buffer_until";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -107,7 +113,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.41.
+/// Returns the native C symbol for an operation implemented through ABI 1.42.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -292,6 +298,12 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::DeadlineAfter => Some(DEADLINE_AFTER_SYMBOL),
         RuntimeOperation::DeadlineExpired => Some(DEADLINE_EXPIRED_SYMBOL),
         RuntimeOperation::DeadlineClose => Some(DEADLINE_CLOSE_SYMBOL),
+        RuntimeOperation::TcpSendBytesUntil => Some(TCP_SEND_BYTES_UNTIL_SYMBOL),
+        RuntimeOperation::TcpReceiveBufferUntil => Some(TCP_RECEIVE_BUFFER_UNTIL_SYMBOL),
+        RuntimeOperation::UdpSendBytesToUntil => Some(UDP_SEND_BYTES_TO_UNTIL_SYMBOL),
+        RuntimeOperation::UdpReceiveBufferUntil => Some(UDP_RECEIVE_BUFFER_UNTIL_SYMBOL),
+        RuntimeOperation::UnixSendBytesUntil => Some(UNIX_SEND_BYTES_UNTIL_SYMBOL),
+        RuntimeOperation::UnixReceiveBufferUntil => Some(UNIX_RECEIVE_BUFFER_UNTIL_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),
