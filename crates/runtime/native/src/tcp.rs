@@ -68,7 +68,13 @@ pub unsafe extern "C" fn pop_rt_tcp_local_port(handle: u64, output: *mut u16) ->
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_tcp_connect(port: u16) -> u64 {
-    TcpStream::connect(("127.0.0.1", port)).map_or(0, |stream| insert(TcpResource::Stream(stream)))
+    let Ok(stream) = TcpStream::connect(("127.0.0.1", port)) else {
+        return 0;
+    };
+    if stream.set_nonblocking(true).is_err() {
+        return 0;
+    }
+    insert(TcpResource::Stream(stream))
 }
 
 #[unsafe(no_mangle)]
@@ -82,6 +88,9 @@ pub extern "C" fn pop_rt_tcp_accept(listener: u64) -> u64 {
     let Ok((stream, _)) = listener.accept() else {
         return 0;
     };
+    if stream.set_nonblocking(true).is_err() {
+        return 0;
+    }
     drop(values);
     insert(TcpResource::Stream(stream))
 }

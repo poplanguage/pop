@@ -3083,6 +3083,17 @@ fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
 }
 
 #[test]
+fn bounded_tcp_native_streams_are_always_nonblocking() {
+    let source = read_required(repository_root().join("crates/runtime/native/src/tcp.rs"));
+    assert_eq!(
+        source.matches("set_nonblocking(true)").count(),
+        3,
+        "listener, connected streams, and accepted streams must all be nonblocking"
+    );
+    assert!(!source.contains("set_nonblocking(false)"));
+}
+
+#[test]
 fn bounded_udp_native_bridge_follows_adr_0163_without_resolver_authority() {
     let root = repository_root();
     let adr = read_required(root.join("architecture/decisions/0163-bounded-udp-native-handles.md"));
