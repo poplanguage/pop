@@ -481,6 +481,12 @@ pub const ACTOR_REPLY_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(131);
 pub const ATOMIC_INT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(132);
 /// Stable compiler-known identity of the native Boolean Atomic value.
 pub const ATOMIC_BOOLEAN_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(133);
+/// Stable compiler-known identity of Atomic load ordering.
+pub const ATOMIC_LOAD_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(134);
+/// Stable compiler-known identity of Atomic store ordering.
+pub const ATOMIC_STORE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(135);
+/// Stable compiler-known identity of Atomic read-modify-write ordering.
+pub const ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(136);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1231,6 +1237,12 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
     for (id, source_name) in [
         (ATOMIC_INT_TYPE_ID, "Atomic.Int"),
         (ATOMIC_BOOLEAN_TYPE_ID, "Atomic.Boolean"),
+        (ATOMIC_LOAD_ORDER_TYPE_ID, "Atomic.LoadOrder"),
+        (ATOMIC_STORE_ORDER_TYPE_ID, "Atomic.StoreOrder"),
+        (
+            ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID,
+            "Atomic.ReadModifyWriteOrder",
+        ),
     ] {
         let Some(entry) = entries
             .iter()

@@ -2978,6 +2978,9 @@ fn atomic_runtime_operation_vocabulary_follows_adr_0160() {
     assert!(adr.contains("- Status: accepted"));
     assert!(types.contains("132\tAtomic.Int\tPop.Standard\t0\tNominal\tfalse"));
     assert!(types.contains("133\tAtomic.Boolean\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("134\tAtomic.LoadOrder\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse"));
     for name in [
         "AtomicIntCreate",
         "AtomicIntLoad",
