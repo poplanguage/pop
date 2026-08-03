@@ -44,6 +44,8 @@ use pop_types::{
 };
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{Read as _, Write as _};
+use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::rc::Rc;
 
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
@@ -1527,6 +1529,9 @@ enum PrivateValue {
     Actor(Rc<RefCell<ActorLifecycle<InterpreterChannelValue>>>),
     AtomicInt(AtomicInt),
     AtomicBoolean(AtomicBoolean),
+    TcpListener(TcpListener),
+    TcpStream(TcpStream),
+    UdpSocket(UdpSocket),
 }
 
 #[derive(Clone, Debug)]
@@ -4281,6 +4286,13 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             } if matches!(function.raw(), 25..=34) => {
                 self.evaluate_actor_standard_call(function.raw(), arguments, values)?
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 35..=58) => {
+                self.evaluate_net_standard_call(function.raw(), arguments, values)?
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)
@@ -4724,6 +4736,310 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     _ => pop_types::ActorSendOutcomeKind::Stale,
                 };
                 Ok(MirValue::Boolean(outcome == expected))
+            }
+            _ => Err(ExecutionError::WrongArity),
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn evaluate_net_standard_call(
+        &mut self,
+        function: u32,
+        arguments: &[ValueId],
+        values: &BTreeMap<ValueId, RuntimeValue>,
+    ) -> Result<MirValue, ExecutionError> {
+        let argument = |index: usize| {
+            arguments
+                .get(index)
+                .copied()
+                .ok_or(ExecutionError::WrongArity)
+                .and_then(|argument| value(values, argument))
+        };
+        let unsigned = |index: usize| integer_u64(&argument(index)?.visible);
+        let integer = |value: u64, kind: IntegerKind| {
+            IntegerValue::parse_decimal(&value.to_string(), kind)
+                .map(MirValue::Integer)
+                .map_err(|_| ExecutionError::InvalidControlFlow)
+        };
+        let closed_error = |error: &std::io::Error| {
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::NotConnected
+            )
+        };
+        match function {
+            35 if arguments.len() == 1 => {
+                let port = u16::try_from(unsigned(0)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+                    .map_err(|_| self.runtime_invariant())?;
+                listener
+                    .set_nonblocking(true)
+                    .map_err(|_| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::TcpListener(listener));
+                Ok(MirValue::NetTcpListener(symbol))
+            }
+            36 if arguments.len() == 1 => {
+                let MirValue::NetTcpListener(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpListener(listener)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::from(
+                        listener
+                            .local_addr()
+                            .map_err(|_| self.runtime_invariant())?
+                            .port(),
+                    ),
+                    IntegerKind::UInt16,
+                )
+            }
+            37 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::from(
+                        stream
+                            .local_addr()
+                            .map_err(|_| self.runtime_invariant())?
+                            .port(),
+                    ),
+                    IntegerKind::UInt16,
+                )
+            }
+            38 if arguments.len() == 1 => {
+                let port = u16::try_from(unsigned(0)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+                    .map_err(|_| self.runtime_invariant())?;
+                stream
+                    .set_nonblocking(true)
+                    .map_err(|_| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::TcpStream(stream));
+                Ok(MirValue::NetTcpStream(symbol))
+            }
+            39 if arguments.len() == 1 => {
+                let MirValue::NetTcpListener(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let accepted = match self.private_values.get(&symbol) {
+                    Some(PrivateValue::TcpListener(listener)) => listener.accept(),
+                    _ => return Err(self.runtime_invariant()),
+                };
+                match accepted {
+                    Ok((stream, _)) => {
+                        stream
+                            .set_nonblocking(true)
+                            .map_err(|_| self.runtime_invariant())?;
+                        let stream_symbol = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(stream_symbol, PrivateValue::TcpStream(stream));
+                        Ok(MirValue::NetTcpStream(stream_symbol))
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        Ok(MirValue::Nil)
+                    }
+                    Err(_) => Err(self.runtime_invariant()),
+                }
+            }
+            40 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let byte = u8::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get_mut(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let outcome = match stream.write(&[byte]) {
+                    Ok(0) => pop_types::SocketIoOutcomeKind::Closed,
+                    Ok(_) => pop_types::SocketIoOutcomeKind::Progress,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        pop_types::SocketIoOutcomeKind::WouldBlock
+                    }
+                    Err(error) if closed_error(&error) => pop_types::SocketIoOutcomeKind::Closed,
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetSocketIoOutcome(outcome))
+            }
+            41 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get_mut(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let mut byte = [0_u8; 1];
+                let (kind, value) = match stream.read(&mut byte) {
+                    Ok(0) => (pop_types::TcpReceiveKind::Closed, None),
+                    Ok(_) => (pop_types::TcpReceiveKind::Progress, Some(byte[0])),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::TcpReceiveKind::WouldBlock, None)
+                    }
+                    Err(error) if closed_error(&error) => (pop_types::TcpReceiveKind::Closed, None),
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTcpReceive { kind, value })
+            }
+            42 if arguments.len() == 1 => {
+                let MirValue::NetTcpListener(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::TcpListener(_))
+                )))
+            }
+            43 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let removed = self.private_values.remove(&symbol);
+                if let Some(PrivateValue::TcpStream(stream)) = &removed {
+                    let _ = stream.shutdown(Shutdown::Both);
+                }
+                Ok(MirValue::Boolean(matches!(
+                    removed,
+                    Some(PrivateValue::TcpStream(_))
+                )))
+            }
+            44..=46 if arguments.len() == 1 => {
+                let MirValue::NetSocketIoOutcome(outcome) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let expected = match function {
+                    44 => pop_types::SocketIoOutcomeKind::Progress,
+                    45 => pop_types::SocketIoOutcomeKind::WouldBlock,
+                    _ => pop_types::SocketIoOutcomeKind::Closed,
+                };
+                Ok(MirValue::Boolean(outcome == expected))
+            }
+            47 | 49 | 50 if arguments.len() == 1 => {
+                let MirValue::NetTcpReceive { kind, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let expected = match function {
+                    47 => pop_types::TcpReceiveKind::Progress,
+                    49 => pop_types::TcpReceiveKind::WouldBlock,
+                    _ => pop_types::TcpReceiveKind::Closed,
+                };
+                Ok(MirValue::Boolean(kind == expected))
+            }
+            48 if arguments.len() == 1 => {
+                let MirValue::NetTcpReceive { value, .. } = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                value.map_or(Ok(MirValue::Nil), |byte| {
+                    integer(u64::from(byte), IntegerKind::UInt8)
+                })
+            }
+            51 if arguments.len() == 1 => {
+                let port = u16::try_from(unsigned(0)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, port))
+                    .map_err(|_| self.runtime_invariant())?;
+                socket
+                    .set_nonblocking(true)
+                    .map_err(|_| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::UdpSocket(socket));
+                Ok(MirValue::NetUdpSocket(symbol))
+            }
+            52 if arguments.len() == 1 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::from(
+                        socket
+                            .local_addr()
+                            .map_err(|_| self.runtime_invariant())?
+                            .port(),
+                    ),
+                    IntegerKind::UInt16,
+                )
+            }
+            53 if arguments.len() == 4 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let address =
+                    u32::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let port = u16::try_from(unsigned(2)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let byte = u8::try_from(unsigned(3)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let destination = SocketAddrV4::new(Ipv4Addr::from(address), port);
+                let outcome = match socket.send_to(&[byte], destination) {
+                    Ok(_) => pop_types::SocketIoOutcomeKind::Progress,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        pop_types::SocketIoOutcomeKind::WouldBlock
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetSocketIoOutcome(outcome))
+            }
+            54 if arguments.len() == 1 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let mut byte = [0_u8; 1];
+                match socket.recv_from(&mut byte) {
+                    Ok((_, std::net::SocketAddr::V4(peer))) => Ok(MirValue::NetUdpDatagram {
+                        address: u32::from(*peer.ip()),
+                        port: peer.port(),
+                        value: byte[0],
+                    }),
+                    Ok((_, std::net::SocketAddr::V6(_))) => Err(self.runtime_invariant()),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        Ok(MirValue::Nil)
+                    }
+                    Err(_) => Err(self.runtime_invariant()),
+                }
+            }
+            55 if arguments.len() == 1 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::UdpSocket(_))
+                )))
+            }
+            56..=58 if arguments.len() == 1 => {
+                let MirValue::NetUdpDatagram {
+                    address,
+                    port,
+                    value,
+                } = argument(0)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                match function {
+                    56 => integer(u64::from(value), IntegerKind::UInt8),
+                    57 => integer(u64::from(address), IntegerKind::UInt32),
+                    _ => integer(u64::from(port), IntegerKind::UInt16),
+                }
             }
             _ => Err(ExecutionError::WrongArity),
         }
@@ -5344,7 +5660,10 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::Channel(_)
                         | PrivateValue::Actor(_)
                         | PrivateValue::AtomicInt(_)
-                        | PrivateValue::AtomicBoolean(_),
+                        | PrivateValue::AtomicBoolean(_)
+                        | PrivateValue::TcpListener(_)
+                        | PrivateValue::TcpStream(_)
+                        | PrivateValue::UdpSocket(_),
                     ) => Err(ExecutionError::TypeMismatch),
                     None => Err(ExecutionError::TypeMismatch),
                 }

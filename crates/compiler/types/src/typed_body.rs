@@ -423,6 +423,20 @@ pub enum ActorSendOutcomeKind {
     Stale,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SocketIoOutcomeKind {
+    Progress,
+    WouldBlock,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TcpReceiveKind {
+    Progress,
+    WouldBlock,
+    Closed,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypedExpressionKind {
     Integer(IntegerValue),

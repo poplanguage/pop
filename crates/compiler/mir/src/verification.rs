@@ -34,6 +34,13 @@ fn standard_function_type(
     schema: &pop_types::BootstrapSchema,
     name: &str,
 ) -> Option<TypeId> {
+    if let Some(inner) = name.strip_suffix('?') {
+        let inner = standard_function_type(arena, schema, inner)?;
+        let nil = arena.source_type("nil")?;
+        return arena
+            .find(&SemanticType::Union(vec![inner, nil]))
+            .or_else(|| arena.find(&SemanticType::Union(vec![nil, inner])));
+    }
     arena.source_type(name).or_else(|| {
         let entry = schema.type_by_source_name(name)?;
         (entry.arity() == 0).then(|| {

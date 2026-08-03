@@ -400,6 +400,109 @@ fn typed_actor_mailboxes_lower_and_execute_through_native_abi() {
 }
 
 #[test]
+fn typed_net_transports_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/net.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             local listener = Net.Tcp.listen(UInt16(0))\n\
+             local tcpPort = Net.Tcp.listenerLocalPort(listener)\n\
+             local client = Net.Tcp.connect(tcpPort)\n\
+             if local server = Net.Tcp.accept(listener) then\n\
+                 local sent = Net.Tcp.sendByte(client, Byte(65))\n\
+                 local received = Net.Tcp.receiveByte(server)\n\
+                 if local byte = Net.Tcp.receivedByte(received) then\n\
+                     local expectedTcpByte = Byte(65)\n\
+                     local tcpClosed = Net.Tcp.closeStream(client) and Net.Tcp.closeStream(server) and Net.Tcp.closeListener(listener)\n\
+                     local udp = Net.Udp.bind(UInt16(0))\n\
+                     local udpPort = Net.Udp.localPort(udp)\n\
+                     local datagramSent = Net.Udp.sendByteTo(udp, UInt32(2130706433), udpPort, Byte(66))\n\
+                     if local datagram = Net.Udp.receiveByte(udp) then\n\
+                         local expectedUdpByte = Byte(66)\n\
+                         local expectedAddress = UInt32(2130706433)\n\
+                         local validDatagram = Net.Udp.datagramByte(datagram) == expectedUdpByte and Net.Udp.datagramAddress(datagram) == expectedAddress and Net.Udp.datagramPort(datagram) == udpPort\n\
+                         local udpClosed = Net.Udp.close(udp)\n\
+                         if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and udpClosed then\n\
+                             return 0\n\
+                         end\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Net MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Net MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Net MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Net lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_tcp_listen",
+        "pop_rt_tcp_connect",
+        "pop_rt_tcp_accept",
+        "pop_rt_tcp_send",
+        "pop_rt_tcp_receive",
+        "pop_rt_tcp_close",
+        "pop_rt_udp_bind",
+        "pop_rt_udp_send_to",
+        "pop_rt_udp_receive",
+        "pop_rt_udp_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-net.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-net.bc");
+    fs::write(&input, &text).expect("write Net LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Net IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "net");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Net execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
 fn llvm_lowers_foreign_calls_with_exact_abi_and_balanced_transitions() {
     let ffi = BubbleId::from_raw(9);
     let source = SourceFile::new(

@@ -489,6 +489,12 @@ pub const ATOMIC_STORE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(13
 pub const ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(136);
 /// Stable compiler-known identity of closed local Actor send outcomes.
 pub const ACTOR_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(137);
+pub const NET_TCP_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(138);
+pub const NET_TCP_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(139);
+pub const NET_UDP_SOCKET_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(140);
+pub const NET_SOCKET_IO_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(141);
+pub const NET_TCP_RECEIVE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(142);
+pub const NET_UDP_DATAGRAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(143);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1259,6 +1265,37 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         ));
     }
     for (id, source_name) in [
+        (NET_TCP_LISTENER_TYPE_ID, "Net.Tcp.Listener"),
+        (NET_TCP_STREAM_TYPE_ID, "Net.Tcp.Stream"),
+        (NET_UDP_SOCKET_TYPE_ID, "Net.Udp.Socket"),
+        (NET_SOCKET_IO_OUTCOME_TYPE_ID, "Net.SocketIoOutcome"),
+        (NET_TCP_RECEIVE_TYPE_ID, "Net.Tcp.Receive"),
+        (NET_UDP_DATAGRAM_TYPE_ID, "Net.Udp.Datagram"),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error(
+                "standard type",
+                2,
+                "missing required Net transport type",
+            ));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 0
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted Net transport type contract",
+            ));
+        }
+    }
+    for (id, source_name) in [
         (ATOMIC_INT_TYPE_ID, "Atomic.Int"),
         (ATOMIC_BOOLEAN_TYPE_ID, "Atomic.Boolean"),
         (ATOMIC_LOAD_ORDER_TYPE_ID, "Atomic.LoadOrder"),
@@ -1429,7 +1466,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 35 {
+    if entries.len() != 59 {
         return Err(error(
             "standard function",
             2,
@@ -1586,6 +1623,100 @@ fn validate_standard_functions(
         ("Actor.sendFull", "Actor.SendOutcome", "Boolean", "-"),
         ("Actor.sendClosed", "Actor.SendOutcome", "Boolean", "-"),
         ("Actor.sendStale", "Actor.SendOutcome", "Boolean", "-"),
+        (
+            "Net.Tcp.listen",
+            "UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.listenerLocalPort",
+            "Net.Tcp.Listener",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.streamLocalPort",
+            "Net.Tcp.Stream",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connect",
+            "UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.accept",
+            "Net.Tcp.Listener",
+            "Net.Tcp.Stream?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.sendByte",
+            "Net.Tcp.Stream,Byte",
+            "Net.SocketIoOutcome",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.receiveByte",
+            "Net.Tcp.Stream",
+            "Net.Tcp.Receive",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.closeListener",
+            "Net.Tcp.Listener",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.closeStream",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        ("Net.ioProgress", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.ioWouldBlock", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.ioClosed", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.Tcp.received", "Net.Tcp.Receive", "Boolean", "-"),
+        ("Net.Tcp.receivedByte", "Net.Tcp.Receive", "Byte?", "-"),
+        (
+            "Net.Tcp.receiveWouldBlock",
+            "Net.Tcp.Receive",
+            "Boolean",
+            "-",
+        ),
+        ("Net.Tcp.receiveClosed", "Net.Tcp.Receive", "Boolean", "-"),
+        (
+            "Net.Udp.bind",
+            "UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localPort",
+            "Net.Udp.Socket",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.sendByteTo",
+            "Net.Udp.Socket,UInt32,UInt16,Byte",
+            "Net.SocketIoOutcome",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receiveByte",
+            "Net.Udp.Socket",
+            "Net.Udp.Datagram?",
+            "AmbientIo,MayTrap",
+        ),
+        ("Net.Udp.close", "Net.Udp.Socket", "Boolean", "AmbientIo"),
+        ("Net.Udp.datagramByte", "Net.Udp.Datagram", "Byte", "-"),
+        ("Net.Udp.datagramAddress", "Net.Udp.Datagram", "UInt32", "-"),
+        ("Net.Udp.datagramPort", "Net.Udp.Datagram", "UInt16", "-"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

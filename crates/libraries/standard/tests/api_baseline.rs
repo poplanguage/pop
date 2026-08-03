@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 366);
+    assert_eq!(baseline.entries().len(), 396);
 
     let prelude_names = baseline
         .entries()
@@ -382,6 +382,30 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Actor", "sendFull"),
             ("Pop.Actor", "sendClosed"),
             ("Pop.Actor", "sendStale"),
+            ("Pop.Net.Tcp", "listen"),
+            ("Pop.Net.Tcp", "listenerLocalPort"),
+            ("Pop.Net.Tcp", "streamLocalPort"),
+            ("Pop.Net.Tcp", "connect"),
+            ("Pop.Net.Tcp", "accept"),
+            ("Pop.Net.Tcp", "sendByte"),
+            ("Pop.Net.Tcp", "receiveByte"),
+            ("Pop.Net.Tcp", "closeListener"),
+            ("Pop.Net.Tcp", "closeStream"),
+            ("Pop.Net", "ioProgress"),
+            ("Pop.Net", "ioWouldBlock"),
+            ("Pop.Net", "ioClosed"),
+            ("Pop.Net.Tcp", "received"),
+            ("Pop.Net.Tcp", "receivedByte"),
+            ("Pop.Net.Tcp", "receiveWouldBlock"),
+            ("Pop.Net.Tcp", "receiveClosed"),
+            ("Pop.Net.Udp", "bind"),
+            ("Pop.Net.Udp", "localPort"),
+            ("Pop.Net.Udp", "sendByteTo"),
+            ("Pop.Net.Udp", "receiveByte"),
+            ("Pop.Net.Udp", "close"),
+            ("Pop.Net.Udp", "datagramByte"),
+            ("Pop.Net.Udp", "datagramAddress"),
+            ("Pop.Net.Udp", "datagramPort"),
         ]
     );
 }

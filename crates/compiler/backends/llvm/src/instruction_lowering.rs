@@ -9,7 +9,7 @@ use pop_mir::{MirFfiLayoutCatalog, MirInstructionKind, MirTerminator};
 use pop_runtime_interface::{ArrayElementMap, RuntimeOperation};
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, ChannelReceiveStatus,
-    ChannelSendStatus, IterationCollectionKind, IterationStatus,
+    ChannelSendStatus, IterationCollectionKind, IterationStatus, SocketIoStatus,
 };
 use pop_types::{FloatKind, IntegerKind, PrimitiveType, SemanticType, TypeArena};
 use std::collections::{BTreeMap, BTreeSet};
@@ -588,6 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
+            35..=58 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -3713,6 +3714,282 @@ fn lower_actor_standard_call(
             arguments[0].raw(),
             function - 31
         )),
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_net_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    let trap_status = |status: &str, valid: String, mut lines: Vec<String>| {
+        lines.extend([
+            valid,
+            format!("br i1 {status}_valid, label %{label}_continue, label %{label}_trap"),
+            format!("{label}_trap:"),
+            format!("call void @{trap}()"),
+            "unreachable".to_owned(),
+            format!("{label}_continue:"),
+        ]);
+        lines
+    };
+    match function {
+        35 | 38 | 51 if arguments.len() == 1 => {
+            let operation = match function {
+                35 => RuntimeOperation::TcpListen,
+                38 => RuntimeOperation::TcpConnect,
+                _ => RuntimeOperation::UdpBind,
+            };
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}(i16 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        36 | 37 | 52 if arguments.len() == 1 => {
+            let operation = if function == 52 {
+                RuntimeOperation::UdpLocalPort
+            } else {
+                RuntimeOperation::TcpLocalPort
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i16"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i16, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        39 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_handle = call i64 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TcpAccept),
+                arguments[0].raw()
+            ),
+            format!("{result}_present = icmp ne i64 {result}_handle, 0"),
+            format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+            format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_handle, 1"),
+        ]
+        .join("\n")),
+        40 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 %v{}, ptr {result}_byte", arguments[1].raw()),
+                    format!("{result}_written = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::TcpSend),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_wide = zext i8 {status} to i64"),
+                    format!("{result} = sub i64 {result}_wide, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        41 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 0, ptr {result}_byte"),
+                    format!("{result}_received = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::TcpReceive),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_byte_value = load i8, ptr {result}_byte"),
+                    format!("{result}_byte_wide = zext i8 {result}_byte_value to i64"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_status_index = sub i64 {result}_status_wide, 1"),
+                    format!("{result}_status_bits = shl i64 {result}_status_index, 8"),
+                    format!("{result} = or i64 {result}_status_bits, {result}_byte_wide"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        42 | 43 | 55 if arguments.len() == 1 => {
+            let operation = if function == 55 {
+                RuntimeOperation::UdpClose
+            } else {
+                RuntimeOperation::TcpClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        44..=46 if arguments.len() == 1 => Ok(format!(
+            "{result} = icmp eq i64 %v{}, {}",
+            arguments[0].raw(),
+            function - 44
+        )),
+        47 | 49 | 50 if arguments.len() == 1 => {
+            let expected = match function {
+                47 => 0,
+                49 => 1,
+                _ => 2,
+            };
+            Ok([
+                format!("{result}_status = lshr i64 %v{}, 8", arguments[0].raw()),
+                format!("{result} = icmp eq i64 {result}_status, {expected}"),
+            ]
+            .join("\n"))
+        }
+        48 if arguments.len() == 1 => Ok([
+            format!("{result}_status = lshr i64 %v{}, 8", arguments[0].raw()),
+            format!("{result}_present = icmp eq i64 {result}_status, 0"),
+            format!("{result}_byte = trunc i64 %v{} to i8", arguments[0].raw()),
+            format!("{result}_tagged = insertvalue {{ i1, i8 }} undef, i1 {result}_present, 0"),
+            format!("{result} = insertvalue {{ i1, i8 }} {result}_tagged, i8 {result}_byte, 1"),
+        ]
+        .join("\n")),
+        53 if arguments.len() == 4 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 %v{}, ptr {result}_byte", arguments[3].raw()),
+                    format!("{result}_written = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i32 %v{}, i16 %v{}, ptr {result}_byte, i64 1, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::UdpSendTo),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_wide = zext i8 {status} to i64"),
+                    format!("{result} = sub i64 {result}_wide, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        54 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 0, ptr {result}_byte"),
+                    format!("{result}_address = alloca i32"),
+                    format!("store i32 0, ptr {result}_address"),
+                    format!("{result}_port = alloca i16"),
+                    format!("store i16 0, ptr {result}_port"),
+                    format!("{result}_received = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_address, ptr {result}_port, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::UdpReceive),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!(
+                        "{result}_present = icmp eq i8 {status}, {}",
+                        SocketIoStatus::Progress as u8
+                    ),
+                    format!("{result}_byte_value = load i8, ptr {result}_byte"),
+                    format!("{result}_address_value = load i32, ptr {result}_address"),
+                    format!("{result}_port_value = load i16, ptr {result}_port"),
+                    format!("{result}_byte_wide = zext i8 {result}_byte_value to i64"),
+                    format!("{result}_address_wide = zext i32 {result}_address_value to i64"),
+                    format!("{result}_port_wide = zext i16 {result}_port_value to i64"),
+                    format!("{result}_byte_bits = shl i64 {result}_byte_wide, 48"),
+                    format!("{result}_port_bits = shl i64 {result}_port_wide, 32"),
+                    format!("{result}_address_port = or i64 {result}_address_wide, {result}_port_bits"),
+                    format!("{result}_payload = or i64 {result}_address_port, {result}_byte_bits"),
+                    format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+                    format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_payload, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        56 if arguments.len() == 1 => Ok([
+            format!("{result}_shifted = lshr i64 %v{}, 48", arguments[0].raw()),
+            format!("{result} = trunc i64 {result}_shifted to i8"),
+        ]
+        .join("\n")),
+        57 if arguments.len() == 1 => Ok(format!(
+            "{result} = trunc i64 %v{} to i32",
+            arguments[0].raw()
+        )),
+        58 if arguments.len() == 1 => Ok([
+            format!("{result}_shifted = lshr i64 %v{}, 32", arguments[0].raw()),
+            format!("{result} = trunc i64 {result}_shifted to i16"),
+        ]
+        .join("\n")),
         _ => Err(unsupported()),
     }
 }

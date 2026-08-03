@@ -4197,6 +4197,10 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
     }
 
     fn standard_function_type(&mut self, name: &str) -> Option<TypeId> {
+        if let Some(inner) = name.strip_suffix('?') {
+            let inner = self.standard_function_type(inner)?;
+            return self.resolver.arena_mut().optional(inner).ok();
+        }
         if let Some(type_id) = self.resolver.arena().source_type(name) {
             return Some(type_id);
         }

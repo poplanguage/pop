@@ -37,3 +37,9 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 135	Atomic.StoreOrder	Pop.Standard	0	Nominal	false
 136	Atomic.ReadModifyWriteOrder	Pop.Standard	0	Nominal	false
 137	Actor.SendOutcome	Pop.Standard	0	Nominal	false
+138	Net.Tcp.Listener	Pop.Standard	0	Nominal	false
+139	Net.Tcp.Stream	Pop.Standard	0	Nominal	false
+140	Net.Udp.Socket	Pop.Standard	0	Nominal	false
+141	Net.SocketIoOutcome	Pop.Standard	0	Nominal	false
+142	Net.Tcp.Receive	Pop.Standard	0	Nominal	false
+143	Net.Udp.Datagram	Pop.Standard	0	Nominal	false

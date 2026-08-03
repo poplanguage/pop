@@ -380,6 +380,28 @@ fn actor_mailboxes_preserve_exact_integer_message_types_and_outcomes() {
 }
 
 #[test]
+fn net_tcp_and_udp_transport_calls_preserve_exact_handle_and_payload_types() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function transport(): Boolean\n\
+             local listener: Net.Tcp.Listener = Net.Tcp.listen(UInt16(0))\n\
+             local port: UInt16 = Net.Tcp.listenerLocalPort(listener)\n\
+             local stream: Net.Tcp.Stream = Net.Tcp.connect(port)\n\
+             local sent: Net.SocketIoOutcome = Net.Tcp.sendByte(stream, Byte(65))\n\
+             local socket: Net.Udp.Socket = Net.Udp.bind(UInt16(0))\n\
+             local datagramSent = Net.Udp.sendByteTo(socket, UInt32(2130706433), Net.Udp.localPort(socket), Byte(66))\n\
+             return Net.ioProgress(sent) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
+         end\n",
+        "transport",
+    );
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
 fn await_requires_async_context_and_exact_task_operand() {
     let outside = check_function(
         "namespace Example\n\

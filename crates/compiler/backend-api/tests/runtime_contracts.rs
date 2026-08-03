@@ -177,6 +177,41 @@ fn actor_standard_calls_derive_the_actor_runtime_contract() {
             .iter()
             .any(|requirement| {
                 requirement.contract() == RuntimeContract::StandardLibraryAdapters
+                    && matches!(requirement.origin(), RequirementOrigin::Instruction { .. })
+            })
+    );
+}
+
+#[test]
+fn net_standard_calls_derive_the_network_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t5) effects[AmbientIo,MayTrap]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer UInt16 0\n",
+        "    v1:t138 = callStandard sf35 (v0) effects[AmbientIo,MayTrap]\n",
+        "    v2:t5 = callStandard sf36 (v1) effects[MayTrap]\n",
+        "    return (v2)\n",
+    ))
+    .expect("structural Net MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::NetworkIo
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(1))
+    }));
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::NetworkIo
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(2))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| {
+                requirement.contract() == RuntimeContract::StandardLibraryAdapters
+                    && matches!(requirement.origin(), RequirementOrigin::Instruction { .. })
             })
     );
 }

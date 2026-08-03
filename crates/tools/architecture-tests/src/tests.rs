@@ -3477,6 +3477,13 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse",
             "136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse",
             "137\tActor.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
+            // ADR 0167 appends the typed non-prelude network transport identities.
+            "138\tNet.Tcp.Listener\tPop.Standard\t0\tNominal\tfalse",
+            "139\tNet.Tcp.Stream\tPop.Standard\t0\tNominal\tfalse",
+            "140\tNet.Udp.Socket\tPop.Standard\t0\tNominal\tfalse",
+            "141\tNet.SocketIoOutcome\tPop.Standard\t0\tNominal\tfalse",
+            "142\tNet.Tcp.Receive\tPop.Standard\t0\tNominal\tfalse",
+            "143\tNet.Udp.Datagram\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

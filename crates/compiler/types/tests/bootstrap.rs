@@ -137,6 +137,21 @@ fn actor_standard_functions_are_typed_qualified_and_non_prelude() {
 }
 
 #[test]
+fn net_transport_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let net: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Net."))
+        .collect();
+
+    assert_eq!(net.len(), 24);
+    assert_eq!(net.first().expect("first Net function").id().raw(), 35);
+    assert_eq!(net.last().expect("last Net function").id().raw(), 58);
+    assert!(net.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
 fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();
