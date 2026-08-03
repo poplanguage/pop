@@ -940,7 +940,7 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 43)"),
+        (&native_abi, "NativeAbiVersion::new(1, 44)"),
         (&native_abi, "NativeAbiVersion::new(2, 5)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
@@ -1783,7 +1783,7 @@ fn linear_string_iteration_follows_adr_0116_without_materialization() {
     assert!(adr.contains("- Status: accepted"));
     assert!(typed.contains("String,"));
     assert!(hir.contains("HirIterationSource::String"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 43)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 44)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(native_abi.contains("String = 4"));
     assert!(native_iteration.contains("scalar_array_values"));
@@ -1817,7 +1817,7 @@ fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
     assert!(native_state.contains("ABI_BYTE_BUFFERS"));
     assert!(!native_buffer.contains("abi_lists"));
     assert!(!native_buffer.contains("FfiBuffer"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 43)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 44)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
     assert!(c.contains("is_byte_buffer_instruction"));
@@ -1846,7 +1846,7 @@ fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
     assert!(interpreter.contains("String::from_utf8"));
     assert!(llvm.contains("RuntimeOperation::Utf8DecodeBuffer"));
     assert!(native.contains("pop_rt_byte_buffer_decode_utf8"));
-    assert!(native_abi.contains("NativeAbiVersion::new(1, 43)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 44)"));
     assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
     assert!(c.contains("MirInstructionKind::Utf8DecodeBuffer"));
     for forbidden in ["Any", "Dynamic", "from_utf8_lossy", "runtime name"] {
@@ -3233,7 +3233,7 @@ fn native_bounded_channel_abi_follows_adr_0146_with_precise_roots() {
     let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
 
     assert!(adr.contains("- Status: accepted"));
-    assert!(version.contains("NativeAbiVersion::new(1, 43)"));
+    assert!(version.contains("NativeAbiVersion::new(1, 44)"));
     assert!(version.contains("NativeAbiVersion::new(2, 5)"));
     for name in [
         "ChannelCreate",

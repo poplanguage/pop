@@ -23,6 +23,8 @@ mod monotonic_time;
 mod network_wait;
 mod range;
 mod roots;
+#[cfg(target_os = "linux")]
+mod routes;
 mod scheduler;
 mod state;
 mod storage;
@@ -61,6 +63,8 @@ pub use monotonic_time::*;
 pub use network_wait::*;
 pub use range::*;
 pub use roots::*;
+#[cfg(target_os = "linux")]
+pub use routes::*;
 pub use scheduler::*;
 pub use storage::*;
 pub use task::*;

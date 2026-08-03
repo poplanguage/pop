@@ -95,6 +95,10 @@ pub const NET_INTERFACE_INDEX_SYMBOL: &str = "pop_rt_net_interface_index";
 pub const NET_INTERFACE_FLAGS_SYMBOL: &str = "pop_rt_net_interface_flags";
 pub const NET_INTERFACE_ADDRESS_COUNT_SYMBOL: &str = "pop_rt_net_interface_address_count";
 pub const NET_INTERFACE_ADDRESS_PART_SYMBOL: &str = "pop_rt_net_interface_address_part";
+pub const NET_ROUTES_SNAPSHOT_SYMBOL: &str = "pop_rt_net_routes_snapshot";
+pub const NET_ROUTES_CLOSE_SYMBOL: &str = "pop_rt_net_routes_close";
+pub const NET_ROUTE_COUNT_SYMBOL: &str = "pop_rt_net_route_count";
+pub const NET_ROUTE_PART_SYMBOL: &str = "pop_rt_net_route_part";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -121,7 +125,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.43.
+/// Returns the native C symbol for an operation implemented through ABI 1.44.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -320,6 +324,10 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::NetInterfaceFlags => Some(NET_INTERFACE_FLAGS_SYMBOL),
         RuntimeOperation::NetInterfaceAddressCount => Some(NET_INTERFACE_ADDRESS_COUNT_SYMBOL),
         RuntimeOperation::NetInterfaceAddressPart => Some(NET_INTERFACE_ADDRESS_PART_SYMBOL),
+        RuntimeOperation::NetRoutesSnapshot => Some(NET_ROUTES_SNAPSHOT_SYMBOL),
+        RuntimeOperation::NetRoutesClose => Some(NET_ROUTES_CLOSE_SYMBOL),
+        RuntimeOperation::NetRouteCount => Some(NET_ROUTE_COUNT_SYMBOL),
+        RuntimeOperation::NetRoutePart => Some(NET_ROUTE_PART_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),

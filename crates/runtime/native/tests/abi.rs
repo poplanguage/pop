@@ -34,24 +34,25 @@ use pop_runtime_native::{
     pop_rt_monotonic_clock_create, pop_rt_monotonic_clock_now, pop_rt_net_interface_address_count,
     pop_rt_net_interface_address_part, pop_rt_net_interface_count, pop_rt_net_interface_flags,
     pop_rt_net_interface_index, pop_rt_net_interface_name, pop_rt_net_interfaces_close,
-    pop_rt_net_interfaces_snapshot, pop_rt_pin, pop_rt_range_create, pop_rt_release_root,
-    pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat,
-    pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi,
-    pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set,
-    pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept, pop_rt_tcp_close,
-    pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6, pop_rt_tcp_endpoint_part,
-    pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6, pop_rt_tcp_local_port,
-    pop_rt_tcp_no_delay, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes,
-    pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_tcp_set_no_delay, pop_rt_tcp_set_ttl,
-    pop_rt_tcp_shutdown, pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
-    pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6, pop_rt_udp_broadcast,
-    pop_rt_udp_close, pop_rt_udp_endpoint_part, pop_rt_udp_join_multicast_ipv4,
-    pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_local_port, pop_rt_udp_receive,
-    pop_rt_udp_receive_buffer, pop_rt_udp_receive_buffer_until, pop_rt_udp_receive_bytes,
-    pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl,
-    pop_rt_udp_ttl, pop_rt_unix_accept, pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen,
-    pop_rt_unix_receive_buffer, pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin,
-    request_abi_collection,
+    pop_rt_net_interfaces_snapshot, pop_rt_net_route_count, pop_rt_net_route_part,
+    pop_rt_net_routes_close, pop_rt_net_routes_snapshot, pop_rt_pin, pop_rt_range_create,
+    pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
+    pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
+    pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
+    pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6,
+    pop_rt_tcp_endpoint_part, pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6,
+    pop_rt_tcp_local_port, pop_rt_tcp_no_delay, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer,
+    pop_rt_tcp_receive_bytes, pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_tcp_set_no_delay,
+    pop_rt_tcp_set_ttl, pop_rt_tcp_shutdown, pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8,
+    pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6,
+    pop_rt_udp_broadcast, pop_rt_udp_close, pop_rt_udp_endpoint_part,
+    pop_rt_udp_join_multicast_ipv4, pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_local_port,
+    pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_buffer_until,
+    pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
+    pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl, pop_rt_udp_ttl, pop_rt_unix_accept,
+    pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen, pop_rt_unix_receive_buffer,
+    pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -73,7 +74,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 43);
+    assert_eq!(pop_rt_abi_minor(), 44);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -108,6 +109,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 41), 1);
     assert_eq!(pop_rt_supports_abi(1, 42), 1);
     assert_eq!(pop_rt_supports_abi(1, 43), 1);
+    assert_eq!(pop_rt_supports_abi(1, 44), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -256,6 +258,39 @@ fn native_interface_snapshot_exposes_typed_host_facts() {
         assert!(matches!(family, 4 | 6));
     }
     assert_eq!(pop_rt_net_interfaces_close(snapshot), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_route_snapshot_exposes_typed_linux_facts() {
+    let _guard = abi_test_lock();
+    let snapshot = pop_rt_net_routes_snapshot();
+    assert_ne!(snapshot, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_route_count(snapshot, &raw mut count) },
+        1
+    );
+    assert!(count > 0);
+
+    let mut family = 0;
+    let mut prefix = 0;
+    let mut interface = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 0, 0, &raw mut family) },
+        1
+    );
+    assert!(matches!(family, 4 | 6));
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 2, 0, &raw mut prefix) },
+        1
+    );
+    assert!(prefix <= if family == 4 { 32 } else { 128 });
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 4, 0, &raw mut interface) },
+        1
+    );
+    assert_eq!(pop_rt_net_routes_close(snapshot), 1);
 }
 
 #[test]
