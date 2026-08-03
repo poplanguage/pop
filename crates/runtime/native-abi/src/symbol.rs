@@ -75,6 +75,12 @@ pub const UNIX_SEND_BYTES_SYMBOL: &str = "pop_rt_unix_send_bytes";
 pub const UNIX_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_unix_receive_buffer";
 pub const UNIX_SHUTDOWN_SYMBOL: &str = "pop_rt_unix_shutdown";
 pub const UNIX_CLOSE_SYMBOL: &str = "pop_rt_unix_close";
+pub const MONOTONIC_CLOCK_CREATE_SYMBOL: &str = "pop_rt_monotonic_clock_create";
+pub const MONOTONIC_CLOCK_NOW_SYMBOL: &str = "pop_rt_monotonic_clock_now";
+pub const MONOTONIC_CLOCK_CLOSE_SYMBOL: &str = "pop_rt_monotonic_clock_close";
+pub const DEADLINE_AFTER_SYMBOL: &str = "pop_rt_deadline_after";
+pub const DEADLINE_EXPIRED_SYMBOL: &str = "pop_rt_deadline_expired";
+pub const DEADLINE_CLOSE_SYMBOL: &str = "pop_rt_deadline_close";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
 pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
@@ -101,7 +107,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.40.
+/// Returns the native C symbol for an operation implemented through ABI 1.41.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -280,6 +286,12 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UnixReceiveBuffer => Some(UNIX_RECEIVE_BUFFER_SYMBOL),
         RuntimeOperation::UnixShutdown => Some(UNIX_SHUTDOWN_SYMBOL),
         RuntimeOperation::UnixClose => Some(UNIX_CLOSE_SYMBOL),
+        RuntimeOperation::MonotonicClockCreate => Some(MONOTONIC_CLOCK_CREATE_SYMBOL),
+        RuntimeOperation::MonotonicClockNow => Some(MONOTONIC_CLOCK_NOW_SYMBOL),
+        RuntimeOperation::MonotonicClockClose => Some(MONOTONIC_CLOCK_CLOSE_SYMBOL),
+        RuntimeOperation::DeadlineAfter => Some(DEADLINE_AFTER_SYMBOL),
+        RuntimeOperation::DeadlineExpired => Some(DEADLINE_EXPIRED_SYMBOL),
+        RuntimeOperation::DeadlineClose => Some(DEADLINE_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),

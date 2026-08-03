@@ -23,13 +23,15 @@ use pop_runtime_native::{
     pop_rt_cancel_token_release, pop_rt_channel_close, pop_rt_channel_create,
     pop_rt_channel_release_receiver, pop_rt_channel_release_sender, pop_rt_channel_retain_receiver,
     pop_rt_channel_retain_sender, pop_rt_channel_try_receive, pop_rt_channel_try_send,
-    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow,
+    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_deadline_after,
+    pop_rt_deadline_close, pop_rt_deadline_expired, pop_rt_ffi_buffer_borrow,
     pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length,
     pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write,
     pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set,
     pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make,
     pop_rt_iteration_next, pop_rt_list_add, pop_rt_list_create, pop_rt_list_get,
-    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create,
+    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_monotonic_clock_close,
+    pop_rt_monotonic_clock_create, pop_rt_monotonic_clock_now, pop_rt_pin, pop_rt_range_create,
     pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
     pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
     pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
@@ -68,7 +70,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 40);
+    assert_eq!(pop_rt_abi_minor(), 41);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -100,11 +102,47 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 38), 1);
     assert_eq!(pop_rt_supports_abi(1, 39), 1);
     assert_eq!(pop_rt_supports_abi(1, 40), 1);
+    assert_eq!(pop_rt_supports_abi(1, 41), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
     assert_eq!(pop_rt_supports_abi(2, 4), 0);
     assert_eq!(pop_rt_supports_abi(2, 5), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_monotonic_clock_owns_bounded_deadlines() {
+    let _guard = abi_test_lock();
+    let clock = pop_rt_monotonic_clock_create();
+    assert_ne!(clock, 0);
+
+    let mut seconds = u64::MAX;
+    let mut nanoseconds = u32::MAX;
+    assert_eq!(
+        unsafe { pop_rt_monotonic_clock_now(clock, &raw mut seconds, &raw mut nanoseconds) },
+        1
+    );
+    assert!(nanoseconds < 1_000_000_000);
+
+    let expired_deadline = pop_rt_deadline_after(clock, 0, 0);
+    assert_ne!(expired_deadline, 0);
+    let mut expired = 0;
+    assert_eq!(
+        unsafe { pop_rt_deadline_expired(clock, expired_deadline, &raw mut expired) },
+        1
+    );
+    assert_eq!(expired, 1);
+    assert_eq!(pop_rt_deadline_close(expired_deadline), 1);
+    assert_eq!(pop_rt_deadline_after(clock, 0, 1_000_000_000), 0);
+
+    let owned_deadline = pop_rt_deadline_after(clock, 1, 0);
+    assert_ne!(owned_deadline, 0);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(
+        unsafe { pop_rt_deadline_expired(clock, owned_deadline, &raw mut expired) },
+        0
+    );
 }
 
 #[test]
