@@ -62,7 +62,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 35);
+    assert_eq!(pop_rt_abi_minor(), 36);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -89,6 +89,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 33), 1);
     assert_eq!(pop_rt_supports_abi(1, 34), 1);
     assert_eq!(pop_rt_supports_abi(1, 35), 1);
+    assert_eq!(pop_rt_supports_abi(1, 36), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -384,6 +385,31 @@ fn native_ipv6_endpoints_bind_and_connect_exact_addresses() {
     let socket = pop_rt_udp_bind_ipv6(0, 0, 0, 1, 0, 0);
     assert_ne!(socket, 0);
     assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_dns_resolver_returns_bounded_localhost_answers() {
+    let _guard = abi_test_lock();
+    let resolver = pop_runtime_native::pop_rt_dns_resolver_create();
+    assert_ne!(resolver, 0);
+    let name = allocate_utf8_string_literal(b"localhost");
+    let answers = unsafe { pop_runtime_native::pop_rt_dns_resolve(resolver, name, 8) };
+    assert_ne!(answers, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_runtime_native::pop_rt_dns_answer_count(answers, &raw mut count) },
+        1
+    );
+    assert!((1..=8).contains(&count));
+    let mut family = 0;
+    assert_eq!(
+        unsafe { pop_runtime_native::pop_rt_dns_answer_family(answers, 0, &raw mut family) },
+        1
+    );
+    assert!(matches!(family, 4 | 6));
+    assert_eq!(pop_runtime_native::pop_rt_dns_answers_close(answers), 1);
+    assert_eq!(pop_runtime_native::pop_rt_dns_resolver_close(resolver), 1);
 }
 
 #[test]

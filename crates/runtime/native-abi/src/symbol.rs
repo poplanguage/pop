@@ -55,6 +55,14 @@ pub const UDP_SEND_BYTES_TO_SYMBOL: &str = "pop_rt_udp_send_bytes_to";
 pub const UDP_RECEIVE_BYTES_SYMBOL: &str = "pop_rt_udp_receive_bytes";
 pub const UDP_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_udp_receive_buffer";
 pub const UDP_CLOSE_SYMBOL: &str = "pop_rt_udp_close";
+pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
+pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
+pub const DNS_RESOLVE_SYMBOL: &str = "pop_rt_dns_resolve";
+pub const DNS_ANSWER_COUNT_SYMBOL: &str = "pop_rt_dns_answer_count";
+pub const DNS_ANSWER_FAMILY_SYMBOL: &str = "pop_rt_dns_answer_family";
+pub const DNS_ANSWER_IPV4_SYMBOL: &str = "pop_rt_dns_answer_ipv4";
+pub const DNS_ANSWER_IPV6_WORD_SYMBOL: &str = "pop_rt_dns_answer_ipv6_word";
+pub const DNS_ANSWERS_CLOSE_SYMBOL: &str = "pop_rt_dns_answers_close";
 
 pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
 pub const ATOMIC_INT_LOAD_SYMBOL: &str = "pop_rt_atomic_int_load";
@@ -73,7 +81,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.35.
+/// Returns the native C symbol for an operation implemented through ABI 1.36.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -232,6 +240,14 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UdpReceiveBytes => Some(UDP_RECEIVE_BYTES_SYMBOL),
         RuntimeOperation::UdpReceiveBuffer => Some(UDP_RECEIVE_BUFFER_SYMBOL),
         RuntimeOperation::UdpClose => Some(UDP_CLOSE_SYMBOL),
+        RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
+        RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
+        RuntimeOperation::DnsResolve => Some(DNS_RESOLVE_SYMBOL),
+        RuntimeOperation::DnsAnswerCount => Some(DNS_ANSWER_COUNT_SYMBOL),
+        RuntimeOperation::DnsAnswerFamily => Some(DNS_ANSWER_FAMILY_SYMBOL),
+        RuntimeOperation::DnsAnswerIpv4 => Some(DNS_ANSWER_IPV4_SYMBOL),
+        RuntimeOperation::DnsAnswerIpv6Word => Some(DNS_ANSWER_IPV6_WORD_SYMBOL),
+        RuntimeOperation::DnsAnswersClose => Some(DNS_ANSWERS_CLOSE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake
         | RuntimeOperation::CaptureLoad

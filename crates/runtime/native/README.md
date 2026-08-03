@@ -69,6 +69,8 @@ ABI 1.33 adds bounded UDP receive directly into a reusable `Bytes.Buffer`.
 ABI 1.34 adds explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
 ABI 1.35 adds exact numeric-IPv6 TCP listen/connect and UDP bind endpoints with
 explicit scope IDs.
+ABI 1.36 adds explicit bounded system-resolver and family-preserving DNS answer
+handles.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

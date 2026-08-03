@@ -56,6 +56,8 @@ ABI 1.33 appends bounded UDP receive directly into a reusable `Bytes.Buffer`.
 ABI 1.34 appends explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
 ABI 1.35 appends exact numeric-IPv6 TCP listen/connect and UDP bind endpoints
 with explicit scope IDs.
+ABI 1.36 appends explicit bounded system-resolver and family-preserving DNS
+answer handles.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the
