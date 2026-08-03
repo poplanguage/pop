@@ -4307,7 +4307,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=165) => {
+            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=167) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::CallStandard {

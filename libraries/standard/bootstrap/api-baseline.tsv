@@ -515,3 +515,5 @@ api:436	Api	Pop.Standard	Pop.Net.Routes	gatewayWord	gatewayWord(Net.Routes.Snaps
 api:437	Api	Pop.Standard	Pop.Net.Routes	interfaceIndex	interfaceIndex(Net.Routes.Snapshot,UInt64)->UInt32	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
 api:438	Api	Pop.Standard	Pop.Net.Routes	metric	metric(Net.Routes.Snapshot,UInt64)->UInt32	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
 api:439	Api	Pop.Standard	Pop.Net.Routes	flags	flags(Net.Routes.Snapshot,UInt64)->UInt32	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
+api:440	Api	Pop.Standard	Pop.Net.Udp	joinMulticastIpv6	joinMulticastIpv6(Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId)->Boolean	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
+api:441	Api	Pop.Standard	Pop.Net.Udp	leaveMulticastIpv6	leaveMulticastIpv6(Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId)->Boolean	standard	implemented	false	architecture/22.2-system-network-security-catalog.md

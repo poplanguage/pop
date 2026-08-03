@@ -166,3 +166,5 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 163	Net.Routes.interfaceIndex	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
 164	Net.Routes.metric	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
 165	Net.Routes.flags	Pop.Standard	Net.Routes.Snapshot,UInt64	UInt32	AmbientIo,MayTrap	false
+166	Net.Udp.joinMulticastIpv6	Pop.Standard	Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId	Boolean	AmbientIo	false
+167	Net.Udp.leaveMulticastIpv6	Pop.Standard	Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId	Boolean	AmbientIo	false

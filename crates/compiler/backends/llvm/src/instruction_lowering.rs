@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=122 | 128..=165 => {
+            35..=58 | 64..=122 | 128..=167 => {
                 lower_net_standard_call(&result, function.raw(), arguments)?
             }
             123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
@@ -5113,6 +5113,27 @@ fn lower_net_standard_call(
                 .chain([load])
                 .collect::<Vec<_>>()
                 .join("\n"))
+        }
+        166 | 167 if arguments.len() == 3 => {
+            let operation = if function == 166 {
+                RuntimeOperation::UdpJoinMulticastIpv6
+            } else {
+                RuntimeOperation::UdpLeaveMulticastIpv6
+            };
+            Ok([
+                format!("{result}_word0_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word1_raw = call i64 @{}(i64 %v{}, i64 1)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word2_raw = call i64 @{}(i64 %v{}, i64 2)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word3_raw = call i64 @{}(i64 %v{}, i64 3)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word0 = trunc i64 {result}_word0_raw to i32"),
+                format!("{result}_word1 = trunc i64 {result}_word1_raw to i32"),
+                format!("{result}_word2 = trunc i64 {result}_word2_raw to i32"),
+                format!("{result}_word3 = trunc i64 {result}_word3_raw to i32"),
+                format!("{result}_interface_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[2].raw()),
+                format!("{result}_interface = trunc i64 {result}_interface_raw to i32"),
+                format!("{result}_status = call i8 @{}(i64 %v{}, i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i32 {result}_interface)", native_runtime_symbol(operation), arguments[0].raw()),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ].join("\n"))
         }
         _ => Err(unsupported()),
     }

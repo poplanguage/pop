@@ -1490,7 +1490,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 166 {
+    if entries.len() != 168 {
         return Err(error(
             "standard function",
             2,
@@ -2322,6 +2322,18 @@ fn validate_standard_functions(
             "Net.Routes.Snapshot,UInt64",
             "UInt32",
             "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.joinMulticastIpv6",
+            "Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.leaveMulticastIpv6",
+            "Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId",
+            "Boolean",
+            "AmbientIo",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
