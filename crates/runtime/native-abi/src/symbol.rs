@@ -21,6 +21,18 @@ pub const ITERATION_MAKE_SYMBOL: &str = "pop_rt_iteration_make";
 /// ABI 1.23/2.1 validated Unicode-scalar read from a compiler-proven Text view.
 pub const TEXT_VIEW_GET_RUNE_SYMBOL: &str = "pop_rt_text_view_get_rune";
 
+pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
+pub const ATOMIC_INT_LOAD_SYMBOL: &str = "pop_rt_atomic_int_load";
+pub const ATOMIC_INT_STORE_SYMBOL: &str = "pop_rt_atomic_int_store";
+pub const ATOMIC_INT_SWAP_SYMBOL: &str = "pop_rt_atomic_int_swap";
+pub const ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_int_compare_exchange";
+pub const ATOMIC_BOOL_CREATE_SYMBOL: &str = "pop_rt_atomic_bool_create";
+pub const ATOMIC_BOOL_LOAD_SYMBOL: &str = "pop_rt_atomic_bool_load";
+pub const ATOMIC_BOOL_STORE_SYMBOL: &str = "pop_rt_atomic_bool_store";
+pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
+pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
+pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
+
 /// Returns the native C symbol for an operation implemented through ABI 1.27.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and

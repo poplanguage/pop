@@ -2893,6 +2893,45 @@ fn typed_atomic_state_follows_adr_0156_without_backend_or_pointer_leakage() {
 }
 
 #[test]
+fn atomic_native_handles_follow_adr_0157_without_dynamic_dispatch() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0157-atomic-native-abi-handles.md"));
+    let abi = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/atomic.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for symbol in [
+        "ATOMIC_INT_CREATE_SYMBOL",
+        "ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL",
+        "ATOMIC_BOOL_CREATE_SYMBOL",
+        "ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL",
+        "ATOMIC_RELEASE_SYMBOL",
+    ] {
+        assert_eq!(abi.matches(symbol).count(), 1);
+    }
+    for function in [
+        "pop_rt_atomic_int_create",
+        "pop_rt_atomic_int_load",
+        "pop_rt_atomic_int_store",
+        "pop_rt_atomic_int_swap",
+        "pop_rt_atomic_int_compare_exchange",
+        "pop_rt_atomic_bool_create",
+        "pop_rt_atomic_bool_load",
+        "pop_rt_atomic_bool_store",
+        "pop_rt_atomic_bool_swap",
+        "pop_rt_atomic_bool_compare_exchange",
+        "pop_rt_atomic_release",
+    ] {
+        assert_eq!(native.matches(function).count(), 1);
+    }
+    assert!(tests.contains("native_atomics_keep_typed_state_and_fail_closed"));
+    for forbidden in ["Any", "Dynamic", "*mut Managed", "llvm", "inkwell"] {
+        assert!(!native.contains(forbidden));
+    }
+}
+
+#[test]
 fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
     let root = repository_root();
     let adr = read_required(

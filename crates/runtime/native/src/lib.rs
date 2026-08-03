@@ -1,6 +1,7 @@
 //! Native host facade for the Pop Lang Runtime Interface.
 
 mod allocation;
+mod atomic;
 mod binding;
 mod byte_buffer;
 mod channel;
@@ -24,6 +25,7 @@ mod utf8;
 mod view;
 
 pub use allocation::*;
+pub use atomic::*;
 pub use binding::*;
 pub use byte_buffer::*;
 pub use channel::*;

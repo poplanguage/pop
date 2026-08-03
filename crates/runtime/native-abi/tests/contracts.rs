@@ -4,11 +4,14 @@ use pop_runtime_interface::RuntimeOperation;
 use pop_runtime_native_abi::{
     ABI_SUPPORT_SYMBOL, ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
-    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, AllocationSiteDescriptorAbi, ChannelReceiveStatus,
-    ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
-    GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL, IterationCollectionKind,
-    NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi,
-    symbol,
+    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
+    ATOMIC_BOOL_CREATE_SYMBOL, ATOMIC_BOOL_LOAD_SYMBOL, ATOMIC_BOOL_STORE_SYMBOL,
+    ATOMIC_BOOL_SWAP_SYMBOL, ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL, ATOMIC_INT_CREATE_SYMBOL,
+    ATOMIC_INT_LOAD_SYMBOL, ATOMIC_INT_STORE_SYMBOL, ATOMIC_INT_SWAP_SYMBOL, ATOMIC_RELEASE_SYMBOL,
+    AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
+    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
+    ITERATION_MAKE_SYMBOL, IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
+    TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, symbol,
 };
 
 #[test]
@@ -21,6 +24,29 @@ fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(ABI_SUPPORT_SYMBOL, "pop_rt_supports_abi");
     assert_eq!(GC_SAFE_POINT_V2_SYMBOL, "pop_rt_gc_safe_point_v2");
     assert_eq!(INVALID_HANDLE, 0);
+}
+
+#[test]
+fn atomic_symbols_are_typed_and_closed() {
+    let symbols = [
+        ATOMIC_INT_CREATE_SYMBOL,
+        ATOMIC_INT_LOAD_SYMBOL,
+        ATOMIC_INT_STORE_SYMBOL,
+        ATOMIC_INT_SWAP_SYMBOL,
+        ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL,
+        ATOMIC_BOOL_CREATE_SYMBOL,
+        ATOMIC_BOOL_LOAD_SYMBOL,
+        ATOMIC_BOOL_STORE_SYMBOL,
+        ATOMIC_BOOL_SWAP_SYMBOL,
+        ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
+        ATOMIC_RELEASE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_atomic_"))
+    );
 }
 
 #[test]

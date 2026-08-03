@@ -10,24 +10,28 @@ use pop_runtime_native::{
     pop_rt_allocate_initialized_self_referential_object_at_site, pop_rt_allocate_object,
     pop_rt_allocate_table, pop_rt_array_fill, pop_rt_array_get, pop_rt_array_get_checked,
     pop_rt_array_get_object_field_checked, pop_rt_array_length, pop_rt_array_set,
-    pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_write_byte,
-    pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8, pop_rt_cancel_source_create,
-    pop_rt_cancel_source_release, pop_rt_cancel_source_token, pop_rt_cancel_token_release,
-    pop_rt_channel_close, pop_rt_channel_create, pop_rt_channel_release_receiver,
-    pop_rt_channel_release_sender, pop_rt_channel_retain_receiver, pop_rt_channel_retain_sender,
-    pop_rt_channel_try_receive, pop_rt_channel_try_send, pop_rt_codec_read_event,
-    pop_rt_codec_write_event, pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close,
-    pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open,
-    pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow,
-    pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2,
-    pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next,
-    pop_rt_list_add, pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked,
-    pop_rt_list_length, pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root,
-    pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat,
-    pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi,
-    pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set,
-    pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_text_view_encode_utf8,
-    pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
+    pop_rt_atomic_bool_compare_exchange, pop_rt_atomic_bool_create, pop_rt_atomic_bool_load,
+    pop_rt_atomic_bool_store, pop_rt_atomic_bool_swap, pop_rt_atomic_int_compare_exchange,
+    pop_rt_atomic_int_create, pop_rt_atomic_int_load, pop_rt_atomic_int_store,
+    pop_rt_atomic_int_swap, pop_rt_atomic_release, pop_rt_byte_buffer_create,
+    pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_write_byte, pop_rt_byte_buffer_write_bytes,
+    pop_rt_bytes_view_decode_utf8, pop_rt_cancel_source_create, pop_rt_cancel_source_release,
+    pop_rt_cancel_source_token, pop_rt_cancel_token_release, pop_rt_channel_close,
+    pop_rt_channel_create, pop_rt_channel_release_receiver, pop_rt_channel_release_sender,
+    pop_rt_channel_retain_receiver, pop_rt_channel_retain_sender, pop_rt_channel_try_receive,
+    pop_rt_channel_try_send, pop_rt_codec_read_event, pop_rt_codec_write_event,
+    pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow,
+    pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read,
+    pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow,
+    pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2, pop_rt_gc_stage,
+    pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next, pop_rt_list_add,
+    pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked, pop_rt_list_length,
+    pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root, pop_rt_resolve_root,
+    pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat, pop_rt_string_equal,
+    pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi, pop_rt_suspend,
+    pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
+    pop_rt_task_cancellation_requested, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
+    pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
@@ -72,6 +76,66 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
     assert_eq!(pop_rt_supports_abi(2, 4), 0);
     assert_eq!(pop_rt_supports_abi(2, 5), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_atomics_keep_typed_state_and_fail_closed() {
+    let _guard = abi_test_lock();
+    let integer = pop_rt_atomic_int_create(-7);
+    let boolean = pop_rt_atomic_bool_create(0);
+    assert_ne!(integer, 0);
+    assert_ne!(boolean, 0);
+    let mut integer_value = 0_u64;
+    let mut boolean_value = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_load(integer, 0, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), -7);
+    assert_eq!(pop_rt_atomic_int_store(integer, 13, 1), 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_swap(integer, 21, 2, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 13);
+    assert_eq!(
+        unsafe {
+            pop_rt_atomic_int_compare_exchange(integer, 21, 34, 2, 0, &raw mut integer_value)
+        },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 21);
+    assert_eq!(
+        unsafe {
+            pop_rt_atomic_int_compare_exchange(integer, 21, 55, 2, 0, &raw mut integer_value)
+        },
+        2
+    );
+    assert_eq!(integer_value.cast_signed(), 34);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_load(boolean, 0, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 0);
+    assert_eq!(pop_rt_atomic_bool_store(boolean, 1, 1), 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_swap(boolean, 0, 2, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_compare_exchange(boolean, 0, 1, 2, 0, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 0);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_load(0, 0, &raw mut integer_value) },
+        0
+    );
+    assert_eq!(pop_rt_atomic_release(integer), 1);
+    assert_eq!(pop_rt_atomic_release(boolean), 1);
+    assert_eq!(pop_rt_atomic_release(integer), 0);
 }
 
 #[test]
