@@ -32,8 +32,9 @@ use pop_runtime_native::{
     pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat, pop_rt_string_equal,
     pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi, pop_rt_suspend,
     pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
-    pop_rt_task_cancellation_requested, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
-    pop_rt_unpin, request_abi_collection,
+    pop_rt_task_cancellation_requested, pop_rt_tcp_accept, pop_rt_tcp_close, pop_rt_tcp_connect,
+    pop_rt_tcp_listen, pop_rt_tcp_local_port, pop_rt_tcp_receive, pop_rt_tcp_send,
+    pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -233,6 +234,26 @@ fn native_actor_managed_messages_transfer_one_precise_root() {
     assert!(request_abi_collection());
     assert_eq!(abi_safe_point(82, &[]), 1);
     assert_eq!(pop_rt_retain_root(value), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_handles_fail_closed_without_a_capability() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener != 0 {
+        assert_eq!(pop_rt_tcp_close(listener), 1);
+    }
+    assert_eq!(pop_rt_tcp_connect(1), 0);
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(0, &raw mut port) }, 0);
+    assert_eq!(pop_rt_tcp_accept(0), 0);
+    assert_eq!(unsafe { pop_rt_tcp_send(0, b"x".as_ptr(), 1) }, 0);
+    assert_eq!(
+        unsafe { pop_rt_tcp_receive(0, (&raw mut port).cast::<u8>(), 1) },
+        0
+    );
+    assert_eq!(pop_rt_tcp_close(0), 0);
 }
 
 #[test]

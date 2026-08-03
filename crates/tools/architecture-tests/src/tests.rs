@@ -3040,6 +3040,30 @@ fn actor_runtime_operation_vocabulary_follows_adr_0161() {
 }
 
 #[test]
+fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0162-bounded-tcp-native-handles.md"));
+    let tcp = read_required(root.join("crates/runtime/native/src/tcp.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for function in [
+        "pop_rt_tcp_listen",
+        "pop_rt_tcp_local_port",
+        "pop_rt_tcp_connect",
+        "pop_rt_tcp_accept",
+        "pop_rt_tcp_send",
+        "pop_rt_tcp_receive",
+        "pop_rt_tcp_close",
+    ] {
+        assert_eq!(tcp.matches(function).count(), 1);
+    }
+    assert!(tests.contains("native_tcp_handles_fail_closed_without_a_capability"));
+    for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {
+        assert!(!tcp.contains(forbidden));
+    }
+}
+
+#[test]
 fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
     let root = repository_root();
     let adr =
