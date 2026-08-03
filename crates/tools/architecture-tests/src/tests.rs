@@ -2944,7 +2944,11 @@ fn atomic_native_handles_follow_adr_0157_without_dynamic_dispatch() {
         "ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL",
         "ATOMIC_RELEASE_SYMBOL",
     ] {
-        assert_eq!(abi.matches(symbol).count(), 1);
+        assert_eq!(
+            abi.matches(symbol).count(),
+            2,
+            "Atomic symbol must have one declaration and one closed operation mapping"
+        );
     }
     for function in [
         "pop_rt_atomic_int_create",
@@ -3465,6 +3469,12 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "129\tActor.Ref\tPop.Standard\t1\tNominal\tfalse",
             "130\tActor.Inbox\tPop.Standard\t1\tNominal\tfalse",
             "131\tActor.Reply\tPop.Standard\t1\tNominal\tfalse",
+            // ADRs 0156 and 0160 append typed non-prelude Atomic identities.
+            "132\tAtomic.Int\tPop.Standard\t0\tNominal\tfalse",
+            "133\tAtomic.Boolean\tPop.Standard\t0\tNominal\tfalse",
+            "134\tAtomic.LoadOrder\tPop.Standard\t0\tNominal\tfalse",
+            "135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse",
+            "136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );
