@@ -38,8 +38,8 @@ use pop_runtime_native::{
     pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes, pop_rt_tcp_send,
     pop_rt_tcp_send_bytes, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
     pop_rt_udp_bind, pop_rt_udp_close, pop_rt_udp_local_port, pop_rt_udp_receive,
-    pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_unpin,
-    request_abi_collection,
+    pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to,
+    pop_rt_udp_send_to, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -61,7 +61,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 32);
+    assert_eq!(pop_rt_abi_minor(), 33);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -85,6 +85,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 30), 1);
     assert_eq!(pop_rt_supports_abi(1, 31), 1);
     assert_eq!(pop_rt_supports_abi(1, 32), 1);
+    assert_eq!(pop_rt_supports_abi(1, 33), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -462,6 +463,37 @@ fn native_udp_transfers_owning_bytes_with_source_and_exact_count() {
     }
     assert_ne!(received_bytes, 0);
     assert_eq!((address, source_port, count), (0x7f00_0001, port, 8));
+    assert_eq!(
+        unsafe { pop_rt_udp_send_bytes_to(socket, 0x7f00_0001, port, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    let buffer = pop_rt_byte_buffer_create(64);
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_udp_receive_buffer(
+                socket,
+                buffer,
+                64,
+                &raw mut address,
+                &raw mut source_port,
+                &raw mut count,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    let mut buffered_length = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_length(buffer, &raw mut buffered_length) },
+        1
+    );
+    assert_eq!(
+        (address, source_port, count, buffered_length),
+        (0x7f00_0001, port, 8, 8)
+    );
     assert_eq!(pop_rt_udp_close(socket), 1);
 }
 

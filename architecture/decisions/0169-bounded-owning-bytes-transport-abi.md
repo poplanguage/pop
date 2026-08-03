@@ -30,3 +30,8 @@ Native ABI 1.32 adds the bounded TCP receive adapter that appends directly to
 the caller's reusable `Bytes.Buffer`. This keeps the backend operation atomic,
 avoids an intermediate managed allocation, and preserves the ABI 1.31 status
 and exact-count contract.
+
+Native ABI 1.33 adds the equivalent bounded UDP receive adapter. The public
+`Net.Udp.receive` appends one complete datagram to a reusable buffer and returns
+its exact byte count plus numeric source address and port. `WouldBlock` is the
+absent optional result; transport and buffer failures trap.

@@ -70,3 +70,8 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 67	Net.transferWouldBlock	Pop.Standard	Net.Transfer	Boolean	-	false
 68	Net.transferClosed	Pop.Standard	Net.Transfer	Boolean	-	false
 69	Net.transferredByteCount	Pop.Standard	Net.Transfer	UInt64	-	false
+70	Net.Udp.sendTo	Pop.Standard	Net.Udp.Socket,UInt32,UInt16,Bytes	Net.Transfer	AmbientIo,MayTrap	false
+71	Net.Udp.receive	Pop.Standard	Net.Udp.Socket,Bytes.Buffer,UInt64	Net.Udp.Transfer?	AmbientIo,MayTrap	false
+72	Net.Udp.transferredByteCount	Pop.Standard	Net.Udp.Transfer	UInt64	-	false
+73	Net.Udp.sourceAddress	Pop.Standard	Net.Udp.Transfer	UInt32	-	false
+74	Net.Udp.sourcePort	Pop.Standard	Net.Udp.Transfer	UInt16	-	false

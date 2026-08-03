@@ -47,6 +47,7 @@ pub const UDP_SEND_TO_SYMBOL: &str = "pop_rt_udp_send_to";
 pub const UDP_RECEIVE_SYMBOL: &str = "pop_rt_udp_receive";
 pub const UDP_SEND_BYTES_TO_SYMBOL: &str = "pop_rt_udp_send_bytes_to";
 pub const UDP_RECEIVE_BYTES_SYMBOL: &str = "pop_rt_udp_receive_bytes";
+pub const UDP_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_udp_receive_buffer";
 pub const UDP_CLOSE_SYMBOL: &str = "pop_rt_udp_close";
 
 pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
@@ -66,7 +67,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.32.
+/// Returns the native C symbol for an operation implemented through ABI 1.33.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -217,6 +218,7 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UdpReceive => Some(UDP_RECEIVE_SYMBOL),
         RuntimeOperation::UdpSendBytesTo => Some(UDP_SEND_BYTES_TO_SYMBOL),
         RuntimeOperation::UdpReceiveBytes => Some(UDP_RECEIVE_BYTES_SYMBOL),
+        RuntimeOperation::UdpReceiveBuffer => Some(UDP_RECEIVE_BUFFER_SYMBOL),
         RuntimeOperation::UdpClose => Some(UDP_CLOSE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake

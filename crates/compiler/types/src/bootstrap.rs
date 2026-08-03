@@ -496,6 +496,7 @@ pub const NET_SOCKET_IO_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw
 pub const NET_TCP_RECEIVE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(142);
 pub const NET_UDP_DATAGRAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(143);
 pub const NET_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(144);
+pub const NET_UDP_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(145);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1273,6 +1274,7 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_TCP_RECEIVE_TYPE_ID, "Net.Tcp.Receive"),
         (NET_UDP_DATAGRAM_TYPE_ID, "Net.Udp.Datagram"),
         (NET_TRANSFER_TYPE_ID, "Net.Transfer"),
+        (NET_UDP_TRANSFER_TYPE_ID, "Net.Udp.Transfer"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1468,7 +1470,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 70 {
+    if entries.len() != 75 {
         return Err(error(
             "standard function",
             2,
@@ -1765,6 +1767,26 @@ fn validate_standard_functions(
         ("Net.transferWouldBlock", "Net.Transfer", "Boolean", "-"),
         ("Net.transferClosed", "Net.Transfer", "Boolean", "-"),
         ("Net.transferredByteCount", "Net.Transfer", "UInt64", "-"),
+        (
+            "Net.Udp.sendTo",
+            "Net.Udp.Socket,UInt32,UInt16,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receive",
+            "Net.Udp.Socket,Bytes.Buffer,UInt64",
+            "Net.Udp.Transfer?",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.transferredByteCount",
+            "Net.Udp.Transfer",
+            "UInt64",
+            "-",
+        ),
+        ("Net.Udp.sourceAddress", "Net.Udp.Transfer", "UInt32", "-"),
+        ("Net.Udp.sourcePort", "Net.Udp.Transfer", "UInt16", "-"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

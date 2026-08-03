@@ -440,9 +440,15 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                          local expectedUdpByte = Byte(66)\n\
                          local expectedAddress = UInt32(2130706433)\n\
                          local validDatagram = Net.Udp.datagramByte(datagram) == expectedUdpByte and Net.Udp.datagramAddress(datagram) == expectedAddress and Net.Udp.datagramPort(datagram) == udpPort\n\
-                         local udpClosed = Net.Udp.close(udp)\n\
-                         if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and udpClosed then\n\
-                             return 0\n\
+                         local udpPayload = Text.encodeUtf8(\"buffered Pop Net\")\n\
+                         local udpSent = Net.Udp.sendTo(udp, expectedAddress, udpPort, udpPayload)\n\
+                         local udpBuffer = Bytes.withCapacity(64)\n\
+                         if local udpTransfer = Net.Udp.receive(udp, udpBuffer, UInt64(64)) then\n\
+                             local validUdpTransfer = Net.Udp.transferredByteCount(udpTransfer) == expectedTransferCount and Net.Udp.sourceAddress(udpTransfer) == expectedAddress and Net.Udp.sourcePort(udpTransfer) == udpPort and Bytes.length(udpBuffer) == 16\n\
+                             local udpClosed = Net.Udp.close(udp)\n\
+                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
+                                 return 0\n\
+                             end\n\
                          end\n\
                      end\n\
                  end\n\

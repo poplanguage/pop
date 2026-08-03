@@ -4290,7 +4290,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=69) => {
+            } if matches!(function.raw(), 35..=58 | 64..=74) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5152,6 +5152,90 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     return Err(ExecutionError::TypeMismatch);
                 };
                 integer(count, IntegerKind::UInt64)
+            }
+            70 if arguments.len() == 4 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let address =
+                    u32::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let port = u16::try_from(unsigned(2)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let MirValue::Bytes(reference) = argument(3)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .immutable_bytes_length(reference)
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut bytes =
+                    vec![0; usize::try_from(length).map_err(|_| ExecutionError::TypeMismatch)?];
+                self.runtime
+                    .immutable_bytes_read(reference, 0, &mut bytes)
+                    .map_err(|_| self.runtime_invariant())?;
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let destination = SocketAddrV4::new(Ipv4Addr::from(address), port);
+                let (kind, count) = match socket.send_to(&bytes, destination) {
+                    Ok(count) => (
+                        pop_types::SocketIoOutcomeKind::Progress,
+                        u64::try_from(count).map_err(|_| self.runtime_invariant())?,
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::SocketIoOutcomeKind::WouldBlock, 0)
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTransfer { kind, count })
+            }
+            71 if arguments.len() == 3 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::ByteBuffer(buffer) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let capacity = usize::try_from(unsigned(2)?)
+                    .ok()
+                    .filter(|value| *value > 0 && u16::try_from(*value).is_ok())
+                    .ok_or(ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let mut bytes = vec![0; capacity];
+                match socket.recv_from(&mut bytes) {
+                    Ok((count, std::net::SocketAddr::V4(peer))) => {
+                        bytes.truncate(count);
+                        self.runtime
+                            .byte_buffer_append(buffer, &bytes)
+                            .map_err(|_| self.runtime_invariant())?;
+                        Ok(MirValue::NetUdpTransfer {
+                            address: u32::from(*peer.ip()),
+                            port: peer.port(),
+                            count: u16::try_from(count).map_err(|_| self.runtime_invariant())?,
+                        })
+                    }
+                    Ok((_, std::net::SocketAddr::V6(_))) => Err(self.runtime_invariant()),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        Ok(MirValue::Nil)
+                    }
+                    Err(_) => Err(self.runtime_invariant()),
+                }
+            }
+            72..=74 if arguments.len() == 1 => {
+                let MirValue::NetUdpTransfer {
+                    address,
+                    port,
+                    count,
+                } = argument(0)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                match function {
+                    72 => integer(u64::from(count), IntegerKind::UInt64),
+                    73 => integer(u64::from(address), IntegerKind::UInt32),
+                    _ => integer(u64::from(port), IntegerKind::UInt16),
+                }
             }
             _ => Err(ExecutionError::WrongArity),
         }

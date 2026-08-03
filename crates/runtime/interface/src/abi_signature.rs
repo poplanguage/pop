@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 41] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 42] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -61,6 +61,7 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 41] = [
     RuntimeOperation::UdpReceive,
     RuntimeOperation::UdpSendBytesTo,
     RuntimeOperation::UdpReceiveBytes,
+    RuntimeOperation::UdpReceiveBuffer,
     RuntimeOperation::UdpClose,
 ];
 
@@ -97,7 +98,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicIntFetchOr, AtomicIntFetchSubtract, AtomicIntFetchXor, AtomicIntLoad, AtomicIntStore,
         AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort,
         TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend, TcpSendBytes, UdpBind, UdpClose,
-        UdpLocalPort, UdpReceive, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
+        UdpLocalPort, UdpReceive, UdpReceiveBuffer, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
     };
 
     Some(match operation {
@@ -153,6 +154,17 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
                 U64,
                 U64,
                 WritableU64Pointer,
+                WritableU32Pointer,
+                WritableU16Pointer,
+                WritableU64Pointer,
+            ],
+            U8,
+        ),
+        UdpReceiveBuffer => signature(
+            &[
+                U64,
+                U64,
+                U64,
                 WritableU32Pointer,
                 WritableU16Pointer,
                 WritableU64Pointer,

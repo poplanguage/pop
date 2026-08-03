@@ -44,3 +44,4 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 142	Net.Tcp.Receive	Pop.Standard	0	Nominal	false
 143	Net.Udp.Datagram	Pop.Standard	0	Nominal	false
 144	Net.Transfer	Pop.Standard	0	Nominal	false
+145	Net.Udp.Transfer	Pop.Standard	0	Nominal	false

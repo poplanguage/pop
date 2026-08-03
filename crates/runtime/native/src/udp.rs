@@ -11,6 +11,7 @@ use pop_runtime_interface::RuntimeAdapter;
 use pop_runtime_native_abi::SocketIoStatus;
 
 use crate::allocate_immutable_bytes;
+use crate::byte_buffer::append_bytes;
 use crate::state::lock_abi_runtime;
 
 static NEXT_UDP: AtomicU64 = AtomicU64::new(1);
@@ -218,6 +219,52 @@ pub unsafe extern "C" fn pop_rt_udp_receive_bytes(
         return SocketIoStatus::Failure as u8;
     }
     unsafe { bytes.write(reference) };
+    status
+}
+
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_rt_udp_receive_buffer(
+    handle: u64,
+    buffer: u64,
+    capacity: u64,
+    address: *mut u32,
+    port: *mut u16,
+    received: *mut u64,
+) -> u8 {
+    if buffer == 0
+        || address.is_null()
+        || port.is_null()
+        || received.is_null()
+        || capacity == 0
+        || capacity > u64::from(u16::MAX)
+    {
+        return SocketIoStatus::Failure as u8;
+    }
+    let Ok(length) = usize::try_from(capacity) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    let mut output = vec![0; length];
+    let status = unsafe {
+        pop_rt_udp_receive(
+            handle,
+            output.as_mut_ptr(),
+            capacity,
+            address,
+            port,
+            received,
+        )
+    };
+    if status != SocketIoStatus::Progress as u8 {
+        return status;
+    }
+    let count = unsafe { received.read() };
+    let Ok(count) = usize::try_from(count) else {
+        return SocketIoStatus::Failure as u8;
+    };
+    if append_bytes(buffer, &output[..count]) == 0 {
+        return SocketIoStatus::Failure as u8;
+    }
     status
 }
 

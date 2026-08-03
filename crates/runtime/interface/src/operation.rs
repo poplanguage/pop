@@ -146,6 +146,7 @@ pub enum RuntimeOperation {
     UdpReceive,
     UdpSendBytesTo,
     UdpReceiveBytes,
+    UdpReceiveBuffer,
     UdpClose,
     InitializeModule,
     InitializeBubble,

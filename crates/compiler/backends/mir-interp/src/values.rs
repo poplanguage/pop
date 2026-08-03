@@ -58,6 +58,11 @@ pub enum MirValue {
         kind: pop_types::SocketIoOutcomeKind,
         count: u64,
     },
+    NetUdpTransfer {
+        address: u32,
+        port: u16,
+        count: u16,
+    },
     NetTcpReceive {
         kind: pop_types::TcpReceiveKind,
         value: Option<u8>,
