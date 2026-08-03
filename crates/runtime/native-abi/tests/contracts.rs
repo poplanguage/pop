@@ -16,18 +16,20 @@ use pop_runtime_native_abi::{
     ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
     GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL, IterationCollectionKind,
     NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, SocketIoStatus, TCP_ACCEPT_SYMBOL,
-    TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_ENDPOINT_PART_SYMBOL, TCP_LISTEN_SYMBOL, TCP_LOCAL_PORT_SYMBOL,
-    TCP_NO_DELAY_SYMBOL, TCP_RECEIVE_BUFFER_SYMBOL, TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL,
-    TCP_SET_NO_DELAY_SYMBOL, TCP_SET_TTL_SYMBOL, TCP_SHUTDOWN_SYMBOL, TCP_TTL_SYMBOL,
-    TEXT_VIEW_GET_RUNE_SYMBOL,
-    TextViewGetRuneAbi, UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
-    UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, symbol,
+    TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_ENDPOINT_PART_SYMBOL, TCP_LISTEN_SYMBOL,
+    TCP_LOCAL_PORT_SYMBOL, TCP_NO_DELAY_SYMBOL, TCP_RECEIVE_BUFFER_SYMBOL, TCP_RECEIVE_SYMBOL,
+    TCP_SEND_SYMBOL, TCP_SET_NO_DELAY_SYMBOL, TCP_SET_TTL_SYMBOL, TCP_SHUTDOWN_SYMBOL,
+    TCP_TTL_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, UDP_BIND_SYMBOL,
+    UDP_BROADCAST_SYMBOL, UDP_CLOSE_SYMBOL, UDP_ENDPOINT_PART_SYMBOL,
+    UDP_JOIN_MULTICAST_IPV4_SYMBOL, UDP_LEAVE_MULTICAST_IPV4_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
+    UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, UDP_SET_BROADCAST_SYMBOL, UDP_SET_TTL_SYMBOL,
+    UDP_TTL_SYMBOL, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 38);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 39);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
@@ -261,6 +263,13 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::UdpSendBytesTo,
         RuntimeOperation::UdpReceiveBytes,
         RuntimeOperation::UdpReceiveBuffer,
+        RuntimeOperation::UdpEndpointPart,
+        RuntimeOperation::UdpSetBroadcast,
+        RuntimeOperation::UdpBroadcast,
+        RuntimeOperation::UdpSetTtl,
+        RuntimeOperation::UdpTtl,
+        RuntimeOperation::UdpJoinMulticastIpv4,
+        RuntimeOperation::UdpLeaveMulticastIpv4,
         RuntimeOperation::UdpClose,
         RuntimeOperation::DnsResolverCreate,
         RuntimeOperation::DnsResolverClose,
@@ -314,6 +323,13 @@ fn udp_symbols_are_exact_and_closed() {
         UDP_LOCAL_PORT_SYMBOL,
         UDP_SEND_TO_SYMBOL,
         UDP_RECEIVE_SYMBOL,
+        UDP_ENDPOINT_PART_SYMBOL,
+        UDP_SET_BROADCAST_SYMBOL,
+        UDP_BROADCAST_SYMBOL,
+        UDP_SET_TTL_SYMBOL,
+        UDP_TTL_SYMBOL,
+        UDP_JOIN_MULTICAST_IPV4_SYMBOL,
+        UDP_LEAVE_MULTICAST_IPV4_SYMBOL,
         UDP_CLOSE_SYMBOL,
     ];
     assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
@@ -337,7 +353,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 38);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 39);
 }
 
 #[test]

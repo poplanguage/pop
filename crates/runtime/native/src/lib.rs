@@ -28,6 +28,7 @@ mod tcp_control;
 mod tcp_endpoint;
 mod text;
 mod udp;
+mod udp_control;
 mod utf8;
 mod view;
 
@@ -58,5 +59,6 @@ pub use tcp_control::*;
 pub use tcp_endpoint::*;
 pub use text::*;
 pub use udp::*;
+pub use udp_control::*;
 pub use utf8::*;
 pub use view::*;

@@ -74,6 +74,7 @@ handles.
 ABI 1.37 adds TCP half-close, no-delay configuration, and hop-limit
 configuration with typed scalar inspection.
 ABI 1.38 adds family-preserving TCP local/peer endpoint inspection.
+ABI 1.39 adds UDP endpoint facts, broadcast, hop-limit, and IPv4 multicast controls.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

@@ -34,14 +34,17 @@ use pop_runtime_native::{
     pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
     pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
     pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
-    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6, pop_rt_tcp_endpoint_part,
-    pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6, pop_rt_tcp_local_port,
-    pop_rt_tcp_no_delay, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes,
-    pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_tcp_set_no_delay, pop_rt_tcp_set_ttl,
-    pop_rt_tcp_shutdown, pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
-    pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6, pop_rt_udp_close,
-    pop_rt_udp_local_port, pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes,
-    pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_unpin, request_abi_collection,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6,
+    pop_rt_tcp_endpoint_part, pop_rt_tcp_listen, pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6,
+    pop_rt_tcp_local_port, pop_rt_tcp_no_delay, pop_rt_tcp_receive, pop_rt_tcp_receive_buffer,
+    pop_rt_tcp_receive_bytes, pop_rt_tcp_send, pop_rt_tcp_send_bytes, pop_rt_tcp_set_no_delay,
+    pop_rt_tcp_set_ttl, pop_rt_tcp_shutdown, pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8,
+    pop_rt_text_view_get_rune, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6,
+    pop_rt_udp_broadcast, pop_rt_udp_close, pop_rt_udp_endpoint_part,
+    pop_rt_udp_join_multicast_ipv4, pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_local_port,
+    pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_bytes,
+    pop_rt_udp_send_bytes_to, pop_rt_udp_send_to, pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl,
+    pop_rt_udp_ttl, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
@@ -63,7 +66,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 38);
+    assert_eq!(pop_rt_abi_minor(), 39);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -93,6 +96,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 36), 1);
     assert_eq!(pop_rt_supports_abi(1, 37), 1);
     assert_eq!(pop_rt_supports_abi(1, 38), 1);
+    assert_eq!(pop_rt_supports_abi(1, 39), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -549,6 +553,41 @@ fn native_udp_handles_fail_closed_without_a_capability() {
         SocketIoStatus::Failure as u8
     );
     assert_eq!(pop_rt_udp_close(0), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_exposes_endpoint_broadcast_hop_limit_and_multicast_controls() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket == 0 {
+        return;
+    }
+    assert_eq!(pop_rt_udp_set_broadcast(socket, 1), 1);
+    let mut scalar = 0_u32;
+    let mut enabled = 0_u8;
+    assert_eq!(unsafe { pop_rt_udp_broadcast(socket, &raw mut enabled) }, 1);
+    assert_eq!(enabled, 1);
+    assert_eq!(pop_rt_udp_set_ttl(socket, 42), 1);
+    assert_eq!(unsafe { pop_rt_udp_ttl(socket, &raw mut scalar) }, 1);
+    assert_eq!(scalar, 42);
+    assert_eq!(
+        unsafe { pop_rt_udp_endpoint_part(socket, 0, 0, &raw mut scalar) },
+        1
+    );
+    assert_eq!(scalar, 4);
+    assert_eq!(
+        unsafe { pop_rt_udp_endpoint_part(socket, 1, 0, &raw mut scalar) },
+        1
+    );
+    assert_eq!(scalar, u32::from(std::net::Ipv4Addr::LOCALHOST));
+
+    let group = u32::from(std::net::Ipv4Addr::new(224, 0, 0, 251));
+    let interface = u32::from(std::net::Ipv4Addr::LOCALHOST);
+    if pop_rt_udp_join_multicast_ipv4(socket, group, interface) == 1 {
+        assert_eq!(pop_rt_udp_leave_multicast_ipv4(socket, group, interface), 1);
+    }
+    assert_eq!(pop_rt_udp_close(socket), 1);
 }
 
 #[test]

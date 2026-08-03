@@ -16,7 +16,7 @@ use crate::state::lock_abi_runtime;
 
 static NEXT_UDP: AtomicU64 = AtomicU64::new(1);
 
-fn sockets() -> &'static Mutex<BTreeMap<u64, UdpSocket>> {
+pub(crate) fn sockets() -> &'static Mutex<BTreeMap<u64, UdpSocket>> {
     static SOCKETS: OnceLock<Mutex<BTreeMap<u64, UdpSocket>>> = OnceLock::new();
     SOCKETS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }

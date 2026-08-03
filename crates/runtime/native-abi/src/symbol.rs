@@ -60,6 +60,13 @@ pub const UDP_RECEIVE_SYMBOL: &str = "pop_rt_udp_receive";
 pub const UDP_SEND_BYTES_TO_SYMBOL: &str = "pop_rt_udp_send_bytes_to";
 pub const UDP_RECEIVE_BYTES_SYMBOL: &str = "pop_rt_udp_receive_bytes";
 pub const UDP_RECEIVE_BUFFER_SYMBOL: &str = "pop_rt_udp_receive_buffer";
+pub const UDP_ENDPOINT_PART_SYMBOL: &str = "pop_rt_udp_endpoint_part";
+pub const UDP_SET_BROADCAST_SYMBOL: &str = "pop_rt_udp_set_broadcast";
+pub const UDP_BROADCAST_SYMBOL: &str = "pop_rt_udp_broadcast";
+pub const UDP_SET_TTL_SYMBOL: &str = "pop_rt_udp_set_ttl";
+pub const UDP_TTL_SYMBOL: &str = "pop_rt_udp_ttl";
+pub const UDP_JOIN_MULTICAST_IPV4_SYMBOL: &str = "pop_rt_udp_join_multicast_ipv4";
+pub const UDP_LEAVE_MULTICAST_IPV4_SYMBOL: &str = "pop_rt_udp_leave_multicast_ipv4";
 pub const UDP_CLOSE_SYMBOL: &str = "pop_rt_udp_close";
 pub const DNS_RESOLVER_CREATE_SYMBOL: &str = "pop_rt_dns_resolver_create";
 pub const DNS_RESOLVER_CLOSE_SYMBOL: &str = "pop_rt_dns_resolver_close";
@@ -87,7 +94,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.38.
+/// Returns the native C symbol for an operation implemented through ABI 1.39.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -251,6 +258,13 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::UdpSendBytesTo => Some(UDP_SEND_BYTES_TO_SYMBOL),
         RuntimeOperation::UdpReceiveBytes => Some(UDP_RECEIVE_BYTES_SYMBOL),
         RuntimeOperation::UdpReceiveBuffer => Some(UDP_RECEIVE_BUFFER_SYMBOL),
+        RuntimeOperation::UdpEndpointPart => Some(UDP_ENDPOINT_PART_SYMBOL),
+        RuntimeOperation::UdpSetBroadcast => Some(UDP_SET_BROADCAST_SYMBOL),
+        RuntimeOperation::UdpBroadcast => Some(UDP_BROADCAST_SYMBOL),
+        RuntimeOperation::UdpSetTtl => Some(UDP_SET_TTL_SYMBOL),
+        RuntimeOperation::UdpTtl => Some(UDP_TTL_SYMBOL),
+        RuntimeOperation::UdpJoinMulticastIpv4 => Some(UDP_JOIN_MULTICAST_IPV4_SYMBOL),
+        RuntimeOperation::UdpLeaveMulticastIpv4 => Some(UDP_LEAVE_MULTICAST_IPV4_SYMBOL),
         RuntimeOperation::UdpClose => Some(UDP_CLOSE_SYMBOL),
         RuntimeOperation::DnsResolverCreate => Some(DNS_RESOLVER_CREATE_SYMBOL),
         RuntimeOperation::DnsResolverClose => Some(DNS_RESOLVER_CLOSE_SYMBOL),
