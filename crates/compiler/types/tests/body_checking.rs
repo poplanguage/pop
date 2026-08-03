@@ -397,9 +397,13 @@ fn net_tcp_and_udp_transport_calls_preserve_exact_handle_and_payload_types() {
              local transfer: Net.Transfer = Net.Tcp.send(stream, payload)\n\
              local received = Bytes.withCapacity(64)\n\
              local reception: Net.Transfer = Net.Tcp.receive(stream, received, UInt64(64))\n\
+             local noDelaySet: Boolean = Net.Tcp.setNoDelay(stream, true)\n\
+             local noDelay: Boolean = Net.Tcp.noDelay(stream)\n\
+             local hopLimitSet: Boolean = Net.Tcp.setHopLimit(stream, UInt32(42))\n\
+             local hopLimit: UInt32 = Net.Tcp.hopLimit(stream)\n\
              local socket: Net.Udp.Socket = Net.Udp.bind(UInt16(0))\n\
              local datagramSent = Net.Udp.sendByteTo(socket, UInt32(2130706433), Net.Udp.localPort(socket), Byte(66))\n\
-             return Net.ioProgress(sent) and (Net.transferProgress(transfer) or Net.transferWouldBlock(transfer)) and (Net.transferProgress(reception) or Net.transferWouldBlock(reception) or Net.transferClosed(reception)) and Net.transferredByteCount(transfer) <= UInt64(7) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
+             return Net.ioProgress(sent) and (Net.transferProgress(transfer) or Net.transferWouldBlock(transfer)) and (Net.transferProgress(reception) or Net.transferWouldBlock(reception) or Net.transferClosed(reception)) and Net.transferredByteCount(transfer) <= UInt64(7) and noDelaySet and noDelay and hopLimitSet and hopLimit == UInt32(42) and Net.Tcp.shutdownWrite(stream) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
          end\n",
         "transport",
     );

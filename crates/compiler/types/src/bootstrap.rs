@@ -1474,7 +1474,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 92 {
+    if entries.len() != 98 {
         return Err(error(
             "standard function",
             2,
@@ -1887,6 +1887,32 @@ fn validate_standard_functions(
             "Net.Dns.Answers",
             "Boolean",
             "AmbientIo",
+        ),
+        ("Net.Tcp.shutdownRead", "Net.Tcp.Stream", "Boolean", "AmbientIo"),
+        ("Net.Tcp.shutdownWrite", "Net.Tcp.Stream", "Boolean", "AmbientIo"),
+        (
+            "Net.Tcp.setNoDelay",
+            "Net.Tcp.Stream,Boolean",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.noDelay",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.setHopLimit",
+            "Net.Tcp.Stream,UInt32",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.hopLimit",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {

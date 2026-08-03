@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=91 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=97 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4411,6 +4411,81 @@ fn lower_net_standard_call(
                 ),
             ]
             .join("\n"))
+        }
+        92 | 93 if arguments.len() == 1 => {
+            let direction = function - 92;
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i8 {direction})",
+                    native_runtime_symbol(RuntimeOperation::TcpShutdown),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        94 if arguments.len() == 2 => Ok([
+            format!("{result}_enabled = zext i1 %v{} to i8", arguments[1].raw()),
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i8 {result}_enabled)",
+                native_runtime_symbol(RuntimeOperation::TcpSetNoDelay),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        95 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpNoDelay),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_value = load i8, ptr {result}_output"),
+                    format!("{result} = icmp eq i8 {result}_value, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        96 if arguments.len() == 2 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i32 %v{})",
+                native_runtime_symbol(RuntimeOperation::TcpSetTtl),
+                arguments[0].raw(),
+                arguments[1].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        97 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i32"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpTtl),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i32, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
         }
         _ => Err(unsupported()),
     }

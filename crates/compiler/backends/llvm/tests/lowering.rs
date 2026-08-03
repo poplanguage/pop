@@ -432,6 +432,13 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                      local receivedLength = Bytes.length(receivedBuffer)\n\
                      local expectedTransferCount = UInt64(16)\n\
                      local expectedTcpByte = Byte(65)\n\
+                     local noDelaySet = Net.Tcp.setNoDelay(client, true)\n\
+                     local noDelay = Net.Tcp.noDelay(client)\n\
+                     local expectedHopLimit = UInt32(42)\n\
+                     local hopLimitSet = Net.Tcp.setHopLimit(client, expectedHopLimit)\n\
+                     local hopLimit = Net.Tcp.hopLimit(client)\n\
+                     local writeClosed = Net.Tcp.shutdownWrite(client)\n\
+                     local readClosed = Net.Tcp.shutdownRead(server)\n\
                      local tcpClosed = Net.Tcp.closeStream(client) and Net.Tcp.closeStream(server) and Net.Tcp.closeListener(listener)\n\
                      local udp = Net.Udp.bind(UInt16(0))\n\
                      local udpPort = Net.Udp.localPort(udp)\n\
@@ -446,7 +453,7 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                          if local udpTransfer = Net.Udp.receive(udp, udpBuffer, UInt64(64)) then\n\
                              local validUdpTransfer = Net.Udp.transferredByteCount(udpTransfer) == expectedTransferCount and Net.Udp.sourceAddress(udpTransfer) == expectedAddress and Net.Udp.sourcePort(udpTransfer) == udpPort and Bytes.length(udpBuffer) == 16\n\
                              local udpClosed = Net.Udp.close(udp)\n\
-                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
+                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and writeClosed and readClosed and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
                                  return 0\n\
                              end\n\
                          end\n\

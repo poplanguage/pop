@@ -92,3 +92,9 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 89	Net.Dns.answerIpv4	Pop.Standard	Net.Dns.Answers,UInt64	UInt32?	-	false
 90	Net.Dns.answerIpv6Word	Pop.Standard	Net.Dns.Answers,UInt64,Byte	UInt32?	-	false
 91	Net.Dns.closeAnswers	Pop.Standard	Net.Dns.Answers	Boolean	AmbientIo	false
+92	Net.Tcp.shutdownRead	Pop.Standard	Net.Tcp.Stream	Boolean	AmbientIo	false
+93	Net.Tcp.shutdownWrite	Pop.Standard	Net.Tcp.Stream	Boolean	AmbientIo	false
+94	Net.Tcp.setNoDelay	Pop.Standard	Net.Tcp.Stream,Boolean	Boolean	AmbientIo	false
+95	Net.Tcp.noDelay	Pop.Standard	Net.Tcp.Stream	Boolean	AmbientIo,MayTrap	false
+96	Net.Tcp.setHopLimit	Pop.Standard	Net.Tcp.Stream,UInt32	Boolean	AmbientIo	false
+97	Net.Tcp.hopLimit	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false

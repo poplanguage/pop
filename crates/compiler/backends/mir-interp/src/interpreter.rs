@@ -4295,7 +4295,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=91) => {
+            } if matches!(function.raw(), 35..=58 | 64..=97) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5528,6 +5528,65 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     self.private_values.remove(&symbol),
                     Some(PrivateValue::DnsAnswers(_))
                 )))
+            }
+            92 | 93 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let direction = if function == 92 {
+                    Shutdown::Read
+                } else {
+                    Shutdown::Write
+                };
+                Ok(MirValue::Boolean(stream.shutdown(direction).is_ok()))
+            }
+            94 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Boolean(enabled) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(stream.set_nodelay(enabled).is_ok()))
+            }
+            95 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(
+                    stream.nodelay().map_err(|_| self.runtime_invariant())?,
+                ))
+            }
+            96 if arguments.len() == 2 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let ttl = u32::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                Ok(MirValue::Boolean(stream.set_ttl(ttl).is_ok()))
+            }
+            97 if arguments.len() == 1 => {
+                let MirValue::NetTcpStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::TcpStream(stream)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::from(stream.ttl().map_err(|_| self.runtime_invariant())?),
+                    IntegerKind::UInt32,
+                )
             }
             _ => Err(ExecutionError::WrongArity),
         }
