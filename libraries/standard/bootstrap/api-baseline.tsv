@@ -420,3 +420,6 @@ api:345	Api	Pop.Standard	Pop.Net.Udp	bindAt	bindAt(Net.Ipv4Address,UInt16)->Net.
 api:346	Api	Pop.Standard	Pop.Net.Tcp	listenAt	listenAt(Net.Ipv6Address,UInt16)->Net.Tcp.Listener	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
 api:347	Api	Pop.Standard	Pop.Net.Tcp	connectTo	connectTo(Net.Ipv6Address,UInt16)->Net.Tcp.Stream	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
 api:348	Api	Pop.Standard	Pop.Net.Udp	bindAt	bindAt(Net.Ipv6Address,UInt16)->Net.Udp.Socket	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
+api:349	Api	Pop.Standard	Pop.Net.Tcp	listenScopedAt	listenScopedAt(Net.ScopedIpv6Address,UInt16)->Net.Tcp.Listener	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
+api:350	Api	Pop.Standard	Pop.Net.Tcp	connectScopedTo	connectScopedTo(Net.ScopedIpv6Address,UInt16)->Net.Tcp.Stream	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md
+api:351	Api	Pop.Standard	Pop.Net.Udp	bindScopedAt	bindScopedAt(Net.ScopedIpv6Address,UInt16)->Net.Udp.Socket	standard	implemented	false	architecture/decisions/0171-explicit-ipv6-transport-endpoints.md

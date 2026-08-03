@@ -81,3 +81,6 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 78	Net.Tcp.listenAt	Pop.Standard	Net.Ipv6Address,UInt16	Net.Tcp.Listener	AmbientIo,MayTrap	false
 79	Net.Tcp.connectTo	Pop.Standard	Net.Ipv6Address,UInt16	Net.Tcp.Stream	AmbientIo,MayTrap	false
 80	Net.Udp.bindAt	Pop.Standard	Net.Ipv6Address,UInt16	Net.Udp.Socket	AmbientIo,MayTrap	false
+81	Net.Tcp.listenScopedAt	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Tcp.Listener	AmbientIo,MayTrap	false
+82	Net.Tcp.connectScopedTo	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Tcp.Stream	AmbientIo,MayTrap	false
+83	Net.Udp.bindScopedAt	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Udp.Socket	AmbientIo,MayTrap	false

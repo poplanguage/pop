@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=80 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=83 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4225,6 +4225,51 @@ fn lower_net_standard_call(
                 "{handle} = call i64 @{}(i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i16 %v{}, i32 0)",
                 native_runtime_symbol(operation),
                 arguments[1].raw()
+            ));
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                setup,
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        81..=83 if arguments.len() == 2 => {
+            let operation = match function {
+                81 => RuntimeOperation::TcpListenIpv6,
+                82 => RuntimeOperation::TcpConnectIpv6,
+                _ => RuntimeOperation::UdpBindIpv6,
+            };
+            let handle = format!("{result}_handle");
+            let mut setup = vec![
+                format!(
+                    "{result}_address_ref = call i64 @{}(i64 %v{}, i64 0)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_interface_ref = call i64 @{}(i64 %v{}, i64 1)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_scope_raw = call i64 @{}(i64 {result}_interface_ref, i64 0)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet)
+                ),
+                format!("{result}_scope = trunc i64 {result}_scope_raw to i32"),
+            ];
+            for index in 0..4 {
+                setup.push(format!("{result}_word{index}_raw = call i64 @{}(i64 {result}_address_ref, i64 {index})", native_runtime_symbol(RuntimeOperation::FieldGet)));
+                setup.push(format!(
+                    "{result}_word{index} = trunc i64 {result}_word{index}_raw to i32"
+                ));
+            }
+            setup.push(format!(
+                "{handle} = call i64 @{}(i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i16 %v{}, i32 {result}_scope)",
+                native_runtime_symbol(operation), arguments[1].raw()
             ));
             let lines = trap_status(
                 &handle,
