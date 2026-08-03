@@ -81,6 +81,7 @@ ABI 1.42 adds deadline- and cancellation-aware TCP, UDP, and Unix transfers.
 ABI 1.43 adds immutable host network-interface snapshots.
 ABI 1.44 adds immutable Linux route-table snapshots.
 ABI 1.45 adds typed IPv6 UDP multicast membership controls.
+ABI 1.46 adds TCP keepalive, keepalive-idle, and linger controls.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

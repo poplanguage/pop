@@ -2,6 +2,10 @@
 #![allow(unsafe_code)]
 #![allow(clippy::missing_safety_doc)]
 
+#[path = "tcp_lifecycle.rs"]
+mod lifecycle;
+pub use lifecycle::*;
+
 use std::net::Shutdown;
 
 use crate::tcp::{TcpResource, resources};

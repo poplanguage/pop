@@ -48,6 +48,11 @@ pub const TCP_SET_NO_DELAY_SYMBOL: &str = "pop_rt_tcp_set_no_delay";
 pub const TCP_NO_DELAY_SYMBOL: &str = "pop_rt_tcp_no_delay";
 pub const TCP_SET_TTL_SYMBOL: &str = "pop_rt_tcp_set_ttl";
 pub const TCP_TTL_SYMBOL: &str = "pop_rt_tcp_ttl";
+pub const TCP_SET_KEEPALIVE_SYMBOL: &str = "pop_rt_tcp_set_keepalive";
+pub const TCP_KEEPALIVE_SYMBOL: &str = "pop_rt_tcp_keepalive";
+pub const TCP_SET_KEEPALIVE_IDLE_SYMBOL: &str = "pop_rt_tcp_set_keepalive_idle";
+pub const TCP_SET_LINGER_SYMBOL: &str = "pop_rt_tcp_set_linger";
+pub const TCP_LINGER_SYMBOL: &str = "pop_rt_tcp_linger";
 pub const TCP_ENDPOINT_PART_SYMBOL: &str = "pop_rt_tcp_endpoint_part";
 pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
 
@@ -127,7 +132,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.45.
+/// Returns the native C symbol for an operation implemented through ABI 1.46.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.
@@ -280,6 +285,11 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::TcpNoDelay => Some(TCP_NO_DELAY_SYMBOL),
         RuntimeOperation::TcpSetTtl => Some(TCP_SET_TTL_SYMBOL),
         RuntimeOperation::TcpTtl => Some(TCP_TTL_SYMBOL),
+        RuntimeOperation::TcpSetKeepalive => Some(TCP_SET_KEEPALIVE_SYMBOL),
+        RuntimeOperation::TcpKeepalive => Some(TCP_KEEPALIVE_SYMBOL),
+        RuntimeOperation::TcpSetKeepaliveIdle => Some(TCP_SET_KEEPALIVE_IDLE_SYMBOL),
+        RuntimeOperation::TcpSetLinger => Some(TCP_SET_LINGER_SYMBOL),
+        RuntimeOperation::TcpLinger => Some(TCP_LINGER_SYMBOL),
         RuntimeOperation::TcpEndpointPart => Some(TCP_ENDPOINT_PART_SYMBOL),
         RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
         RuntimeOperation::UdpBind => Some(UDP_BIND_SYMBOL),

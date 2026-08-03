@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 102] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 107] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -63,6 +63,11 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 102] = [
     RuntimeOperation::TcpNoDelay,
     RuntimeOperation::TcpSetTtl,
     RuntimeOperation::TcpTtl,
+    RuntimeOperation::TcpSetKeepalive,
+    RuntimeOperation::TcpKeepalive,
+    RuntimeOperation::TcpSetKeepaliveIdle,
+    RuntimeOperation::TcpSetLinger,
+    RuntimeOperation::TcpLinger,
     RuntimeOperation::TcpEndpointPart,
     RuntimeOperation::TcpClose,
     RuntimeOperation::UdpBind,
@@ -167,15 +172,15 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         NetInterfaceFlags, NetInterfaceIndex, NetInterfaceName, NetInterfacesClose,
         NetInterfacesSnapshot, NetRouteCount, NetRoutePart, NetRoutesClose, NetRoutesSnapshot,
         TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpConnectIpv6, TcpEndpointPart,
-        TcpListen, TcpListenIpv4, TcpListenIpv6, TcpLocalPort, TcpNoDelay, TcpReceive,
-        TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend, TcpSendBytes,
-        TcpSendBytesUntil, TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4,
-        UdpBindIpv6, UdpBroadcast, UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4,
-        UdpJoinMulticastIpv6, UdpLeaveMulticastIpv4, UdpLeaveMulticastIpv6, UdpLocalPort,
-        UdpReceive, UdpReceiveBuffer, UdpReceiveBufferUntil, UdpReceiveBytes, UdpSendBytesTo,
-        UdpSendBytesToUntil, UdpSendTo, UdpSetBroadcast, UdpSetTtl, UdpTtl, UnixAccept, UnixClose,
-        UnixConnect, UnixListen, UnixReceiveBuffer, UnixReceiveBufferUntil, UnixSendBytes,
-        UnixSendBytesUntil, UnixShutdown,
+        TcpKeepalive, TcpLinger, TcpListen, TcpListenIpv4, TcpListenIpv6, TcpLocalPort, TcpNoDelay,
+        TcpReceive, TcpReceiveBuffer, TcpReceiveBufferUntil, TcpReceiveBytes, TcpSend,
+        TcpSendBytes, TcpSendBytesUntil, TcpSetKeepalive, TcpSetKeepaliveIdle, TcpSetLinger,
+        TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind, UdpBindIpv4, UdpBindIpv6,
+        UdpBroadcast, UdpClose, UdpEndpointPart, UdpJoinMulticastIpv4, UdpJoinMulticastIpv6,
+        UdpLeaveMulticastIpv4, UdpLeaveMulticastIpv6, UdpLocalPort, UdpReceive, UdpReceiveBuffer,
+        UdpReceiveBufferUntil, UdpReceiveBytes, UdpSendBytesTo, UdpSendBytesToUntil, UdpSendTo,
+        UdpSetBroadcast, UdpSetTtl, UdpTtl, UnixAccept, UnixClose, UnixConnect, UnixListen,
+        UnixReceiveBuffer, UnixReceiveBufferUntil, UnixSendBytes, UnixSendBytesUntil, UnixShutdown,
     };
 
     Some(match operation {
@@ -201,9 +206,8 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
-        ActorBeginExit | TcpShutdown | TcpSetNoDelay | UdpSetBroadcast | UnixShutdown => {
-            signature(&[U64, U8], U8)
-        }
+        ActorBeginExit | TcpShutdown | TcpSetNoDelay | TcpSetKeepalive | UdpSetBroadcast
+        | UnixShutdown => signature(&[U64, U8], U8),
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),
         TcpListenIpv4 | TcpConnectIpv4 | UdpBindIpv4 => signature(&[U32, U16], U64),
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {
@@ -228,9 +232,11 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpSendBytes | UnixSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
         TcpReceiveBuffer | UnixReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
-        TcpNoDelay | UdpBroadcast => signature(&[U64, WritableU8Pointer], U8),
+        TcpNoDelay | TcpKeepalive | UdpBroadcast => signature(&[U64, WritableU8Pointer], U8),
         TcpSetTtl | UdpSetTtl => signature(&[U64, U32], U8),
         TcpTtl | UdpTtl => signature(&[U64, WritableU32Pointer], U8),
+        TcpSetKeepaliveIdle | TcpSetLinger => signature(&[U64, U64], U8),
+        TcpLinger => signature(&[U64, WritableU64Pointer], U8),
         TcpEndpointPart => signature(&[U64, U8, U8, U8, WritableU32Pointer], U8),
         UdpSendTo => signature(
             &[U64, U32, U16, ReadOnlyU8Pointer, U64, WritableU64Pointer],
