@@ -71,6 +71,8 @@ ABI 1.35 adds exact numeric-IPv6 TCP listen/connect and UDP bind endpoints with
 explicit scope IDs.
 ABI 1.36 adds explicit bounded system-resolver and family-preserving DNS answer
 handles.
+ABI 1.37 adds TCP half-close, no-delay configuration, and hop-limit
+configuration with typed scalar inspection.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

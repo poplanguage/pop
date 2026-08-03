@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 56] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 61] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -58,6 +58,11 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 56] = [
     RuntimeOperation::TcpSendBytes,
     RuntimeOperation::TcpReceiveBytes,
     RuntimeOperation::TcpReceiveBuffer,
+    RuntimeOperation::TcpShutdown,
+    RuntimeOperation::TcpSetNoDelay,
+    RuntimeOperation::TcpNoDelay,
+    RuntimeOperation::TcpSetTtl,
+    RuntimeOperation::TcpTtl,
     RuntimeOperation::TcpClose,
     RuntimeOperation::UdpBind,
     RuntimeOperation::UdpBindIpv4,
@@ -99,6 +104,10 @@ const fn signature(
 }
 
 #[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the closed ABI signature table is clearest as one exhaustive match"
+)]
 pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<RuntimeAbiSignature> {
     use RuntimeAbiType::{
         I64, ReadOnlyU8Pointer, U8, U16, U32, U64, WritableU8Pointer, WritableU16Pointer,
@@ -113,8 +122,9 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicIntSwap, AtomicRelease, DnsAnswerCount, DnsAnswerFamily, DnsAnswerIpv4,
         DnsAnswerIpv6Word, DnsAnswersClose, DnsResolve, DnsResolverClose, DnsResolverCreate,
         TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpConnectIpv6, TcpListen, TcpListenIpv4,
-        TcpListenIpv6, TcpLocalPort, TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend,
-        TcpSendBytes, UdpBind, UdpBindIpv4, UdpBindIpv6, UdpClose, UdpLocalPort, UdpReceive,
+        TcpListenIpv6, TcpLocalPort, TcpNoDelay, TcpReceive, TcpReceiveBuffer, TcpReceiveBytes,
+        TcpSend, TcpSendBytes, TcpSetNoDelay, TcpSetTtl, TcpShutdown, TcpTtl, UdpBind,
+        UdpBindIpv4, UdpBindIpv6, UdpClose, UdpLocalPort, UdpReceive,
         UdpReceiveBuffer, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
     };
 
@@ -141,7 +151,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
-        ActorBeginExit => signature(&[U64, U8], U8),
+        ActorBeginExit | TcpShutdown | TcpSetNoDelay => signature(&[U64, U8], U8),
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),
         TcpListenIpv4 | TcpConnectIpv4 | UdpBindIpv4 => signature(&[U32, U16], U64),
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {
@@ -161,6 +171,9 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         TcpSendBytes => signature(&[U64, U64, WritableU64Pointer], U8),
         TcpReceiveBytes => signature(&[U64, U64, WritableU64Pointer, WritableU64Pointer], U8),
         TcpReceiveBuffer => signature(&[U64, U64, U64, WritableU64Pointer], U8),
+        TcpNoDelay => signature(&[U64, WritableU8Pointer], U8),
+        TcpSetTtl => signature(&[U64, U32], U8),
+        TcpTtl => signature(&[U64, WritableU32Pointer], U8),
         UdpSendTo => signature(
             &[U64, U32, U16, ReadOnlyU8Pointer, U64, WritableU64Pointer],
             U8,
