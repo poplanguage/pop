@@ -449,6 +449,12 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                      local tcpClosed = Net.Tcp.closeStream(client) and Net.Tcp.closeStream(server) and Net.Tcp.closeListener(listener)\n\
                      local udp = Net.Udp.bind(UInt16(0))\n\
                      local udpPort = Net.Udp.localPort(udp)\n\
+                     local udpFamily = Net.Udp.localAddressFamily(udp)\n\
+                     local udpScope = Net.Udp.localScopeId(udp)\n\
+                     local udpBroadcastSet = Net.Udp.setBroadcast(udp, true)\n\
+                     local udpBroadcast = Net.Udp.broadcast(udp)\n\
+                     local udpHopSet = Net.Udp.setHopLimit(udp, expectedHopLimit)\n\
+                     local udpHop = Net.Udp.hopLimit(udp)\n\
                      local datagramSent = Net.Udp.sendByteTo(udp, UInt32(2130706433), udpPort, Byte(66))\n\
                      if local datagram = Net.Udp.receiveByte(udp) then\n\
                          local expectedUdpByte = Byte(66)\n\
@@ -460,7 +466,7 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
                          if local udpTransfer = Net.Udp.receive(udp, udpBuffer, UInt64(64)) then\n\
                              local validUdpTransfer = Net.Udp.transferredByteCount(udpTransfer) == expectedTransferCount and Net.Udp.sourceAddress(udpTransfer) == expectedAddress and Net.Udp.sourcePort(udpTransfer) == udpPort and Bytes.length(udpBuffer) == 16\n\
                              local udpClosed = Net.Udp.close(udp)\n\
-                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and localFamily == expectedFamily and peerFamily == expectedFamily and localScope == expectedScope and peerScope == expectedScope and clientPeerPort == tcpPort and writeClosed and readClosed and tcpClosed and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
+                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and localFamily == expectedFamily and peerFamily == expectedFamily and localScope == expectedScope and peerScope == expectedScope and clientPeerPort == tcpPort and writeClosed and readClosed and tcpClosed and udpFamily == expectedFamily and udpScope == expectedScope and udpBroadcastSet and udpBroadcast and udpHopSet and udpHop == expectedHopLimit and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
                                  return 0\n\
                              end\n\
                          end\n\

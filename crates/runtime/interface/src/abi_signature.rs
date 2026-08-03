@@ -161,9 +161,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorTrySend => signature(&[U64, U64, U64, U64, U8], U8),
         ActorTrySendHandle => signature(&[U64, U64, U8], U8),
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
-        ActorBeginExit | TcpShutdown | TcpSetNoDelay | UdpSetBroadcast => {
-            signature(&[U64, U8], U8)
-        }
+        ActorBeginExit | TcpShutdown | TcpSetNoDelay | UdpSetBroadcast => signature(&[U64, U8], U8),
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),
         TcpListenIpv4 | TcpConnectIpv4 | UdpBindIpv4 => signature(&[U32, U16], U64),
         TcpListenIpv6 | TcpConnectIpv6 | UdpBindIpv6 => {

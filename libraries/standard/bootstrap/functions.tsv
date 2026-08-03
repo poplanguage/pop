@@ -105,3 +105,12 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 102	Net.Tcp.localScopeId	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false
 103	Net.Tcp.peerScopeId	Pop.Standard	Net.Tcp.Stream	UInt32	AmbientIo,MayTrap	false
 104	Net.Tcp.peerPort	Pop.Standard	Net.Tcp.Stream	UInt16	AmbientIo,MayTrap	false
+105	Net.Udp.localAddressFamily	Pop.Standard	Net.Udp.Socket	Byte	AmbientIo,MayTrap	false
+106	Net.Udp.localAddressWord	Pop.Standard	Net.Udp.Socket,Byte	UInt32?	AmbientIo	false
+107	Net.Udp.localScopeId	Pop.Standard	Net.Udp.Socket	UInt32	AmbientIo,MayTrap	false
+108	Net.Udp.setBroadcast	Pop.Standard	Net.Udp.Socket,Boolean	Boolean	AmbientIo	false
+109	Net.Udp.broadcast	Pop.Standard	Net.Udp.Socket	Boolean	AmbientIo,MayTrap	false
+110	Net.Udp.setHopLimit	Pop.Standard	Net.Udp.Socket,UInt32	Boolean	AmbientIo	false
+111	Net.Udp.hopLimit	Pop.Standard	Net.Udp.Socket	UInt32	AmbientIo,MayTrap	false
+112	Net.Udp.joinMulticastIpv4	Pop.Standard	Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address	Boolean	AmbientIo	false
+113	Net.Udp.leaveMulticastIpv4	Pop.Standard	Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address	Boolean	AmbientIo	false

@@ -1474,7 +1474,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 105 {
+    if entries.len() != 114 {
         return Err(error(
             "standard function",
             2,
@@ -1888,8 +1888,18 @@ fn validate_standard_functions(
             "Boolean",
             "AmbientIo",
         ),
-        ("Net.Tcp.shutdownRead", "Net.Tcp.Stream", "Boolean", "AmbientIo"),
-        ("Net.Tcp.shutdownWrite", "Net.Tcp.Stream", "Boolean", "AmbientIo"),
+        (
+            "Net.Tcp.shutdownRead",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.shutdownWrite",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
         (
             "Net.Tcp.setNoDelay",
             "Net.Tcp.Stream,Boolean",
@@ -1955,6 +1965,60 @@ fn validate_standard_functions(
             "Net.Tcp.Stream",
             "UInt16",
             "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localAddressFamily",
+            "Net.Udp.Socket",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localAddressWord",
+            "Net.Udp.Socket,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.localScopeId",
+            "Net.Udp.Socket",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.setBroadcast",
+            "Net.Udp.Socket,Boolean",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.broadcast",
+            "Net.Udp.Socket",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.setHopLimit",
+            "Net.Udp.Socket,UInt32",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.hopLimit",
+            "Net.Udp.Socket",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.joinMulticastIpv4",
+            "Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.leaveMulticastIpv4",
+            "Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address",
+            "Boolean",
+            "AmbientIo",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {

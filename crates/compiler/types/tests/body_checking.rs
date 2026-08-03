@@ -409,8 +409,15 @@ fn net_tcp_and_udp_transport_calls_preserve_exact_handle_and_payload_types() {
              local peerScope: UInt32 = Net.Tcp.peerScopeId(stream)\n\
              local peerPort: UInt16 = Net.Tcp.peerPort(stream)\n\
              local socket: Net.Udp.Socket = Net.Udp.bind(UInt16(0))\n\
+             local udpFamily: Byte = Net.Udp.localAddressFamily(socket)\n\
+             local udpWord: UInt32? = Net.Udp.localAddressWord(socket, Byte(0))\n\
+             local udpScope: UInt32 = Net.Udp.localScopeId(socket)\n\
+             local broadcastSet: Boolean = Net.Udp.setBroadcast(socket, true)\n\
+             local broadcast: Boolean = Net.Udp.broadcast(socket)\n\
+             local udpHopSet: Boolean = Net.Udp.setHopLimit(socket, UInt32(42))\n\
+             local udpHop: UInt32 = Net.Udp.hopLimit(socket)\n\
              local datagramSent = Net.Udp.sendByteTo(socket, UInt32(2130706433), Net.Udp.localPort(socket), Byte(66))\n\
-             return Net.ioProgress(sent) and (Net.transferProgress(transfer) or Net.transferWouldBlock(transfer)) and (Net.transferProgress(reception) or Net.transferWouldBlock(reception) or Net.transferClosed(reception)) and Net.transferredByteCount(transfer) <= UInt64(7) and noDelaySet and noDelay and hopLimitSet and hopLimit == UInt32(42) and localFamily == Byte(4) and peerFamily == Byte(4) and localWord ~= nil and peerWord ~= nil and localScope == UInt32(0) and peerScope == UInt32(0) and peerPort == port and Net.Tcp.shutdownWrite(stream) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
+             return Net.ioProgress(sent) and (Net.transferProgress(transfer) or Net.transferWouldBlock(transfer)) and (Net.transferProgress(reception) or Net.transferWouldBlock(reception) or Net.transferClosed(reception)) and Net.transferredByteCount(transfer) <= UInt64(7) and noDelaySet and noDelay and hopLimitSet and hopLimit == UInt32(42) and localFamily == Byte(4) and peerFamily == Byte(4) and localWord ~= nil and peerWord ~= nil and localScope == UInt32(0) and peerScope == UInt32(0) and peerPort == port and Net.Tcp.shutdownWrite(stream) and udpFamily == Byte(4) and udpWord ~= nil and udpScope == UInt32(0) and broadcastSet and broadcast and udpHopSet and udpHop == UInt32(42) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
          end\n",
         "transport",
     );

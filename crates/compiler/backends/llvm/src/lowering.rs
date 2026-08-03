@@ -2490,6 +2490,10 @@ pub(crate) fn llvm_block_exit_label(
                             | 102
                             | 103
                             | 104
+                            | 105
+                            | 107
+                            | 109
+                            | 111
                     ) =>
                 {
                     "continue"

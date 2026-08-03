@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=104 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=113 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4529,12 +4529,139 @@ fn lower_net_standard_call(
                     call,
                 );
                 let load = match function {
-                    98 | 99 => format!("{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"),
-                    104 => format!("{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i16"),
+                    98 | 99 => format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                    ),
+                    104 => format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i16"
+                    ),
                     _ => format!("{result} = load i32, ptr {result}_output"),
                 };
-                Ok(lines.into_iter().chain([load]).collect::<Vec<_>>().join("\n"))
+                Ok(lines
+                    .into_iter()
+                    .chain([load])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
             }
+        }
+        105..=107 if arguments.len() == usize::from(function == 106) + 1 => {
+            let field = match function {
+                105 => 0,
+                106 => 1,
+                _ => 2,
+            };
+            let index = if function == 106 {
+                format!("i8 %v{}", arguments[1].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let call = vec![
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i8 {field}, {index}, ptr {result}_output)",
+                    native_runtime_symbol(RuntimeOperation::UdpEndpointPart),
+                    arguments[0].raw()
+                ),
+            ];
+            if function == 106 {
+                Ok(call.into_iter().chain([
+                    format!("{result}_present = icmp eq i8 {status}, 1"),
+                    format!("{result}_value = load i32, ptr {result}_output"),
+                    format!("{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"),
+                    format!("{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"),
+                ]).collect::<Vec<_>>().join("\n"))
+            } else {
+                let lines = trap_status(
+                    &status,
+                    format!("{status}_valid = icmp eq i8 {status}, 1"),
+                    call,
+                );
+                let load = if function == 105 {
+                    format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                    )
+                } else {
+                    format!("{result} = load i32, ptr {result}_output")
+                };
+                Ok(lines
+                    .into_iter()
+                    .chain([load])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
+        108 | 110 if arguments.len() == 2 => {
+            let operation = if function == 108 {
+                RuntimeOperation::UdpSetBroadcast
+            } else {
+                RuntimeOperation::UdpSetTtl
+            };
+            let value = if function == 108 {
+                format!("{result}_value = zext i1 %v{} to i8", arguments[1].raw())
+            } else {
+                format!("{result}_value = add i32 %v{}, 0", arguments[1].raw())
+            };
+            let ty = if function == 108 { "i8" } else { "i32" };
+            Ok([
+                value,
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {ty} {result}_value)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        109 | 111 if arguments.len() == 1 => {
+            let operation = if function == 109 {
+                RuntimeOperation::UdpBroadcast
+            } else {
+                RuntimeOperation::UdpTtl
+            };
+            let output_type = if function == 109 { "i8" } else { "i32" };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca {output_type}"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            let load = if function == 109 {
+                format!(
+                    "{result}_value = load i8, ptr {result}_output\n{result} = icmp eq i8 {result}_value, 1"
+                )
+            } else {
+                format!("{result} = load i32, ptr {result}_output")
+            };
+            Ok(lines
+                .into_iter()
+                .chain([load])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        112 | 113 if arguments.len() == 3 => {
+            let operation = if function == 112 {
+                RuntimeOperation::UdpJoinMulticastIpv4
+            } else {
+                RuntimeOperation::UdpLeaveMulticastIpv4
+            };
+            Ok([
+                format!("{result}_group_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_group = trunc i64 {result}_group_raw to i32"),
+                format!("{result}_interface_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[2].raw()),
+                format!("{result}_interface = trunc i64 {result}_interface_raw to i32"),
+                format!("{result}_status = call i8 @{}(i64 %v{}, i32 {result}_group, i32 {result}_interface)", native_runtime_symbol(operation), arguments[0].raw()),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ].join("\n"))
         }
         _ => Err(unsupported()),
     }

@@ -4295,7 +4295,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=104) => {
+            } if matches!(function.raw(), 35..=58 | 64..=113) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5609,8 +5609,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     ),
                     100 | 101 => {
                         let index = usize::from(
-                            u8::try_from(unsigned(1)?)
-                                .map_err(|_| ExecutionError::TypeMismatch)?,
+                            u8::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?,
                         );
                         let word = match endpoint.ip() {
                             IpAddr::V4(value) if index == 0 => Some(u32::from(value)),
@@ -5640,6 +5639,113 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     104 => integer(u64::from(endpoint.port()), IntegerKind::UInt16),
                     _ => unreachable!(),
                 }
+            }
+            105..=107 if arguments.len() == usize::from(function == 106) + 1 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let endpoint = socket.local_addr().map_err(|_| self.runtime_invariant())?;
+                match function {
+                    105 => integer(
+                        u64::from(if endpoint.is_ipv4() { 4_u8 } else { 6_u8 }),
+                        IntegerKind::UInt8,
+                    ),
+                    106 => {
+                        let index = usize::from(
+                            u8::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?,
+                        );
+                        let word = match endpoint.ip() {
+                            IpAddr::V4(value) if index == 0 => Some(u32::from(value)),
+                            IpAddr::V6(value) if index < 4 => {
+                                let octets = value.octets();
+                                let start = index * 4;
+                                Some(u32::from_be_bytes([
+                                    octets[start],
+                                    octets[start + 1],
+                                    octets[start + 2],
+                                    octets[start + 3],
+                                ]))
+                            }
+                            _ => None,
+                        };
+                        word.map_or(Ok(MirValue::Nil), |word| {
+                            integer(u64::from(word), IntegerKind::UInt32)
+                        })
+                    }
+                    _ => integer(
+                        u64::from(match endpoint {
+                            std::net::SocketAddr::V4(_) => 0,
+                            std::net::SocketAddr::V6(value) => value.scope_id(),
+                        }),
+                        IntegerKind::UInt32,
+                    ),
+                }
+            }
+            108 | 110 if arguments.len() == 2 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let accepted = if function == 108 {
+                    let MirValue::Boolean(enabled) = argument(1)?.visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    socket.set_broadcast(enabled)
+                } else {
+                    let ttl =
+                        u32::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                    socket.set_ttl(ttl)
+                };
+                Ok(MirValue::Boolean(accepted.is_ok()))
+            }
+            109 | 111 if arguments.len() == 1 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                if function == 109 {
+                    Ok(MirValue::Boolean(
+                        socket.broadcast().map_err(|_| self.runtime_invariant())?,
+                    ))
+                } else {
+                    integer(
+                        u64::from(socket.ttl().map_err(|_| self.runtime_invariant())?),
+                        IntegerKind::UInt32,
+                    )
+                }
+            }
+            112 | 113 if arguments.len() == 3 => {
+                let MirValue::NetUdpSocket(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let ipv4 = |index: usize| -> Result<Ipv4Addr, ExecutionError> {
+                    let MirValue::Record { ref fields, .. } = argument(index)?.visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    let bits = &fields.first().ok_or(ExecutionError::TypeMismatch)?.1;
+                    Ok(Ipv4Addr::from(
+                        u32::try_from(integer_u64(bits)?)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    ))
+                };
+                let group = ipv4(1)?;
+                let interface = ipv4(2)?;
+                let Some(PrivateValue::UdpSocket(socket)) = self.private_values.get(&symbol) else {
+                    return Err(self.runtime_invariant());
+                };
+                let accepted = if function == 112 {
+                    socket.join_multicast_v4(&group, &interface)
+                } else {
+                    socket.leave_multicast_v4(&group, &interface)
+                };
+                Ok(MirValue::Boolean(accepted.is_ok()))
             }
             _ => Err(ExecutionError::WrongArity),
         }
