@@ -20,7 +20,7 @@ pub struct RuntimeAbiSignature {
     result: RuntimeAbiType,
 }
 
-pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 42] = [
+pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 45] = [
     RuntimeOperation::AtomicIntCreate,
     RuntimeOperation::AtomicIntLoad,
     RuntimeOperation::AtomicIntStore,
@@ -46,8 +46,10 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 42] = [
     RuntimeOperation::ActorCompleteExit,
     RuntimeOperation::ActorRelease,
     RuntimeOperation::TcpListen,
+    RuntimeOperation::TcpListenIpv4,
     RuntimeOperation::TcpLocalPort,
     RuntimeOperation::TcpConnect,
+    RuntimeOperation::TcpConnectIpv4,
     RuntimeOperation::TcpAccept,
     RuntimeOperation::TcpSend,
     RuntimeOperation::TcpReceive,
@@ -56,6 +58,7 @@ pub const CLOSED_RUNTIME_ABI_OPERATIONS: [RuntimeOperation; 42] = [
     RuntimeOperation::TcpReceiveBuffer,
     RuntimeOperation::TcpClose,
     RuntimeOperation::UdpBind,
+    RuntimeOperation::UdpBindIpv4,
     RuntimeOperation::UdpLocalPort,
     RuntimeOperation::UdpSendTo,
     RuntimeOperation::UdpReceive,
@@ -96,9 +99,10 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         AtomicBoolCreate, AtomicBoolLoad, AtomicBoolStore, AtomicBoolSwap,
         AtomicIntCompareExchange, AtomicIntCreate, AtomicIntFetchAdd, AtomicIntFetchAnd,
         AtomicIntFetchOr, AtomicIntFetchSubtract, AtomicIntFetchXor, AtomicIntLoad, AtomicIntStore,
-        AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpListen, TcpLocalPort,
-        TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend, TcpSendBytes, UdpBind, UdpClose,
-        UdpLocalPort, UdpReceive, UdpReceiveBuffer, UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
+        AtomicIntSwap, AtomicRelease, TcpAccept, TcpClose, TcpConnect, TcpConnectIpv4, TcpListen,
+        TcpListenIpv4, TcpLocalPort, TcpReceive, TcpReceiveBuffer, TcpReceiveBytes, TcpSend,
+        TcpSendBytes, UdpBind, UdpBindIpv4, UdpClose, UdpLocalPort, UdpReceive, UdpReceiveBuffer,
+        UdpReceiveBytes, UdpSendBytesTo, UdpSendTo,
     };
 
     Some(match operation {
@@ -126,6 +130,7 @@ pub const fn runtime_abi_signature(operation: RuntimeOperation) -> Option<Runtim
         ActorTryReceive => signature(&[U64, WritableU64Pointer, WritableU8Pointer], U8),
         ActorBeginExit => signature(&[U64, U8], U8),
         TcpListen | TcpConnect | UdpBind => signature(&[U16], U64),
+        TcpListenIpv4 | TcpConnectIpv4 | UdpBindIpv4 => signature(&[U32, U16], U64),
         TcpLocalPort | UdpLocalPort => signature(&[U64, WritableU16Pointer], U8),
         TcpAccept => signature(&[U64], U64),
         TcpSend => signature(&[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer], U8),

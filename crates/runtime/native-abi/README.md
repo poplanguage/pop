@@ -53,6 +53,7 @@ ABI 1.31 appends bounded owning-`Bytes` TCP/UDP send and receive operations
 with exact transferred counts and UDP source metadata.
 ABI 1.32 appends bounded TCP receive directly into a reusable `Bytes.Buffer`.
 ABI 1.33 appends bounded UDP receive directly into a reusable `Bytes.Buffer`.
+ABI 1.34 appends explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the

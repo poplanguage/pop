@@ -23,7 +23,12 @@ fn sockets() -> &'static Mutex<BTreeMap<u64, UdpSocket>> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_udp_bind(port: u16) -> u64 {
-    let Ok(socket) = UdpSocket::bind((Ipv4Addr::LOCALHOST, port)) else {
+    pop_rt_udp_bind_ipv4(u32::from(Ipv4Addr::LOCALHOST), port)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_udp_bind_ipv4(address: u32, port: u16) -> u64 {
+    let Ok(socket) = UdpSocket::bind((Ipv4Addr::from(address), port)) else {
         return 0;
     };
     let _ = socket.set_nonblocking(true);

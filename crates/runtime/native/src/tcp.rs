@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -41,7 +41,12 @@ fn insert(resource: TcpResource) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_tcp_listen(port: u16) -> u64 {
-    let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) else {
+    pop_rt_tcp_listen_ipv4(u32::from(Ipv4Addr::LOCALHOST), port)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_tcp_listen_ipv4(address: u32, port: u16) -> u64 {
+    let Ok(listener) = TcpListener::bind((Ipv4Addr::from(address), port)) else {
         return 0;
     };
     let _ = listener.set_nonblocking(true);
@@ -75,7 +80,12 @@ pub unsafe extern "C" fn pop_rt_tcp_local_port(handle: u64, output: *mut u16) ->
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pop_rt_tcp_connect(port: u16) -> u64 {
-    let Ok(stream) = TcpStream::connect(("127.0.0.1", port)) else {
+    pop_rt_tcp_connect_ipv4(u32::from(Ipv4Addr::LOCALHOST), port)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pop_rt_tcp_connect_ipv4(address: u32, port: u16) -> u64 {
+    let Ok(stream) = TcpStream::connect((Ipv4Addr::from(address), port)) else {
         return 0;
     };
     if stream.set_nonblocking(true).is_err() {
