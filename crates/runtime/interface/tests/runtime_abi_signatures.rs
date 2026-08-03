@@ -13,12 +13,15 @@ fn atomic_actor_and_network_operations_have_closed_native_signatures() {
 fn signatures_preserve_widths_and_pointer_direction() {
     use RuntimeAbiType::{
         ReadOnlyU8Pointer, U8, U16, U32, U64, WritableU8Pointer, WritableU16Pointer,
-        WritableU32Pointer,
+        WritableU32Pointer, WritableU64Pointer,
     };
 
     let tcp_send = runtime_abi_signature(RuntimeOperation::TcpSend).expect("TCP send signature");
-    assert_eq!(tcp_send.parameters(), &[U64, ReadOnlyU8Pointer, U64]);
-    assert_eq!(tcp_send.result(), U64);
+    assert_eq!(
+        tcp_send.parameters(),
+        &[U64, ReadOnlyU8Pointer, U64, WritableU64Pointer]
+    );
+    assert_eq!(tcp_send.result(), U8);
 
     let udp_receive =
         runtime_abi_signature(RuntimeOperation::UdpReceive).expect("UDP receive signature");

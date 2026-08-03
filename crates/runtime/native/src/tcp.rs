@@ -8,6 +8,8 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use pop_runtime_native_abi::SocketIoStatus;
+
 enum TcpResource {
     Listener(TcpListener),
     Stream(TcpStream),
@@ -97,50 +99,92 @@ pub extern "C" fn pop_rt_tcp_accept(listener: u64) -> u64 {
 
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_rt_tcp_send(handle: u64, bytes: *const u8, length: u64) -> u64 {
-    if bytes.is_null() {
-        return 0;
+pub unsafe extern "C" fn pop_rt_tcp_send(
+    handle: u64,
+    bytes: *const u8,
+    length: u64,
+    written: *mut u64,
+) -> u8 {
+    if bytes.is_null() || written.is_null() {
+        return SocketIoStatus::Failure as u8;
     }
     let Ok(length) = usize::try_from(length) else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
     // SAFETY: the caller owns a readable byte span for this call.
     let input = unsafe { std::slice::from_raw_parts(bytes, length) };
     let Ok(mut values) = resources().lock() else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
     let Some(TcpResource::Stream(stream)) = values.get_mut(&handle) else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
-    stream
-        .write(input)
-        .ok()
-        .and_then(|count| u64::try_from(count).ok())
-        .unwrap_or(0)
+    match stream.write(input) {
+        Ok(0) if !input.is_empty() => SocketIoStatus::Closed as u8,
+        Ok(count) => {
+            let Ok(count) = u64::try_from(count) else {
+                return SocketIoStatus::Failure as u8;
+            };
+            // SAFETY: the caller supplied a non-null scalar output slot.
+            unsafe { written.write(count) };
+            SocketIoStatus::Progress as u8
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            SocketIoStatus::WouldBlock as u8
+        }
+        Err(error) if is_closed(&error) => SocketIoStatus::Closed as u8,
+        Err(_) => SocketIoStatus::Failure as u8,
+    }
 }
 
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_rt_tcp_receive(handle: u64, bytes: *mut u8, capacity: u64) -> u64 {
-    if bytes.is_null() {
-        return 0;
+pub unsafe extern "C" fn pop_rt_tcp_receive(
+    handle: u64,
+    bytes: *mut u8,
+    capacity: u64,
+    received: *mut u64,
+) -> u8 {
+    if bytes.is_null() || received.is_null() || capacity == 0 {
+        return SocketIoStatus::Failure as u8;
     }
     let Ok(capacity) = usize::try_from(capacity) else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
     // SAFETY: the caller owns a writable byte span for this call.
     let output = unsafe { std::slice::from_raw_parts_mut(bytes, capacity) };
     let Ok(mut values) = resources().lock() else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
     let Some(TcpResource::Stream(stream)) = values.get_mut(&handle) else {
-        return 0;
+        return SocketIoStatus::Failure as u8;
     };
-    stream
-        .read(output)
-        .ok()
-        .and_then(|count| u64::try_from(count).ok())
-        .unwrap_or(0)
+    match stream.read(output) {
+        Ok(0) => SocketIoStatus::Closed as u8,
+        Ok(count) => {
+            let Ok(count) = u64::try_from(count) else {
+                return SocketIoStatus::Failure as u8;
+            };
+            // SAFETY: the caller supplied a non-null scalar output slot.
+            unsafe { received.write(count) };
+            SocketIoStatus::Progress as u8
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            SocketIoStatus::WouldBlock as u8
+        }
+        Err(error) if is_closed(&error) => SocketIoStatus::Closed as u8,
+        Err(_) => SocketIoStatus::Failure as u8,
+    }
+}
+
+fn is_closed(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 #[unsafe(no_mangle)]

@@ -55,7 +55,7 @@ pub const ATOMIC_BOOL_SWAP_SYMBOL: &str = "pop_rt_atomic_bool_swap";
 pub const ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL: &str = "pop_rt_atomic_bool_compare_exchange";
 pub const ATOMIC_RELEASE_SYMBOL: &str = "pop_rt_atomic_release";
 
-/// Returns the native C symbol for an operation implemented through ABI 1.27.
+/// Returns the native C symbol for an operation implemented through ABI 1.28.
 ///
 /// Operations outside the native bootstrap capability set fail closed. MIR and
 /// alternate runtime implementations continue to use the semantic operation.

@@ -22,5 +22,5 @@ pub use version::{
     AllocationSiteDescriptorAbi, ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus,
     CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
     IterationCollectionKind, IterationStatus, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION,
-    NativeAbiVersion, NativeTaskStatus, StringFormatTag, TextViewGetRuneAbi,
+    NativeAbiVersion, NativeTaskStatus, SocketIoStatus, StringFormatTag, TextViewGetRuneAbi,
 };

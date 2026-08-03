@@ -41,7 +41,7 @@ use pop_runtime_native::{
 use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
     ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
-    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, StringFormatTag,
+    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, SocketIoStatus, StringFormatTag,
     TextViewGetRuneAbi,
 };
 use std::ffi::CString;
@@ -58,7 +58,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 27);
+    assert_eq!(pop_rt_abi_minor(), 28);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -77,6 +77,7 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 25), 1);
     assert_eq!(pop_rt_supports_abi(1, 26), 1);
     assert_eq!(pop_rt_supports_abi(1, 27), 1);
+    assert_eq!(pop_rt_supports_abi(1, 28), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
     assert_eq!(pop_rt_supports_abi(2, 1), 0);
     assert_eq!(pop_rt_supports_abi(2, 2), 0);
@@ -250,10 +251,14 @@ fn native_tcp_handles_fail_closed_without_a_capability() {
     let mut port = 0_u16;
     assert_eq!(unsafe { pop_rt_tcp_local_port(0, &raw mut port) }, 0);
     assert_eq!(pop_rt_tcp_accept(0), 0);
-    assert_eq!(unsafe { pop_rt_tcp_send(0, b"x".as_ptr(), 1) }, 0);
+    let mut count = 0_u64;
     assert_eq!(
-        unsafe { pop_rt_tcp_receive(0, (&raw mut port).cast::<u8>(), 1) },
-        0
+        unsafe { pop_rt_tcp_send(0, b"x".as_ptr(), 1, &raw mut count) },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(
+        unsafe { pop_rt_tcp_receive(0, (&raw mut port).cast::<u8>(), 1, &raw mut count,) },
+        SocketIoStatus::Failure as u8
     );
     assert_eq!(pop_rt_tcp_close(0), 0);
 }

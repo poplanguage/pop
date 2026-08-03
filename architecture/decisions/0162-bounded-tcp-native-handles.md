@@ -9,6 +9,9 @@ environment, global registry, or implicit host selection is permitted. Accept,
 send, receive, and close fail closed on invalid handles and caller bounds.
 Listeners and every connected or accepted stream are nonblocking, so a native
 operation cannot suspend the runtime thread waiting for peer progress.
+ABI 1.28 returns a closed failure/progress/would-block/closed status from send
+and receive and writes byte counts separately, so zero bytes never erases the
+transport state.
 
 The first ABI slice is a deterministic capability bridge for compiler/runtime
 integration. TLS, cancellation, deadlines, public `Net.Tcp` records, and

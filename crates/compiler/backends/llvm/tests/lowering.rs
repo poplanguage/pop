@@ -105,7 +105,7 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
         text.contains(
             "declare i8 @pop_rt_atomic_int_compare_exchange(i64, i64, i64, i8, i8, ptr) nounwind"
         ) && text.contains("declare i8 @pop_rt_actor_try_receive(i64, ptr, ptr) nounwind")
-            && text.contains("declare i64 @pop_rt_tcp_send(i64, ptr, i64) nounwind")
+            && text.contains("declare i8 @pop_rt_tcp_send(i64, ptr, i64, ptr) nounwind")
             && text.contains("declare i64 @pop_rt_udp_receive(i64, ptr, i64, ptr, ptr) nounwind"),
         "closed runtime ABI signatures must drive LLVM declarations: {text}"
     );

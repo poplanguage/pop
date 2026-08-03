@@ -56,6 +56,8 @@ ABI 1.26 and ABI 2.4 add checked UTF-8 Text/Bytes transcoding with direct,
 non-mutating reusable-buffer decode.
 ABI 1.27 and ABI 2.5 add bounded channel storage with directional endpoint
 lifetime, closed non-suspending statuses, and precise managed-payload roots.
+ABI 1.28 adds nonblocking TCP I/O with a closed transport status and separate
+byte-count outputs.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

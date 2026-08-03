@@ -13,23 +13,35 @@ use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
     ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
     CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL,
-    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TCP_ACCEPT_SYMBOL,
-    TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL, TCP_LOCAL_PORT_SYMBOL,
-    TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi,
-    UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL, UDP_RECEIVE_SYMBOL,
-    UDP_SEND_TO_SYMBOL, symbol,
+    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, SocketIoStatus,
+    TCP_ACCEPT_SYMBOL, TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL,
+    TCP_LOCAL_PORT_SYMBOL, TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL,
+    TextViewGetRuneAbi, UDP_BIND_SYMBOL, UDP_CLOSE_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
+    UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 27);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 28);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
     assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
     assert_eq!(ABI_SUPPORT_SYMBOL, "pop_rt_supports_abi");
     assert_eq!(GC_SAFE_POINT_V2_SYMBOL, "pop_rt_gc_safe_point_v2");
     assert_eq!(INVALID_HANDLE, 0);
+}
+
+#[test]
+fn socket_io_status_is_closed_and_exact() {
+    assert_eq!(SocketIoStatus::from_raw(0), Some(SocketIoStatus::Failure));
+    assert_eq!(SocketIoStatus::from_raw(1), Some(SocketIoStatus::Progress));
+    assert_eq!(
+        SocketIoStatus::from_raw(2),
+        Some(SocketIoStatus::WouldBlock)
+    );
+    assert_eq!(SocketIoStatus::from_raw(3), Some(SocketIoStatus::Closed));
+    assert_eq!(SocketIoStatus::from_raw(4), None);
 }
 
 #[test]
@@ -277,7 +289,7 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 27);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 28);
 }
 
 #[test]

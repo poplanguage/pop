@@ -41,6 +41,9 @@ direct reusable-buffer decoding from
 ABI 1.27 appends bounded-channel construction, directional endpoint lifetime,
 close, and closed non-suspending send/receive statuses from
 [ADR 0146](../../../architecture/decisions/0146-native-bounded-channel-abi.md).
+ABI 1.28 appends the closed nonblocking socket I/O status and separate
+byte-count outputs for TCP send and receive from
+[ADR 0162](../../../architecture/decisions/0162-bounded-tcp-native-handles.md).
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
 adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the

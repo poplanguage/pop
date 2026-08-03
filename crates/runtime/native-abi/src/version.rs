@@ -21,11 +21,33 @@ impl NativeAbiVersion {
     }
 }
 
-pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 27);
+pub const NATIVE_ABI_1_VERSION: NativeAbiVersion = NativeAbiVersion::new(1, 28);
 pub const NATIVE_ABI_2_VERSION: NativeAbiVersion = NativeAbiVersion::new(2, 5);
 pub const ABI_SUPPORT_SYMBOL: &str = "pop_rt_supports_abi";
 pub const GC_SAFE_POINT_V2_SYMBOL: &str = "pop_rt_gc_safe_point_v2";
 pub const INVALID_HANDLE: u64 = 0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SocketIoStatus {
+    Failure = 0,
+    Progress = 1,
+    WouldBlock = 2,
+    Closed = 3,
+}
+
+impl SocketIoStatus {
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        Some(match raw {
+            0 => Self::Failure,
+            1 => Self::Progress,
+            2 => Self::WouldBlock,
+            3 => Self::Closed,
+            _ => return None,
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
