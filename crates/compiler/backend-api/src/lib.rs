@@ -321,7 +321,7 @@ impl ProgramRequirements {
             {
                 self.require_runtime(RuntimeContract::ActorOperations, origin);
             }
-            MirInstructionKind::CallStandard { function, .. } if matches!(function.raw(), 35..=58 | 64..=83) =>
+            MirInstructionKind::CallStandard { function, .. } if matches!(function.raw(), 35..=58 | 64..=91) =>
             {
                 self.require_runtime(RuntimeContract::NetworkIo, origin);
             }

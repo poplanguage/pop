@@ -45,7 +45,10 @@ use pop_types::{
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Write as _};
-use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs,
+    UdpSocket,
+};
 use std::rc::Rc;
 
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
@@ -1532,6 +1535,8 @@ enum PrivateValue {
     TcpListener(TcpListener),
     TcpStream(TcpStream),
     UdpSocket(UdpSocket),
+    DnsResolver,
+    DnsAnswers(Vec<IpAddr>),
 }
 
 #[derive(Clone, Debug)]
@@ -4290,7 +4295,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=83) => {
+            } if matches!(function.raw(), 35..=58 | 64..=91) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
@@ -5402,6 +5407,128 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     Ok(MirValue::NetUdpSocket(symbol))
                 }
             }
+            84 if arguments.is_empty() => {
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::DnsResolver);
+                Ok(MirValue::NetDnsResolver(symbol))
+            }
+            85 if arguments.len() == 3 => {
+                let MirValue::NetDnsResolver(resolver) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                if !matches!(
+                    self.private_values.get(&resolver),
+                    Some(PrivateValue::DnsResolver)
+                ) {
+                    return Err(self.runtime_invariant());
+                }
+                let MirValue::Record { ref fields, .. } = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some((_, MirValue::String(name))) = fields.first() else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let limit = usize::from(
+                    u16::try_from(unsigned(2)?)
+                        .ok()
+                        .filter(|value| *value > 0)
+                        .ok_or(ExecutionError::TypeMismatch)?,
+                );
+                let addresses = (name.as_str(), 0)
+                    .to_socket_addrs()
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut answers = Vec::new();
+                for address in addresses.map(|entry| entry.ip()) {
+                    if !answers.contains(&address) {
+                        answers.push(address);
+                        if answers.len() == limit {
+                            break;
+                        }
+                    }
+                }
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::DnsAnswers(answers));
+                Ok(MirValue::NetDnsAnswers(symbol))
+            }
+            86 if arguments.len() == 1 => {
+                let MirValue::NetDnsResolver(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::DnsResolver)
+                )))
+            }
+            87 if arguments.len() == 1 => {
+                let MirValue::NetDnsAnswers(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let Some(PrivateValue::DnsAnswers(answers)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                integer(
+                    u64::try_from(answers.len()).map_err(|_| self.runtime_invariant())?,
+                    IntegerKind::UInt64,
+                )
+            }
+            88..=90 if arguments.len() >= 2 => {
+                let MirValue::NetDnsAnswers(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let index =
+                    usize::try_from(unsigned(1)?).map_err(|_| ExecutionError::TypeMismatch)?;
+                let Some(PrivateValue::DnsAnswers(answers)) = self.private_values.get(&symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let Some(address) = answers.get(index) else {
+                    return if function == 88 {
+                        Err(self.runtime_invariant())
+                    } else {
+                        Ok(MirValue::Nil)
+                    };
+                };
+                match (function, address) {
+                    (88, IpAddr::V4(_)) => integer(4, IntegerKind::UInt8),
+                    (88, IpAddr::V6(_)) => integer(6, IntegerKind::UInt8),
+                    (89, IpAddr::V4(value)) => {
+                        integer(u64::from(u32::from(*value)), IntegerKind::UInt32)
+                    }
+                    (89, IpAddr::V6(_)) => Ok(MirValue::Nil),
+                    (90, IpAddr::V6(value)) if arguments.len() == 3 => {
+                        let word = usize::from(
+                            u8::try_from(unsigned(2)?).map_err(|_| ExecutionError::TypeMismatch)?,
+                        );
+                        if word >= 4 {
+                            return Ok(MirValue::Nil);
+                        }
+                        let octets = value.octets();
+                        let start = word * 4;
+                        integer(
+                            u64::from(u32::from_be_bytes(
+                                octets[start..start + 4]
+                                    .try_into()
+                                    .map_err(|_| self.runtime_invariant())?,
+                            )),
+                            IntegerKind::UInt32,
+                        )
+                    }
+                    (90, IpAddr::V4(_)) => Ok(MirValue::Nil),
+                    _ => Err(ExecutionError::WrongArity),
+                }
+            }
+            91 if arguments.len() == 1 => {
+                let MirValue::NetDnsAnswers(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::DnsAnswers(_))
+                )))
+            }
             _ => Err(ExecutionError::WrongArity),
         }
     }
@@ -6024,7 +6151,9 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::AtomicBoolean(_)
                         | PrivateValue::TcpListener(_)
                         | PrivateValue::TcpStream(_)
-                        | PrivateValue::UdpSocket(_),
+                        | PrivateValue::UdpSocket(_)
+                        | PrivateValue::DnsResolver
+                        | PrivateValue::DnsAnswers(_),
                     ) => Err(ExecutionError::TypeMismatch),
                     None => Err(ExecutionError::TypeMismatch),
                 }

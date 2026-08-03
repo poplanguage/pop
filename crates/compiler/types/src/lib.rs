@@ -72,11 +72,12 @@ pub use bootstrap::{
     FFI_CALLBACK_THREAD_TYPE_ID, FFI_FUNCTION_TYPE_ID, FFI_HANDLE_TYPE_ID,
     FFI_NULL_POINTER_ERROR_TYPE_ID, FFI_OPTIONAL_POINTER_TYPE_ID,
     FFI_OPTIONAL_READ_ONLY_POINTER_TYPE_ID, FFI_POINTER_TYPE_ID, FFI_READ_ONLY_POINTER_TYPE_ID,
-    FFI_REGISTERED_CALLBACK_TYPE_ID, FfiCIntegerKind, NET_SOCKET_IO_OUTCOME_TYPE_ID,
-    NET_TCP_LISTENER_TYPE_ID, NET_TCP_RECEIVE_TYPE_ID, NET_TCP_STREAM_TYPE_ID,
-    NET_TRANSFER_TYPE_ID, NET_UDP_DATAGRAM_TYPE_ID, NET_UDP_SOCKET_TYPE_ID,
-    NET_UDP_TRANSFER_TYPE_ID, TEXT_VIEW_TYPE_ID, embedded_bootstrap_schema, ffi_c_integer_kind,
-    is_ffi_abi_builtin_type, is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
+    FFI_REGISTERED_CALLBACK_TYPE_ID, FfiCIntegerKind, NET_DNS_ANSWERS_TYPE_ID,
+    NET_DNS_RESOLVER_TYPE_ID, NET_SOCKET_IO_OUTCOME_TYPE_ID, NET_TCP_LISTENER_TYPE_ID,
+    NET_TCP_RECEIVE_TYPE_ID, NET_TCP_STREAM_TYPE_ID, NET_TRANSFER_TYPE_ID,
+    NET_UDP_DATAGRAM_TYPE_ID, NET_UDP_SOCKET_TYPE_ID, NET_UDP_TRANSFER_TYPE_ID, TEXT_VIEW_TYPE_ID,
+    embedded_bootstrap_schema, ffi_c_integer_kind, is_ffi_abi_builtin_type,
+    is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
     is_ffi_pointer_type_constructor,
 };
 pub use classes::{

@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=83 => lower_net_standard_call(&result, function.raw(), arguments)?,
+            35..=58 | 64..=91 => lower_net_standard_call(&result, function.raw(), arguments)?,
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
@@ -4281,6 +4281,136 @@ fn lower_net_standard_call(
                 .chain([format!("{result} = add i64 {handle}, 0")])
                 .collect::<Vec<_>>()
                 .join("\n"))
+        }
+        84 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::DnsResolverCreate)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        85 if arguments.len() == 3 => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!(
+                        "{result}_name = call i64 @{}(i64 %v{}, i64 0)",
+                        native_runtime_symbol(RuntimeOperation::FieldGet),
+                        arguments[1].raw()
+                    ),
+                    format!(
+                        "{handle} = call i64 @{}(i64 %v{}, i64 {result}_name, i16 %v{})",
+                        native_runtime_symbol(RuntimeOperation::DnsResolve),
+                        arguments[0].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        86 | 91 if arguments.len() == 1 => {
+            let operation = if function == 86 {
+                RuntimeOperation::DnsResolverClose
+            } else {
+                RuntimeOperation::DnsAnswersClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        87 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::DnsAnswerCount),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        88 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::DnsAnswerFamily),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i8, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        89 | 90
+            if (function == 89 && arguments.len() == 2)
+                || (function == 90 && arguments.len() == 3) =>
+        {
+            let operation = if function == 89 {
+                RuntimeOperation::DnsAnswerIpv4
+            } else {
+                RuntimeOperation::DnsAnswerIpv6Word
+            };
+            let mut call_arguments =
+                format!("i64 %v{}, i64 %v{}", arguments[0].raw(), arguments[1].raw());
+            if function == 90 {
+                call_arguments.push_str(&format!(", i8 %v{}", arguments[2].raw()));
+            }
+            Ok([
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{result}_status = call i8 @{}({call_arguments}, ptr {result}_output)",
+                    native_runtime_symbol(operation)
+                ),
+                format!("{result}_present = icmp eq i8 {result}_status, 1"),
+                format!("{result}_value = load i32, ptr {result}_output"),
+                format!(
+                    "{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"
+                ),
+                format!(
+                    "{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"
+                ),
+            ]
+            .join("\n"))
         }
         _ => Err(unsupported()),
     }

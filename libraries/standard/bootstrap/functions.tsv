@@ -84,3 +84,11 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 81	Net.Tcp.listenScopedAt	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Tcp.Listener	AmbientIo,MayTrap	false
 82	Net.Tcp.connectScopedTo	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Tcp.Stream	AmbientIo,MayTrap	false
 83	Net.Udp.bindScopedAt	Pop.Standard	Net.ScopedIpv6Address,UInt16	Net.Udp.Socket	AmbientIo,MayTrap	false
+84	Net.Dns.systemResolver	Pop.Standard	-	Net.Dns.Resolver	AmbientIo,MayTrap	false
+85	Net.Dns.resolve	Pop.Standard	Net.Dns.Resolver,Net.DnsName,UInt16	Net.Dns.Answers	AmbientIo,MayTrap	false
+86	Net.Dns.closeResolver	Pop.Standard	Net.Dns.Resolver	Boolean	AmbientIo	false
+87	Net.Dns.answerCount	Pop.Standard	Net.Dns.Answers	UInt64	-	false
+88	Net.Dns.answerFamily	Pop.Standard	Net.Dns.Answers,UInt64	Byte	MayTrap	false
+89	Net.Dns.answerIpv4	Pop.Standard	Net.Dns.Answers,UInt64	UInt32?	-	false
+90	Net.Dns.answerIpv6Word	Pop.Standard	Net.Dns.Answers,UInt64,Byte	UInt32?	-	false
+91	Net.Dns.closeAnswers	Pop.Standard	Net.Dns.Answers	Boolean	AmbientIo	false

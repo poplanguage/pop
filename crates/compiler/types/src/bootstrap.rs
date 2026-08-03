@@ -497,6 +497,8 @@ pub const NET_TCP_RECEIVE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(142);
 pub const NET_UDP_DATAGRAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(143);
 pub const NET_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(144);
 pub const NET_UDP_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(145);
+pub const NET_DNS_RESOLVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(146);
+pub const NET_DNS_ANSWERS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(147);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1275,6 +1277,8 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_UDP_DATAGRAM_TYPE_ID, "Net.Udp.Datagram"),
         (NET_TRANSFER_TYPE_ID, "Net.Transfer"),
         (NET_UDP_TRANSFER_TYPE_ID, "Net.Udp.Transfer"),
+        (NET_DNS_RESOLVER_TYPE_ID, "Net.Dns.Resolver"),
+        (NET_DNS_ANSWERS_TYPE_ID, "Net.Dns.Answers"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1470,7 +1474,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 84 {
+    if entries.len() != 92 {
         return Err(error(
             "standard function",
             2,
@@ -1840,6 +1844,49 @@ fn validate_standard_functions(
             "Net.ScopedIpv6Address,UInt16",
             "Net.Udp.Socket",
             "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.systemResolver",
+            "-",
+            "Net.Dns.Resolver",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.resolve",
+            "Net.Dns.Resolver,Net.DnsName,UInt16",
+            "Net.Dns.Answers",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.closeResolver",
+            "Net.Dns.Resolver",
+            "Boolean",
+            "AmbientIo",
+        ),
+        ("Net.Dns.answerCount", "Net.Dns.Answers", "UInt64", "-"),
+        (
+            "Net.Dns.answerFamily",
+            "Net.Dns.Answers,UInt64",
+            "Byte",
+            "MayTrap",
+        ),
+        (
+            "Net.Dns.answerIpv4",
+            "Net.Dns.Answers,UInt64",
+            "UInt32?",
+            "-",
+        ),
+        (
+            "Net.Dns.answerIpv6Word",
+            "Net.Dns.Answers,UInt64,Byte",
+            "UInt32?",
+            "-",
+        ),
+        (
+            "Net.Dns.closeAnswers",
+            "Net.Dns.Answers",
+            "Boolean",
+            "AmbientIo",
         ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
