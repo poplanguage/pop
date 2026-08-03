@@ -3044,6 +3044,8 @@ fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
     let root = repository_root();
     let adr = read_required(root.join("architecture/decisions/0162-bounded-tcp-native-handles.md"));
     let tcp = read_required(root.join("crates/runtime/native/src/tcp.rs"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
     let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
     assert!(adr.contains("- Status: accepted"));
     for function in [
@@ -3056,6 +3058,23 @@ fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
         "pop_rt_tcp_close",
     ] {
         assert_eq!(tcp.matches(function).count(), 1);
+    }
+    for name in [
+        "TcpListen",
+        "TcpLocalPort",
+        "TcpConnect",
+        "TcpAccept",
+        "TcpSend",
+        "TcpReceive",
+        "TcpClose",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name}"))
+                .count(),
+            1
+        );
     }
     assert!(tests.contains("native_tcp_handles_fail_closed_without_a_capability"));
     for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {

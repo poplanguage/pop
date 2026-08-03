@@ -124,6 +124,13 @@ pub enum RuntimeOperation {
     ActorBeginExit,
     ActorCompleteExit,
     ActorRelease,
+    TcpListen,
+    TcpLocalPort,
+    TcpConnect,
+    TcpAccept,
+    TcpSend,
+    TcpReceive,
+    TcpClose,
     InitializeModule,
     InitializeBubble,
 }

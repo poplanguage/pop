@@ -13,8 +13,9 @@ use pop_runtime_native_abi::{
     ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
     ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
     CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE, ITERATION_MAKE_SYMBOL,
-    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TEXT_VIEW_GET_RUNE_SYMBOL,
-    TextViewGetRuneAbi, symbol,
+    IterationCollectionKind, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, TCP_ACCEPT_SYMBOL,
+    TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL, TCP_LISTEN_SYMBOL, TCP_LOCAL_PORT_SYMBOL,
+    TCP_RECEIVE_SYMBOL, TCP_SEND_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TextViewGetRuneAbi, symbol,
 };
 
 #[test]
@@ -202,6 +203,13 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::ActorBeginExit,
         RuntimeOperation::ActorCompleteExit,
         RuntimeOperation::ActorRelease,
+        RuntimeOperation::TcpListen,
+        RuntimeOperation::TcpLocalPort,
+        RuntimeOperation::TcpConnect,
+        RuntimeOperation::TcpAccept,
+        RuntimeOperation::TcpSend,
+        RuntimeOperation::TcpReceive,
+        RuntimeOperation::TcpClose,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
     ];
@@ -211,6 +219,25 @@ fn supported_symbols_are_unique_and_native() {
         .collect();
     assert_eq!(symbols.len(), operations.len());
     assert!(symbols.iter().all(|name| name.starts_with("pop_rt_")));
+}
+
+#[test]
+fn tcp_symbols_are_exact_and_closed() {
+    let symbols = [
+        TCP_LISTEN_SYMBOL,
+        TCP_LOCAL_PORT_SYMBOL,
+        TCP_CONNECT_SYMBOL,
+        TCP_ACCEPT_SYMBOL,
+        TCP_SEND_SYMBOL,
+        TCP_RECEIVE_SYMBOL,
+        TCP_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_tcp_"))
+    );
 }
 
 #[test]

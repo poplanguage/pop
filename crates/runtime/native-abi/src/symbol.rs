@@ -29,6 +29,14 @@ pub const ACTOR_BEGIN_EXIT_SYMBOL: &str = "pop_rt_actor_begin_exit";
 pub const ACTOR_COMPLETE_EXIT_SYMBOL: &str = "pop_rt_actor_complete_exit";
 pub const ACTOR_RELEASE_SYMBOL: &str = "pop_rt_actor_release";
 
+pub const TCP_LISTEN_SYMBOL: &str = "pop_rt_tcp_listen";
+pub const TCP_LOCAL_PORT_SYMBOL: &str = "pop_rt_tcp_local_port";
+pub const TCP_CONNECT_SYMBOL: &str = "pop_rt_tcp_connect";
+pub const TCP_ACCEPT_SYMBOL: &str = "pop_rt_tcp_accept";
+pub const TCP_SEND_SYMBOL: &str = "pop_rt_tcp_send";
+pub const TCP_RECEIVE_SYMBOL: &str = "pop_rt_tcp_receive";
+pub const TCP_CLOSE_SYMBOL: &str = "pop_rt_tcp_close";
+
 pub const ATOMIC_INT_CREATE_SYMBOL: &str = "pop_rt_atomic_int_create";
 pub const ATOMIC_INT_LOAD_SYMBOL: &str = "pop_rt_atomic_int_load";
 pub const ATOMIC_INT_STORE_SYMBOL: &str = "pop_rt_atomic_int_store";
@@ -170,6 +178,13 @@ pub const fn symbol(operation: RuntimeOperation) -> Option<&'static str> {
         RuntimeOperation::ActorBeginExit => Some(ACTOR_BEGIN_EXIT_SYMBOL),
         RuntimeOperation::ActorCompleteExit => Some(ACTOR_COMPLETE_EXIT_SYMBOL),
         RuntimeOperation::ActorRelease => Some(ACTOR_RELEASE_SYMBOL),
+        RuntimeOperation::TcpListen => Some(TCP_LISTEN_SYMBOL),
+        RuntimeOperation::TcpLocalPort => Some(TCP_LOCAL_PORT_SYMBOL),
+        RuntimeOperation::TcpConnect => Some(TCP_CONNECT_SYMBOL),
+        RuntimeOperation::TcpAccept => Some(TCP_ACCEPT_SYMBOL),
+        RuntimeOperation::TcpSend => Some(TCP_SEND_SYMBOL),
+        RuntimeOperation::TcpReceive => Some(TCP_RECEIVE_SYMBOL),
+        RuntimeOperation::TcpClose => Some(TCP_CLOSE_SYMBOL),
         RuntimeOperation::RecordUpdate
         | RuntimeOperation::UnionMake
         | RuntimeOperation::CaptureLoad

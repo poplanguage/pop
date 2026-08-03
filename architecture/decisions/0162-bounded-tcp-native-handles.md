@@ -11,3 +11,6 @@ send, receive, and close fail closed on invalid handles and caller bounds.
 The first ABI slice is a deterministic capability bridge for compiler/runtime
 integration. TLS, cancellation, deadlines, public `Net.Tcp` records, and
 non-loopback policy remain later layers.
+
+The backend-neutral `RuntimeOperation` inventory and native ABI symbol catalog
+reserve exact entries for every operation in this slice.
