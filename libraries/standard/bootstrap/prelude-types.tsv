@@ -55,3 +55,6 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 153	Net.Udp.WaitTransfer	Pop.Standard	0	Nominal	false
 154	Net.Interfaces.Snapshot	Pop.Standard	0	Nominal	false
 155	Net.Routes.Snapshot	Pop.Standard	0	Nominal	false
+156	Net.Tls.ClientConfig	Pop.Standard	0	Nominal	false
+157	Net.Tls.ServerConfig	Pop.Standard	0	Nominal	false
+158	Net.Tls.Stream	Pop.Standard	0	Nominal	false

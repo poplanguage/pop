@@ -588,7 +588,7 @@ pub(crate) fn lower_instruction(
                 value_types,
                 types,
             )?,
-            35..=58 | 64..=122 | 128..=172 => {
+            35..=58 | 64..=122 | 128..=182 => {
                 lower_net_standard_call(&result, function.raw(), arguments)?
             }
             123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
@@ -5205,6 +5205,157 @@ fn lower_net_standard_call(
                 .collect::<Vec<_>>()
                 .join("\n"))
         }
+        173 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::TlsClientSystemConfig)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        174 | 175 if arguments.len() == usize::from(function == 175) + 1 => {
+            let operation = if function == 174 {
+                RuntimeOperation::TlsClientRootConfig
+            } else {
+                RuntimeOperation::TlsServerConfig
+            };
+            let handle = format!("{result}_handle");
+            let call = if function == 174 {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                )
+            } else {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            };
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![call],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        176 | 177 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TlsConfigClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        178 | 179 if arguments.len() == if function == 178 { 5 } else { 4 } => {
+            let operation = if function == 178 {
+                RuntimeOperation::TlsClientHandshake
+            } else {
+                RuntimeOperation::TlsServerHandshake
+            };
+            let handle = format!("{result}_handle");
+            let call = if function == 178 {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                    arguments[4].raw()
+                )
+            } else {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw()
+                )
+            };
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![call],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        180 | 181 if arguments.len() == if function == 180 { 2 } else { 3 } => {
+            let operation = if function == 180 {
+                RuntimeOperation::TlsSendBytes
+            } else {
+                RuntimeOperation::TlsReceiveBuffer
+            };
+            let status = format!("{result}_status");
+            let call = if function == 180 {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_count)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            } else {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_count)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            };
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_count = alloca i64"),
+                    format!("store i64 0, ptr {result}_count"),
+                    call,
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count_value = load i64, ptr {result}_count"),
+                    format!("{result}_count_bits = shl i64 {result}_count_value, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        182 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TlsClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
         _ => Err(unsupported()),
     }
 }

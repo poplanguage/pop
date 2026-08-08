@@ -559,6 +559,105 @@ fn typed_net_transports_lower_and_execute_through_native_abi() {
 }
 
 #[test]
+fn verified_tls_lowers_and_executes_through_native_abi() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate = cert.der().to_vec();
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(certificate.clone())],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                signing_key.serialize_der(),
+            )),
+        )
+        .expect("server TLS config");
+    let listener =
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("loopback listener");
+    let port = listener.local_addr().expect("listener address").port();
+
+    let mut program = format!(
+        "namespace Main\nprivate function main(): Int\n    local certificateBuffer = Bytes.withCapacity({})\n",
+        certificate.len()
+    );
+    for byte in &certificate {
+        writeln!(program, "    Bytes.write(certificateBuffer, Byte({byte}))")
+            .expect("write certificate source");
+    }
+    writeln!(
+        program,
+        "    local certificate = Bytes.toBytes(certificateBuffer)\n\
+         local source = Task.cancellationSource()\n\
+         local cancel = Task.cancelToken(source)\n\
+         local clock = Time.monotonicClock()\n\
+         local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(5000))\n\
+         local tcp = Net.Tcp.connect(UInt16({port}))\n\
+         local config = Net.Tls.clientRootConfig(certificate)\n\
+         local stream = Net.Tls.clientHandshake(config, tcp, \"localhost\", deadline, cancel)\n\
+         local sent = Net.Tls.send(stream, Text.encodeUtf8(\"encrypted Pop Net\"))\n\
+         local expected = UInt64(17)\n\
+         if Net.transferProgress(sent) and Net.transferredByteCount(sent) == expected and Net.Tls.close(stream) and Net.Tls.closeClientConfig(config) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock) then\n\
+             return 0\n\
+         end\n\
+         return 1\n\
+         end"
+    )
+    .expect("write TLS program");
+    let source = SourceFile::new(FileId::from_raw(0), "src/tls.pop", program).expect("TLS source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("TLS MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("TLS LLVM lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_tls_client_root_config",
+        "pop_rt_tls_client_handshake",
+        "pop_rt_tls_send_bytes",
+        "pop_rt_tls_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+
+    let server = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().expect("TLS client connection");
+        let connection = rustls::ServerConnection::new(std::sync::Arc::new(server_config))
+            .expect("server connection");
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let mut payload = [0_u8; 17];
+        std::io::Read::read_exact(&mut stream, &mut payload).expect("encrypted payload");
+        payload
+    });
+    let executed = link_with_runtime_and_run(&module, "tls");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native TLS execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+    assert_eq!(
+        server.join().expect("TLS server thread"),
+        *b"encrypted Pop Net"
+    );
+}
+
+#[test]
 fn llvm_lowers_foreign_calls_with_exact_abi_and_balanced_transitions() {
     let ffi = BubbleId::from_raw(9);
     let source = SourceFile::new(

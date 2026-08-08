@@ -507,6 +507,9 @@ pub const NET_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(152
 pub const NET_UDP_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(153);
 pub const NET_INTERFACES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(154);
 pub const NET_ROUTES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(155);
+pub const NET_TLS_CLIENT_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(156);
+pub const NET_TLS_SERVER_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(157);
+pub const NET_TLS_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(158);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1295,6 +1298,9 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_UDP_WAIT_TRANSFER_TYPE_ID, "Net.Udp.WaitTransfer"),
         (NET_INTERFACES_SNAPSHOT_TYPE_ID, "Net.Interfaces.Snapshot"),
         (NET_ROUTES_SNAPSHOT_TYPE_ID, "Net.Routes.Snapshot"),
+        (NET_TLS_CLIENT_CONFIG_TYPE_ID, "Net.Tls.ClientConfig"),
+        (NET_TLS_SERVER_CONFIG_TYPE_ID, "Net.Tls.ServerConfig"),
+        (NET_TLS_STREAM_TYPE_ID, "Net.Tls.Stream"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1490,7 +1496,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 173 {
+    if entries.len() != 183 {
         return Err(error(
             "standard function",
             2,
@@ -2365,6 +2371,61 @@ fn validate_standard_functions(
             "UInt64",
             "AmbientIo,MayTrap",
         ),
+        (
+            "Net.Tls.clientSystemConfig",
+            "-",
+            "Net.Tls.ClientConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.clientRootConfig",
+            "Bytes",
+            "Net.Tls.ClientConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.serverConfig",
+            "Bytes,Bytes",
+            "Net.Tls.ServerConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.closeClientConfig",
+            "Net.Tls.ClientConfig",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tls.closeServerConfig",
+            "Net.Tls.ServerConfig",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tls.clientHandshake",
+            "Net.Tls.ClientConfig,Net.Tcp.Stream,String,Time.LiveDeadline,CancelToken",
+            "Net.Tls.Stream",
+            "AmbientIo,Suspends,MayTrap",
+        ),
+        (
+            "Net.Tls.serverHandshake",
+            "Net.Tls.ServerConfig,Net.Tcp.Stream,Time.LiveDeadline,CancelToken",
+            "Net.Tls.Stream",
+            "AmbientIo,Suspends,MayTrap",
+        ),
+        (
+            "Net.Tls.send",
+            "Net.Tls.Stream,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.receive",
+            "Net.Tls.Stream,Bytes.Buffer,UInt64",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        ("Net.Tls.close", "Net.Tls.Stream", "Boolean", "AmbientIo"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

@@ -43,6 +43,9 @@ use pop_types::{
     SemanticType, TypeArena, is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
     is_ffi_pointer_type_constructor,
 };
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
+use rustls_platform_verifier::ConfigVerifierExt;
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(unix)]
@@ -59,6 +62,8 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::rc::Rc;
+use std::sync::{Arc, Once};
+use std::thread;
 use std::time::{Duration, Instant};
 
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
@@ -362,6 +367,32 @@ fn interpreter_linger(stream: &TcpStream) -> Option<u64> {
         Some(0)
     } else {
         u64::try_from(linger.l_linger).ok()?.checked_mul(1_000)
+    }
+}
+
+fn install_interpreter_tls_provider() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+fn complete_interpreter_tls_handshake(
+    deadline: Instant,
+    cancellation: &Rc<RefCell<CancellationState>>,
+    mut complete: impl FnMut() -> std::io::Result<bool>,
+) -> bool {
+    loop {
+        if cancellation.borrow().requested || Instant::now() >= deadline {
+            return false;
+        }
+        match complete() {
+            Ok(false) => return true,
+            Ok(true) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => return false,
+        }
+        thread::yield_now();
     }
 }
 
@@ -1844,6 +1875,10 @@ enum PrivateValue {
     AtomicBoolean(AtomicBoolean),
     TcpListener(TcpListener),
     TcpStream(TcpStream),
+    TlsClientConfig(Arc<ClientConfig>),
+    TlsServerConfig(Arc<ServerConfig>),
+    TlsClientStream(rustls::StreamOwned<ClientConnection, TcpStream>),
+    TlsServerStream(rustls::StreamOwned<ServerConnection, TcpStream>),
     UdpSocket(UdpSocket),
     DnsResolver,
     DnsAnswers(Vec<IpAddr>),
@@ -4616,7 +4651,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
-            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=172) => {
+            } if matches!(function.raw(), 35..=58 | 64..=122 | 128..=182) => {
                 self.evaluate_net_standard_call(function.raw(), arguments, values)?
             }
             MirInstructionKind::CallStandard {
@@ -6368,6 +6403,258 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 let milliseconds = 0;
                 integer(milliseconds, IntegerKind::UInt64)
             }
+            173 if arguments.is_empty() => {
+                install_interpreter_tls_provider();
+                let config =
+                    ClientConfig::with_platform_verifier().map_err(|_| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::TlsClientConfig(Arc::new(config)));
+                Ok(MirValue::NetTlsClientConfig(symbol))
+            }
+            174 if arguments.len() == 1 => {
+                install_interpreter_tls_provider();
+                let MirValue::Bytes(reference) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .immutable_bytes_length(reference)
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut certificate =
+                    vec![0; usize::try_from(length).map_err(|_| ExecutionError::TypeMismatch)?];
+                self.runtime
+                    .immutable_bytes_read(reference, 0, &mut certificate)
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut roots = RootCertStore::empty();
+                roots
+                    .add(CertificateDer::from(certificate))
+                    .map_err(|_| self.runtime_invariant())?;
+                let config = ClientConfig::builder()
+                    .with_root_certificates(roots)
+                    .with_no_client_auth();
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::TlsClientConfig(Arc::new(config)));
+                Ok(MirValue::NetTlsClientConfig(symbol))
+            }
+            175 if arguments.len() == 2 => {
+                install_interpreter_tls_provider();
+                let bytes = |value: &RuntimeValue| -> Result<ManagedReference, ExecutionError> {
+                    let MirValue::Bytes(reference) = value.visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    Ok(reference)
+                };
+                let certificate = bytes(argument(0)?)?;
+                let private_key = bytes(argument(1)?)?;
+                let read = |reference: ManagedReference,
+                            runtime: &R|
+                 -> Result<Vec<u8>, ExecutionError> {
+                    let length = runtime
+                        .immutable_bytes_length(reference)
+                        .map_err(ExecutionError::Runtime)?;
+                    let mut output =
+                        vec![0; usize::try_from(length).map_err(|_| ExecutionError::TypeMismatch)?];
+                    runtime
+                        .immutable_bytes_read(reference, 0, &mut output)
+                        .map_err(ExecutionError::Runtime)?;
+                    Ok(output)
+                };
+                let certificate = read(certificate, self.runtime)?;
+                let private_key = read(private_key, self.runtime)?;
+                let config = ServerConfig::builder()
+                    .with_no_client_auth()
+                    .with_single_cert(
+                        vec![CertificateDer::from(certificate)],
+                        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key)),
+                    )
+                    .map_err(|_| self.runtime_invariant())?;
+                let symbol = self.fresh_private_symbol();
+                self.private_values
+                    .insert(symbol, PrivateValue::TlsServerConfig(Arc::new(config)));
+                Ok(MirValue::NetTlsServerConfig(symbol))
+            }
+            176 | 177 if arguments.len() == 1 => {
+                let symbol = match (function, &argument(0)?.visible) {
+                    (176, MirValue::NetTlsClientConfig(symbol))
+                    | (177, MirValue::NetTlsServerConfig(symbol)) => *symbol,
+                    _ => return Err(ExecutionError::TypeMismatch),
+                };
+                let closed = matches!(
+                    (function, self.private_values.remove(&symbol)),
+                    (176, Some(PrivateValue::TlsClientConfig(_)))
+                        | (177, Some(PrivateValue::TlsServerConfig(_)))
+                );
+                Ok(MirValue::Boolean(closed))
+            }
+            178 | 179 if arguments.len() == if function == 178 { 5 } else { 4 } => {
+                let (config_symbol, stream_symbol) =
+                    match (function, &argument(0)?.visible, &argument(1)?.visible) {
+                        (
+                            178,
+                            MirValue::NetTlsClientConfig(config),
+                            MirValue::NetTcpStream(stream),
+                        )
+                        | (
+                            179,
+                            MirValue::NetTlsServerConfig(config),
+                            MirValue::NetTcpStream(stream),
+                        ) => (*config, *stream),
+                        _ => return Err(ExecutionError::TypeMismatch),
+                    };
+                let deadline_index = if function == 178 { 3 } else { 2 };
+                let cancellation_index = deadline_index + 1;
+                let MirValue::TimeLiveDeadline(deadline_symbol) = argument(deadline_index)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::CancellationToken(cancellation_symbol) =
+                    argument(cancellation_index)?.visible
+                else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let deadline = match self.private_values.get(&deadline_symbol) {
+                    Some(PrivateValue::LiveDeadline { target, .. }) => *target,
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let cancellation = match self.private_values.get(&cancellation_symbol) {
+                    Some(PrivateValue::CancellationToken(state)) => Rc::clone(state),
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let Some(PrivateValue::TcpStream(stream)) =
+                    self.private_values.remove(&stream_symbol)
+                else {
+                    return Err(self.runtime_invariant());
+                };
+                let value = if function == 178 {
+                    let config = match self.private_values.get(&config_symbol) {
+                        Some(PrivateValue::TlsClientConfig(config)) => Arc::clone(config),
+                        _ => return Err(self.runtime_invariant()),
+                    };
+                    let MirValue::String(ref name) = argument(2)?.visible else {
+                        return Err(ExecutionError::TypeMismatch);
+                    };
+                    let server_name =
+                        ServerName::try_from(name.clone()).map_err(|_| self.runtime_invariant())?;
+                    let connection = ClientConnection::new(config, server_name)
+                        .map_err(|_| self.runtime_invariant())?;
+                    let mut stream = rustls::StreamOwned::new(connection, stream);
+                    if !complete_interpreter_tls_handshake(deadline, &cancellation, || {
+                        stream
+                            .conn
+                            .complete_io(&mut stream.sock)
+                            .map(|_| stream.conn.is_handshaking())
+                    }) {
+                        return Err(self.runtime_invariant());
+                    }
+                    PrivateValue::TlsClientStream(stream)
+                } else {
+                    let config = match self.private_values.get(&config_symbol) {
+                        Some(PrivateValue::TlsServerConfig(config)) => Arc::clone(config),
+                        _ => return Err(self.runtime_invariant()),
+                    };
+                    let connection =
+                        ServerConnection::new(config).map_err(|_| self.runtime_invariant())?;
+                    let mut stream = rustls::StreamOwned::new(connection, stream);
+                    if !complete_interpreter_tls_handshake(deadline, &cancellation, || {
+                        stream
+                            .conn
+                            .complete_io(&mut stream.sock)
+                            .map(|_| stream.conn.is_handshaking())
+                    }) {
+                        return Err(self.runtime_invariant());
+                    }
+                    PrivateValue::TlsServerStream(stream)
+                };
+                let symbol = self.fresh_private_symbol();
+                self.private_values.insert(symbol, value);
+                Ok(MirValue::NetTlsStream(symbol))
+            }
+            180 if arguments.len() == 2 => {
+                let MirValue::NetTlsStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::Bytes(reference) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let length = self
+                    .runtime
+                    .immutable_bytes_length(reference)
+                    .map_err(|_| self.runtime_invariant())?;
+                let mut bytes =
+                    vec![0; usize::try_from(length).map_err(|_| ExecutionError::TypeMismatch)?];
+                self.runtime
+                    .immutable_bytes_read(reference, 0, &mut bytes)
+                    .map_err(|_| self.runtime_invariant())?;
+                let stream: &mut dyn std::io::Write = match self.private_values.get_mut(&symbol) {
+                    Some(PrivateValue::TlsClientStream(stream)) => stream,
+                    Some(PrivateValue::TlsServerStream(stream)) => stream,
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let (kind, count) = match stream.write(&bytes) {
+                    Ok(0) if !bytes.is_empty() => (pop_types::SocketIoOutcomeKind::Closed, 0),
+                    Ok(count) => (
+                        pop_types::SocketIoOutcomeKind::Progress,
+                        u64::try_from(count).map_err(|_| self.runtime_invariant())?,
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::SocketIoOutcomeKind::WouldBlock, 0)
+                    }
+                    Err(error) if closed_error(&error) => {
+                        (pop_types::SocketIoOutcomeKind::Closed, 0)
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTransfer { kind, count })
+            }
+            181 if arguments.len() == 3 => {
+                let MirValue::NetTlsStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::ByteBuffer(buffer) = argument(1)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let capacity = usize::try_from(unsigned(2)?)
+                    .ok()
+                    .filter(|capacity| *capacity > 0)
+                    .ok_or(ExecutionError::TypeMismatch)?;
+                let mut bytes = vec![0; capacity];
+                let stream: &mut dyn std::io::Read = match self.private_values.get_mut(&symbol) {
+                    Some(PrivateValue::TlsClientStream(stream)) => stream,
+                    Some(PrivateValue::TlsServerStream(stream)) => stream,
+                    _ => return Err(self.runtime_invariant()),
+                };
+                let (kind, count) = match stream.read(&mut bytes) {
+                    Ok(0) => (pop_types::SocketIoOutcomeKind::Closed, 0),
+                    Ok(count) => {
+                        self.runtime
+                            .byte_buffer_append(buffer, &bytes[..count])
+                            .map_err(|_| self.runtime_invariant())?;
+                        (
+                            pop_types::SocketIoOutcomeKind::Progress,
+                            u64::try_from(count).map_err(|_| self.runtime_invariant())?,
+                        )
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        (pop_types::SocketIoOutcomeKind::WouldBlock, 0)
+                    }
+                    Err(error) if closed_error(&error) => {
+                        (pop_types::SocketIoOutcomeKind::Closed, 0)
+                    }
+                    Err(_) => return Err(self.runtime_invariant()),
+                };
+                Ok(MirValue::NetTransfer { kind, count })
+            }
+            182 if arguments.len() == 1 => {
+                let MirValue::NetTlsStream(symbol) = argument(0)?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                Ok(MirValue::Boolean(matches!(
+                    self.private_values.remove(&symbol),
+                    Some(PrivateValue::TlsClientStream(_) | PrivateValue::TlsServerStream(_))
+                )))
+            }
             #[cfg(unix)]
             114 | 115 if arguments.len() == 1 => {
                 let MirValue::String(ref path) = argument(0)?.visible else {
@@ -7397,6 +7684,10 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::AtomicBoolean(_)
                         | PrivateValue::TcpListener(_)
                         | PrivateValue::TcpStream(_)
+                        | PrivateValue::TlsClientConfig(_)
+                        | PrivateValue::TlsServerConfig(_)
+                        | PrivateValue::TlsClientStream(_)
+                        | PrivateValue::TlsServerStream(_)
                         | PrivateValue::UdpSocket(_)
                         | PrivateValue::DnsResolver
                         | PrivateValue::DnsAnswers(_)

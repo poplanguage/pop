@@ -833,6 +833,8 @@ dependencies = [
  "pop-source",
  "pop-target",
  "pop-types",
+ "rcgen",
+ "rustls",
 ]
 
 [[package]]
@@ -854,6 +856,9 @@ dependencies = [
  "pop-standard",
  "pop-target",
  "pop-types",
+ "rcgen",
+ "rustls",
+ "rustls-platform-verifier",
 ]
 
 [[package]]

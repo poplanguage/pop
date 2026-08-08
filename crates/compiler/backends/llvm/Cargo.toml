@@ -26,6 +26,8 @@ pop-projects.workspace = true
 pop-source.workspace = true
 pop-runtime-native.workspace = true
 pop-types.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
 
 [lints]
 workspace = true

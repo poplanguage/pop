@@ -14,7 +14,7 @@ rustls-platform-verifier = { version = "=0.7.0", default-features = false }
 rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "ring"] }
 ```
 
-Only `pop-runtime-native` inherits them. The default AWS-LC, logging,
+Only `pop-runtime-native` and the verified MIR interpreter inherit them. The default AWS-LC, logging,
 compression, and post-quantum feature set is disabled. Ring supplies the
 curated cryptographic provider; Rustls supports TLS 1.2 and TLS 1.3; the
 platform verifier supplies host trust-store validation without exposing
@@ -24,7 +24,7 @@ client/server behavior is proven without committing generated key material.
 
 ## Boundaries
 
-Rustls types remain private to the native adapter. PLRI and public Pop APIs use
+Rustls types remain private to the native adapter and interpreter backend. PLRI and public Pop APIs use
 opaque typed capability handles, owning bytes, explicit server names,
 deadlines, cancellation, and closed outcomes. HIR and MIR contain no Rustls
 types or protocol implementation details.

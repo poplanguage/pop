@@ -732,6 +732,16 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                             | "rustls-platform-verifier.workspace = true"
                             | "rcgen.workspace = true"
                     );
+                let interpreter_security_dependency = *member
+                    == "crates/compiler/backends/mir-interp"
+                    && matches!(
+                        line,
+                        "rustls.workspace = true"
+                            | "rustls-platform-verifier.workspace = true"
+                            | "rcgen.workspace = true"
+                    );
+                let llvm_test_security_dependency = *member == "crates/compiler/backends/llvm"
+                    && matches!(line, "rcgen.workspace = true" | "rustls.workspace = true");
                 let interpreter_platform_dependency = *member
                     == "crates/compiler/backends/mir-interp"
                     && line == "libc.workspace = true";
@@ -746,6 +756,8 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                         || language_server_transport_dependency
                         || native_platform_dependency
                         || native_security_dependency
+                        || interpreter_security_dependency
+                        || llvm_test_security_dependency
                         || interpreter_platform_dependency,
                     "{} {table} entry is not inherited from the workspace: {line}",
                     manifest_path.display(),
@@ -3521,6 +3533,10 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "153\tNet.Udp.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
             "154\tNet.Interfaces.Snapshot\tPop.Standard\t0\tNominal\tfalse",
             "155\tNet.Routes.Snapshot\tPop.Standard\t0\tNominal\tfalse",
+            // ABI 1.47 appends opaque TLS configurations and streams.
+            "156\tNet.Tls.ClientConfig\tPop.Standard\t0\tNominal\tfalse",
+            "157\tNet.Tls.ServerConfig\tPop.Standard\t0\tNominal\tfalse",
+            "158\tNet.Tls.Stream\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );

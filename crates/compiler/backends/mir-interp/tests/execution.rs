@@ -5297,6 +5297,80 @@ fn bounded_udp_wait_reports_timeout_in_mir_interpreter() {
 }
 
 #[test]
+fn verified_tls_client_handshake_and_transfer_execute_in_mir_interpreter() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate_der = cert.der().to_vec();
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(
+                certificate_der.clone(),
+            )],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                signing_key.serialize_der(),
+            )),
+        )
+        .expect("server TLS config");
+    let listener =
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("loopback listener");
+    let port = listener.local_addr().expect("listener address").port();
+    let server = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().expect("TLS client connection");
+        let connection = rustls::ServerConnection::new(std::sync::Arc::new(server_config))
+            .expect("server connection");
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let mut payload = [0_u8; 17];
+        std::io::Read::read_exact(&mut stream, &mut payload).expect("encrypted payload");
+        payload
+    });
+
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         public function run(certificate: Bytes, payload: Bytes, port: UInt16): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(5000))\n\
+             local tcp = Net.Tcp.connect(port)\n\
+             local config = Net.Tls.clientRootConfig(certificate)\n\
+             local stream = Net.Tls.clientHandshake(config, tcp, \"localhost\", deadline, cancel)\n\
+             local sent = Net.Tls.send(stream, payload)\n\
+             return Net.transferProgress(sent) and Net.transferredByteCount(sent) == UInt64(17) and Net.Tls.close(stream) and Net.Tls.closeClientConfig(config) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
+         end\n",
+        "run",
+    );
+    let mut runtime = GenerationalRuntime::new();
+    let certificate = runtime
+        .allocate_immutable_bytes(&certificate_der)
+        .expect("certificate Bytes");
+    let payload = runtime
+        .allocate_immutable_bytes(b"encrypted Pop Net")
+        .expect("payload Bytes");
+    let interpreter =
+        MirInterpreter::with_runtime(&mir, &types, runtime).expect("verified TLS MIR");
+    assert_eq!(
+        interpreter
+            .call(
+                function,
+                &[
+                    MirValue::Bytes(certificate),
+                    MirValue::Bytes(payload),
+                    integer(&port.to_string(), IntegerKind::UInt16),
+                ],
+            )
+            .expect("TLS client execution"),
+        vec![MirValue::Boolean(true)]
+    );
+    assert_eq!(
+        server.join().expect("TLS server thread"),
+        *b"encrypted Pop Net"
+    );
+}
+
+#[test]
 fn host_interface_and_route_snapshots_execute_in_mir_interpreter() {
     let (mir, types) = executable_source(
         "namespace Main\n\

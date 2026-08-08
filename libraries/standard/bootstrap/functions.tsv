@@ -173,3 +173,13 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 170	Net.Tcp.setKeepAliveIdleMilliseconds	Pop.Standard	Net.Tcp.Stream,UInt64	Boolean	AmbientIo	false
 171	Net.Tcp.setLingerMilliseconds	Pop.Standard	Net.Tcp.Stream,UInt64	Boolean	AmbientIo	false
 172	Net.Tcp.lingerMilliseconds	Pop.Standard	Net.Tcp.Stream	UInt64	AmbientIo,MayTrap	false
+173	Net.Tls.clientSystemConfig	Pop.Standard	-	Net.Tls.ClientConfig	AmbientIo,MayTrap	false
+174	Net.Tls.clientRootConfig	Pop.Standard	Bytes	Net.Tls.ClientConfig	AmbientIo,MayTrap	false
+175	Net.Tls.serverConfig	Pop.Standard	Bytes,Bytes	Net.Tls.ServerConfig	AmbientIo,MayTrap	false
+176	Net.Tls.closeClientConfig	Pop.Standard	Net.Tls.ClientConfig	Boolean	AmbientIo	false
+177	Net.Tls.closeServerConfig	Pop.Standard	Net.Tls.ServerConfig	Boolean	AmbientIo	false
+178	Net.Tls.clientHandshake	Pop.Standard	Net.Tls.ClientConfig,Net.Tcp.Stream,String,Time.LiveDeadline,CancelToken	Net.Tls.Stream	AmbientIo,Suspends,MayTrap	false
+179	Net.Tls.serverHandshake	Pop.Standard	Net.Tls.ServerConfig,Net.Tcp.Stream,Time.LiveDeadline,CancelToken	Net.Tls.Stream	AmbientIo,Suspends,MayTrap	false
+180	Net.Tls.send	Pop.Standard	Net.Tls.Stream,Bytes	Net.Transfer	AmbientIo,MayTrap	false
+181	Net.Tls.receive	Pop.Standard	Net.Tls.Stream,Bytes.Buffer,UInt64	Net.Transfer	AmbientIo,MayTrap	false
+182	Net.Tls.close	Pop.Standard	Net.Tls.Stream	Boolean	AmbientIo	false
