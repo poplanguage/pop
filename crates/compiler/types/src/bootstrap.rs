@@ -1496,7 +1496,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 195 {
+    if entries.len() != 199 {
         return Err(error(
             "standard function",
             2,
@@ -2458,6 +2458,10 @@ fn validate_standard_functions(
             "Boolean",
             "-",
         ),
+        ("Environment.has", "String", "Boolean", "AmbientIo"),
+        ("File.exists", "String", "Boolean", "AmbientIo"),
+        ("File.isFile", "String", "Boolean", "AmbientIo"),
+        ("Directory.exists", "String", "Boolean", "AmbientIo"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

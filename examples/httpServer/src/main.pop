@@ -36,6 +36,9 @@ private function serve(stream: Net.Tcp.Stream)
     elseif Pop.Text.startsWith(request, "GET /api/info ") then
         local body = "Pop Lang process " .. `{Process.id()}` .. " with " .. `{Process.availableParallelism()}` .. " workers\n"
         sendResponse(stream, "200 OK", "text/plain; charset=utf-8", body)
+    elseif Pop.Text.startsWith(request, "GET /api/host ") then
+        local body = "working directory exists: " .. `{File.exists(".")}` .. "\nPATH is present: " .. `{Environment.has("PATH")}` .. "\n"
+        sendResponse(stream, "200 OK", "text/plain; charset=utf-8", body)
     else
         sendResponse(stream, "404 Not Found", "text/plain; charset=utf-8", "not found\n")
     end

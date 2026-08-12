@@ -2,6 +2,7 @@
 
 use std::io::IsTerminal;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::path::Path;
 
 use pop_library_bridge::{NativeExport, poplib};
 
@@ -54,6 +55,59 @@ pub extern "C" fn pop_std_rust_stdout_is_terminal() -> bool {
 )]
 pub extern "C" fn pop_std_rust_stderr_is_terminal() -> bool {
     std::io::stderr().is_terminal()
+}
+
+fn managed_string(reference: u64) -> Option<String> {
+    let bytes = pop_internal::runtime::string_bytes(reference)?;
+    String::from_utf8(bytes).ok()
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Environment",
+    name = "has",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_rust_environment_has(name: u64) -> bool {
+    managed_string(name).is_some_and(|name| std::env::var_os(name).is_some())
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.File",
+    name = "exists",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_rust_file_exists(path: u64) -> bool {
+    managed_string(path).is_some_and(|path| Path::new(&path).exists())
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.File",
+    name = "isFile",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_rust_file_is_file(path: u64) -> bool {
+    managed_string(path).is_some_and(|path| Path::new(&path).is_file())
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Directory",
+    name = "exists",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_rust_directory_exists(path: u64) -> bool {
+    managed_string(path).is_some_and(|path| Path::new(&path).is_dir())
 }
 
 fn ipv4(bits: u64) -> Option<Ipv4Addr> {
@@ -177,6 +231,10 @@ pub const RUST_STD_EXPORTS: &[NativeExport] = &[
     POP_STD_RUST_AVAILABLE_PARALLELISM_POPLIB_EXPORT,
     POP_STD_RUST_STDOUT_IS_TERMINAL_POPLIB_EXPORT,
     POP_STD_RUST_STDERR_IS_TERMINAL_POPLIB_EXPORT,
+    POP_STD_RUST_ENVIRONMENT_HAS_POPLIB_EXPORT,
+    POP_STD_RUST_FILE_EXISTS_POPLIB_EXPORT,
+    POP_STD_RUST_FILE_IS_FILE_POPLIB_EXPORT,
+    POP_STD_RUST_DIRECTORY_EXISTS_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_LINK_LOCAL_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_MULTICAST_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_BROADCAST_POPLIB_EXPORT,

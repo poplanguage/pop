@@ -61,6 +61,7 @@ use std::net::{
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Once};
 use std::thread;
@@ -4742,6 +4743,26 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         )
                     }
                     187..=194 => return Err(ExecutionError::WrongArity),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                MirValue::Boolean(result)
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 195..=198) => {
+                if arguments.len() != 1 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(path) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let result = match function.raw() {
+                    195 => std::env::var_os(path).is_some(),
+                    196 => Path::new(path).exists(),
+                    197 => Path::new(path).is_file(),
+                    198 => Path::new(path).is_dir(),
                     _ => return Err(ExecutionError::InvalidControlFlow),
                 };
                 MirValue::Boolean(result)

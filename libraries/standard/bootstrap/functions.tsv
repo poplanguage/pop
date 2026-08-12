@@ -195,3 +195,7 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 192	RustNet.ipv6IsUniqueLocal	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
 193	RustNet.ipv6IsUnicastLinkLocal	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
 194	RustNet.ipv6IsDocumentation	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
+195	Environment.has	Pop.Standard	String	Boolean	AmbientIo	false
+196	File.exists	Pop.Standard	String	Boolean	AmbientIo	false
+197	File.isFile	Pop.Standard	String	Boolean	AmbientIo	false
+198	Directory.exists	Pop.Standard	String	Boolean	AmbientIo	false

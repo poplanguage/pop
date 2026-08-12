@@ -554,6 +554,10 @@ pub fn lower_mir_to_llvm_ir(
     );
     declarations
         .push("declare i1 @pop_std_rust_net_ipv6_is_documentation(i64, i64, i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_environment_has(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_exists(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_is_file(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_exists(i64)".to_owned());
     if matches!(
         options.runtime_profile,
         pop_backend_api::RuntimeProfile::ProductionGenerational

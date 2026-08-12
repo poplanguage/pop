@@ -630,6 +630,16 @@ pub(crate) fn lower_instruction(
                     arguments[3].raw(),
                 )
             }
+            195..=198 if arguments.len() == 1 => {
+                let symbol = match function.raw() {
+                    195 => "pop_std_rust_environment_has",
+                    196 => "pop_std_rust_file_exists",
+                    197 => "pop_std_rust_file_is_file",
+                    198 => "pop_std_rust_directory_exists",
+                    _ => unreachable!(),
+                };
+                format!("{result} = call i1 @{symbol}(i64 %v{})", arguments[0].raw())
+            }
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
