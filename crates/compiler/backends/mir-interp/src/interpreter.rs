@@ -4661,6 +4661,91 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
             } if matches!(function.raw(), 123..=127) => {
                 self.evaluate_live_time_standard_call(function.raw(), arguments, values)?
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 183..=186) && arguments.is_empty() => {
+                match function.raw() {
+                    183 | 184 => {
+                        let value = if function.raw() == 183 {
+                            pop_standard::pop_std_rust_process_id()
+                        } else {
+                            pop_standard::pop_std_rust_available_parallelism()
+                        };
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(&value.to_string(), IntegerKind::Int64)
+                                .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    185 => MirValue::Boolean(pop_standard::pop_std_rust_stdout_is_terminal()),
+                    186 => MirValue::Boolean(pop_standard::pop_std_rust_stderr_is_terminal()),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                }
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 187..=194) => {
+                let unsigned = |index: usize| {
+                    arguments
+                        .get(index)
+                        .copied()
+                        .ok_or(ExecutionError::WrongArity)
+                        .and_then(|argument| value(values, argument))
+                        .and_then(|argument| integer_u64(&argument.visible))
+                };
+                let result = match function.raw() {
+                    187 if arguments.len() == 1 => {
+                        pop_standard::pop_std_rust_net_ipv4_is_link_local(unsigned(0)?)
+                    }
+                    188 if arguments.len() == 1 => {
+                        pop_standard::pop_std_rust_net_ipv4_is_multicast(unsigned(0)?)
+                    }
+                    189 if arguments.len() == 1 => {
+                        pop_standard::pop_std_rust_net_ipv4_is_broadcast(unsigned(0)?)
+                    }
+                    190 if arguments.len() == 1 => {
+                        pop_standard::pop_std_rust_net_ipv4_is_documentation(unsigned(0)?)
+                    }
+                    191 if arguments.len() == 4 => {
+                        pop_standard::pop_std_rust_net_ipv6_is_multicast(
+                            unsigned(0)?,
+                            unsigned(1)?,
+                            unsigned(2)?,
+                            unsigned(3)?,
+                        )
+                    }
+                    192 if arguments.len() == 4 => {
+                        pop_standard::pop_std_rust_net_ipv6_is_unique_local(
+                            unsigned(0)?,
+                            unsigned(1)?,
+                            unsigned(2)?,
+                            unsigned(3)?,
+                        )
+                    }
+                    193 if arguments.len() == 4 => {
+                        pop_standard::pop_std_rust_net_ipv6_is_unicast_link_local(
+                            unsigned(0)?,
+                            unsigned(1)?,
+                            unsigned(2)?,
+                            unsigned(3)?,
+                        )
+                    }
+                    194 if arguments.len() == 4 => {
+                        pop_standard::pop_std_rust_net_ipv6_is_documentation(
+                            unsigned(0)?,
+                            unsigned(1)?,
+                            unsigned(2)?,
+                            unsigned(3)?,
+                        )
+                    }
+                    187..=194 => return Err(ExecutionError::WrongArity),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                MirValue::Boolean(result)
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)

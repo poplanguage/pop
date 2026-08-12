@@ -1496,7 +1496,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 183 {
+    if entries.len() != 195 {
         return Err(error(
             "standard function",
             2,
@@ -2426,6 +2426,38 @@ fn validate_standard_functions(
             "AmbientIo,MayTrap",
         ),
         ("Net.Tls.close", "Net.Tls.Stream", "Boolean", "AmbientIo"),
+        ("Process.id", "-", "Int", "AmbientIo"),
+        ("Process.availableParallelism", "-", "Int", "AmbientIo"),
+        ("Terminal.stdoutIsTerminal", "-", "Boolean", "AmbientIo"),
+        ("Terminal.stderrIsTerminal", "-", "Boolean", "AmbientIo"),
+        ("RustNet.ipv4IsLinkLocal", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsMulticast", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsBroadcast", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsDocumentation", "UInt64", "Boolean", "-"),
+        (
+            "RustNet.ipv6IsMulticast",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsUniqueLocal",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsUnicastLinkLocal",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsDocumentation",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

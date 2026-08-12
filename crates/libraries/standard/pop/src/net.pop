@@ -240,3 +240,91 @@ public function isIpv4Private(address: Ipv4Address): Boolean
     local second = ipv4OctetValue(address, 2)
     return first == 10 or (first == 172 and second >= 16 and second <= 31) or (first == 192 and second == 168)
 end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to 169.254/16.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for a link-local IPv4 address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4LinkLocal(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsLinkLocal(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to 224/4.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for a multicast IPv4 address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Multicast(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsMulticast(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address is 255.255.255.255.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for the limited broadcast address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Broadcast(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsBroadcast(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to a documentation block.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an address reserved for documentation.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Documentation(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsDocumentation(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address has multicast scope.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 multicast address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6Multicast(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsMulticast(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fc00::/7.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 unique-local address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6UniqueLocal(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsUniqueLocal(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fe80::/10.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 unicast link-local address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6UnicastLinkLocal(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsUnicastLinkLocal(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to 2001:db8::/32.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 documentation address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6Documentation(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsDocumentation(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end

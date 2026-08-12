@@ -4163,11 +4163,11 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         for (function, parameter_names, result_names) in arity_candidates {
             let mut parameter_types = Vec::with_capacity(parameter_names.len());
             for name in parameter_names {
-                parameter_types.push(self.standard_function_type(name)?);
+                parameter_types.push(self.standard_function_type(name, span)?);
             }
             let mut result_types = Vec::with_capacity(result_names.len());
             for name in result_names {
-                result_types.push(self.standard_function_type(name)?);
+                result_types.push(self.standard_function_type(name, span)?);
             }
             candidates.push((*function, parameter_types, result_types));
         }
@@ -4196,13 +4196,25 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         })
     }
 
-    fn standard_function_type(&mut self, name: &str) -> Option<TypeId> {
+    fn standard_function_type(&mut self, name: &str, span: SourceSpan) -> Option<TypeId> {
         if let Some(inner) = name.strip_suffix('?') {
-            let inner = self.standard_function_type(inner)?;
+            let inner = self.standard_function_type(inner, span)?;
             return self.resolver.arena_mut().optional(inner).ok();
         }
         if let Some(type_id) = self.resolver.arena().source_type(name) {
             return Some(type_id);
+        }
+        for candidate in [name.to_owned(), format!("Pop.{name}")] {
+            if let Some(symbol) = self
+                .resolver
+                .database()
+                .resolve(self.module, &candidate, SymbolSpace::Type, span)
+                .symbol()
+            {
+                if let Some(type_id) = self.resolver.declaration_type(symbol) {
+                    return Some(type_id);
+                }
+            }
         }
         let entry = *self.resolver.schema().type_by_source_name(name)?;
         if entry.arity() != 0 {

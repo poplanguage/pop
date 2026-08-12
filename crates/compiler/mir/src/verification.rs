@@ -6875,24 +6875,29 @@ fn verify_callable_instruction(
                 );
                 return true;
             }
-            let signature = embedded_bootstrap_schema().ok().and_then(|bootstrap| {
-                let entry = bootstrap
-                    .standard_functions()
-                    .iter()
-                    .find(|entry| entry.id() == *function)?;
-                let parameters = entry
-                    .parameter_types()
-                    .iter()
-                    .map(|name| standard_function_type(arena, &bootstrap, name))
-                    .collect::<Option<Vec<_>>>()?;
-                let results = entry
-                    .result_types()
-                    .iter()
-                    .map(|name| standard_function_type(arena, &bootstrap, name))
-                    .collect::<Option<Vec<_>>>()?;
-                Some((parameters, results))
-            });
-            if let Some((parameters, results)) = signature {
+            let Some(bootstrap) = embedded_bootstrap_schema().ok() else {
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
+                return true;
+            };
+            let Some(entry) = bootstrap
+                .standard_functions()
+                .iter()
+                .find(|entry| entry.id() == *function)
+            else {
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
+                return true;
+            };
+            let parameters = entry
+                .parameter_types()
+                .iter()
+                .map(|name| standard_function_type(arena, &bootstrap, name))
+                .collect::<Option<Vec<_>>>();
+            let results = entry
+                .result_types()
+                .iter()
+                .map(|name| standard_function_type(arena, &bootstrap, name))
+                .collect::<Option<Vec<_>>>();
+            if let (Some(parameters), Some(results)) = (parameters, results) {
                 verify_call_signature(
                     instruction,
                     arguments,
@@ -6901,7 +6906,14 @@ fn verify_callable_instruction(
                     values,
                     errors,
                 );
-            } else {
+            } else if arguments.len() != entry.parameter_types().len()
+                || instruction.has_result() != !entry.result_types().is_empty()
+            {
+                // Referenced Standard nominal records/unions are resolved by
+                // the front end and already have a typed MIR result. The
+                // verifier cannot reconstruct those cross-Bubble identities
+                // from bootstrap names alone, but it can still enforce the
+                // closed arity/result contract here.
                 errors.push(MirVerificationError::UnknownStandardFunction(*function));
             }
         }

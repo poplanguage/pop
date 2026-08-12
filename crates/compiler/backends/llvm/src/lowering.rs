@@ -537,6 +537,23 @@ pub fn lower_mir_to_llvm_ir(
     declarations.extend(foreign_declarations);
     declarations.push("declare void @pop_std_print_int(i64)".to_owned());
     declarations.push("declare void @pop_std_print_string(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_process_id()".to_owned());
+    declarations.push("declare i64 @pop_std_rust_available_parallelism()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_stdout_is_terminal()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_stderr_is_terminal()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_link_local(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_multicast(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_broadcast(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_documentation(i64)".to_owned());
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_multicast(i64, i64, i64, i64)".to_owned());
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_unique_local(i64, i64, i64, i64)".to_owned());
+    declarations.push(
+        "declare i1 @pop_std_rust_net_ipv6_is_unicast_link_local(i64, i64, i64, i64)".to_owned(),
+    );
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_documentation(i64, i64, i64, i64)".to_owned());
     if matches!(
         options.runtime_profile,
         pop_backend_api::RuntimeProfile::ProductionGenerational

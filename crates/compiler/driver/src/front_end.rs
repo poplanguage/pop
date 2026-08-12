@@ -1738,6 +1738,12 @@ fn define_records_and_unions(
 ) -> (Vec<HirDeclaration>, Vec<DeclarationAttributeWork>) {
     let mut declarations = Vec::new();
     let mut attribute_work = Vec::new();
+    let mut pending = Vec::new();
+
+    // Data declarations are indexed globally, but their field/payload types
+    // must also be resolved before their definitions can be published. Retry
+    // unresolved declarations so a Module can use a record/union declared in
+    // a later Module; source filename order is not a semantic dependency.
     for module in modules {
         let mut pending_attributes = Vec::new();
         for node in module.syntax.root().children() {
@@ -1748,51 +1754,133 @@ fn define_records_and_unions(
                 }
                 continue;
             }
+            if matches!(
+                node.kind(),
+                NodeKind::RecordDeclaration
+                    | NodeKind::UnionDeclaration
+                    | NodeKind::ErrorDeclaration
+                    | NodeKind::EnumDeclaration
+            ) {
+                pending.push((
+                    module,
+                    node.clone(),
+                    std::mem::take(&mut pending_attributes),
+                ));
+            } else {
+                pending_attributes.clear();
+            }
+        }
+    }
+
+    while !pending.is_empty() {
+        let mut deferred = Vec::new();
+        let mut progress = false;
+        for (module, node, attributes) in pending {
+            let mut attempt_diagnostics = Vec::new();
+            let retry_attributes = attributes.clone();
             let (declaration, work) = match node.kind() {
                 NodeKind::RecordDeclaration => define_record(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::UnionDeclaration => define_union(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::ErrorDeclaration => define_error(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::EnumDeclaration => define_enum(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
-                _ => {
-                    pending_attributes.clear();
-                    continue;
-                }
+                _ => continue,
             };
-            declarations.extend(declaration);
-            attribute_work.extend(work);
+            if let Some(declaration) = declaration {
+                progress = true;
+                declarations.push(declaration);
+                attribute_work.extend(work);
+            } else {
+                deferred.push((module, node, retry_attributes));
+                // Keep the diagnostics from the final attempt below. A
+                // successful retry must not leak an intermediate unknown-name
+                // diagnostic, while a genuinely malformed declaration still
+                // needs its ordinary diagnostic.
+                if attempt_diagnostics.is_empty() {
+                    diagnostics.extend(attempt_diagnostics);
+                }
+            }
         }
+        if !progress {
+            // Re-run the remaining declarations once to publish their real
+            // diagnostics, rather than silently dropping unresolved source.
+            for (module, node, attributes) in deferred {
+                let (declaration, work) = match node.kind() {
+                    NodeKind::RecordDeclaration => define_record(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::UnionDeclaration => define_union(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::ErrorDeclaration => define_error(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::EnumDeclaration => define_enum(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    _ => continue,
+                };
+                declarations.extend(declaration);
+                attribute_work.extend(work);
+            }
+            break;
+        }
+        pending = deferred;
     }
     (declarations, attribute_work)
 }

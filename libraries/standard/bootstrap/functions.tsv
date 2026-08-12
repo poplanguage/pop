@@ -183,3 +183,15 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 180	Net.Tls.send	Pop.Standard	Net.Tls.Stream,Bytes	Net.Transfer	AmbientIo,MayTrap	false
 181	Net.Tls.receive	Pop.Standard	Net.Tls.Stream,Bytes.Buffer,UInt64	Net.Transfer	AmbientIo,MayTrap	false
 182	Net.Tls.close	Pop.Standard	Net.Tls.Stream	Boolean	AmbientIo	false
+183	Process.id	Pop.Standard	-	Int	AmbientIo	false
+184	Process.availableParallelism	Pop.Standard	-	Int	AmbientIo	false
+185	Terminal.stdoutIsTerminal	Pop.Standard	-	Boolean	AmbientIo	false
+186	Terminal.stderrIsTerminal	Pop.Standard	-	Boolean	AmbientIo	false
+187	RustNet.ipv4IsLinkLocal	Pop.Standard	UInt64	Boolean	-	false
+188	RustNet.ipv4IsMulticast	Pop.Standard	UInt64	Boolean	-	false
+189	RustNet.ipv4IsBroadcast	Pop.Standard	UInt64	Boolean	-	false
+190	RustNet.ipv4IsDocumentation	Pop.Standard	UInt64	Boolean	-	false
+191	RustNet.ipv6IsMulticast	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
+192	RustNet.ipv6IsUniqueLocal	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
+193	RustNet.ipv6IsUnicastLinkLocal	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false
+194	RustNet.ipv6IsDocumentation	Pop.Standard	UInt64,UInt64,UInt64,UInt64	Boolean	-	false

@@ -72,7 +72,7 @@ end
 public function dnsNameLabelCount(name: DnsName): UInt32
     local count = 1
     for rune in name.value do
-        if Unicode.codePoint(rune) == Rune(46) then
+        if Unicode.codePoint(rune) == UInt32(46) then
             count = count + 1
         end
     end

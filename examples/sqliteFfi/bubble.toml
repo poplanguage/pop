@@ -1,0 +1,10 @@
+[package]
+name = "Example.SqliteFfi"
+version = "0.1.0"
+edition = "2026"
+
+[dependencies]
+PopFfi = { path = "../../crates/extensions/ffi", version = "0.1.0", bubble = "Pop.Ffi" }
+
+[nativeLibraries]
+Sqlite = { kind = "system", name = "sqlite3" }

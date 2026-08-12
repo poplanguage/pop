@@ -592,6 +592,44 @@ pub(crate) fn lower_instruction(
                 lower_net_standard_call(&result, function.raw(), arguments)?
             }
             123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
+            183 if arguments.is_empty() => {
+                format!("{result} = call i64 @pop_std_rust_process_id()")
+            }
+            184 if arguments.is_empty() => {
+                format!("{result} = call i64 @pop_std_rust_available_parallelism()")
+            }
+            185 if arguments.is_empty() => {
+                format!("{result} = call i1 @pop_std_rust_stdout_is_terminal()")
+            }
+            186 if arguments.is_empty() => {
+                format!("{result} = call i1 @pop_std_rust_stderr_is_terminal()")
+            }
+            187..=190 if arguments.len() == 1 => {
+                let symbol = match function.raw() {
+                    187 => "pop_std_rust_net_ipv4_is_link_local",
+                    188 => "pop_std_rust_net_ipv4_is_multicast",
+                    189 => "pop_std_rust_net_ipv4_is_broadcast",
+                    190 => "pop_std_rust_net_ipv4_is_documentation",
+                    _ => unreachable!(),
+                };
+                format!("{result} = call i1 @{symbol}(i64 %v{})", arguments[0].raw())
+            }
+            191..=194 if arguments.len() == 4 => {
+                let symbol = match function.raw() {
+                    191 => "pop_std_rust_net_ipv6_is_multicast",
+                    192 => "pop_std_rust_net_ipv6_is_unique_local",
+                    193 => "pop_std_rust_net_ipv6_is_unicast_link_local",
+                    194 => "pop_std_rust_net_ipv6_is_documentation",
+                    _ => unreachable!(),
+                };
+                format!(
+                    "{result} = call i1 @{symbol}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                )
+            }
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),

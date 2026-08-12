@@ -783,6 +783,7 @@ const fn reference_abi_name(abi: pop_types::ForeignAbi) -> &'static str {
 struct NominalIdentityMaps {
     classes: BTreeMap<TypeId, SymbolIdentity>,
     interfaces: BTreeMap<TypeId, SymbolIdentity>,
+    tagged_unions: BTreeMap<TypeId, Vec<Vec<TypeId>>>,
 }
 
 fn nominal_identity_maps(
@@ -791,6 +792,22 @@ fn nominal_identity_maps(
 ) -> NominalIdentityMaps {
     let mut maps = NominalIdentityMaps::default();
     for declaration in hir.declarations() {
+        if let HirDeclarationKind::Union(union) = declaration.kind() {
+            maps.tagged_unions.insert(
+                union.type_id(),
+                union
+                    .cases()
+                    .iter()
+                    .map(|case| {
+                        case.parameters()
+                            .iter()
+                            .map(pop_hir::HirNamedType::type_id)
+                            .collect()
+                    })
+                    .collect(),
+            );
+            continue;
+        }
         let kind = match declaration.kind() {
             HirDeclarationKind::Class(_) => pop_resolve::DeclarationKind::Class,
             HirDeclarationKind::Interface(_) => pop_resolve::DeclarationKind::Interface,
@@ -1652,6 +1669,37 @@ fn reference_type_with_parameters(
                 })
                 .collect::<Result<_, _>>()?,
         )),
+        Some(SemanticType::TaggedUnion { .. }) => {
+            let cases = nominal_identities
+                .tagged_unions
+                .get(&type_id)
+                .ok_or(ReferenceMetadataError::UnsupportedPublicType { function, type_id })?;
+            Ok(ReferenceType::Union(
+                cases
+                    .iter()
+                    .map(|case| {
+                        let values = case
+                            .iter()
+                            .map(|value| {
+                                reference_type_with_parameters(
+                                    function,
+                                    *value,
+                                    arena,
+                                    type_parameters,
+                                    record_identities,
+                                    nominal_identities,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if values.len() == 1 {
+                            Ok(values.into_iter().next().expect("one union value"))
+                        } else {
+                            Ok(ReferenceType::Tuple(values))
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
         _ => Err(ReferenceMetadataError::UnsupportedPublicType { function, type_id }),
     }
 }
