@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "createdAt": "2026-07-23T06:53:56Z",
-  "samples": 1,
+  "createdAt": "2026-07-30T05:22:04Z",
+  "samples": 5,
   "warmups": 2,
   "timing": "execution only; provisioning and compilation are excluded",
   "timingMeasurement": "monotonic wall clock, integer nanoseconds",
@@ -10,7 +10,8 @@
     "targetArchitecture": "x86_64",
     "targetOperatingSystem": "linux",
     "availableParallelism": 12,
-    "processorIdentity": "12th Gen Intel(R) Core(TM) i5-1235U"
+    "processorIdentity": "12th Gen Intel(R) Core(TM) i5-1235U",
+    "cpuAffinity": "unrestricted"
   },
   "workloads": [
     {
@@ -52,21 +53,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        534950179
+        527998486,
+        510819751,
+        499952428,
+        503334131,
+        504012500
       ],
       "samplesSeconds": [
-        0.534950179
+        0.527998486,
+        0.510819751,
+        0.499952428,
+        0.503334131,
+        0.5040125
       ],
-      "medianNanoseconds": 534950179,
-      "p99Nanoseconds": 534950179,
-      "minimumNanoseconds": 534950179,
-      "medianSeconds": 0.534950179,
-      "p99Seconds": 0.534950179,
-      "minimumSeconds": 0.534950179,
+      "medianNanoseconds": 504012500,
+      "p99Nanoseconds": 527998486,
+      "minimumNanoseconds": 499952428,
+      "medianSeconds": 0.5040125,
+      "p99Seconds": 0.527998486,
+      "minimumSeconds": 0.499952428,
       "samplePeakRssKiB": [
-        2268
+        2284,
+        2256,
+        2264,
+        2248,
+        2236
       ],
-      "peakRssKiB": 2268,
+      "peakRssKiB": 2284,
       "workloadSourceSha256": "ab173b7b282f4bcd9fe974fbaa508a8cf1729697cabc4dba7e5b450665084cd8",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -79,21 +92,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        180001964
+        181617107,
+        171005597,
+        178406562,
+        174358622,
+        183863649
       ],
       "samplesSeconds": [
-        0.180001964
+        0.181617107,
+        0.171005597,
+        0.178406562,
+        0.174358622,
+        0.183863649
       ],
-      "medianNanoseconds": 180001964,
-      "p99Nanoseconds": 180001964,
-      "minimumNanoseconds": 180001964,
-      "medianSeconds": 0.180001964,
-      "p99Seconds": 0.180001964,
-      "minimumSeconds": 0.180001964,
+      "medianNanoseconds": 178406562,
+      "p99Nanoseconds": 183863649,
+      "minimumNanoseconds": 171005597,
+      "medianSeconds": 0.178406562,
+      "p99Seconds": 0.183863649,
+      "minimumSeconds": 0.171005597,
       "samplePeakRssKiB": [
-        2228
+        2260,
+        2248,
+        2232,
+        2268,
+        2412
       ],
-      "peakRssKiB": 2228,
+      "peakRssKiB": 2412,
       "workloadSourceSha256": "6d405fd55254535a9e15bb80b6d469469b5825c25a2497ce834b7da403cc1610",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -106,21 +131,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        19000862
+        17540072,
+        18680359,
+        19742889,
+        21454870,
+        19327872
       ],
       "samplesSeconds": [
-        0.019000862
+        0.017540072,
+        0.018680359,
+        0.019742889,
+        0.02145487,
+        0.019327872
       ],
-      "medianNanoseconds": 19000862,
-      "p99Nanoseconds": 19000862,
-      "minimumNanoseconds": 19000862,
-      "medianSeconds": 0.019000862,
-      "p99Seconds": 0.019000862,
-      "minimumSeconds": 0.019000862,
+      "medianNanoseconds": 19327872,
+      "p99Nanoseconds": 21454870,
+      "minimumNanoseconds": 17540072,
+      "medianSeconds": 0.019327872,
+      "p99Seconds": 0.02145487,
+      "minimumSeconds": 0.017540072,
       "samplePeakRssKiB": [
-        11372
+        11480,
+        11484,
+        11372,
+        11516,
+        11384
       ],
-      "peakRssKiB": 11372,
+      "peakRssKiB": 11516,
       "workloadSourceSha256": "fc3c4a47a39b539a86fc9fa56791e98e28aaed470f4030bf23e010e4ebf33658",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -133,21 +170,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        40645859
+        38643227,
+        42814944,
+        41931419,
+        46488178,
+        39570932
       ],
       "samplesSeconds": [
-        0.040645859
+        0.038643227,
+        0.042814944,
+        0.041931419,
+        0.046488178,
+        0.039570932
       ],
-      "medianNanoseconds": 40645859,
-      "p99Nanoseconds": 40645859,
-      "minimumNanoseconds": 40645859,
-      "medianSeconds": 0.040645859,
-      "p99Seconds": 0.040645859,
-      "minimumSeconds": 0.040645859,
+      "medianNanoseconds": 41931419,
+      "p99Nanoseconds": 46488178,
+      "minimumNanoseconds": 38643227,
+      "medianSeconds": 0.041931419,
+      "p99Seconds": 0.046488178,
+      "minimumSeconds": 0.038643227,
       "samplePeakRssKiB": [
-        2224
+        2224,
+        2252,
+        2236,
+        2304,
+        2272
       ],
-      "peakRssKiB": 2224,
+      "peakRssKiB": 2304,
       "workloadSourceSha256": "37be5dce6378ab87b4536e82ba2fb0c9b92e50b5ef219b0bde45d07f27b646bd",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -160,21 +209,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        33522756
+        33746542,
+        39950980,
+        41818684,
+        35291667,
+        31119314
       ],
       "samplesSeconds": [
-        0.033522756
+        0.033746542,
+        0.03995098,
+        0.041818684,
+        0.035291667,
+        0.031119314
       ],
-      "medianNanoseconds": 33522756,
-      "p99Nanoseconds": 33522756,
-      "minimumNanoseconds": 33522756,
-      "medianSeconds": 0.033522756,
-      "p99Seconds": 0.033522756,
-      "minimumSeconds": 0.033522756,
+      "medianNanoseconds": 35291667,
+      "p99Nanoseconds": 41818684,
+      "minimumNanoseconds": 31119314,
+      "medianSeconds": 0.035291667,
+      "p99Seconds": 0.041818684,
+      "minimumSeconds": 0.031119314,
       "samplePeakRssKiB": [
-        22584
+        22700,
+        22672,
+        22576,
+        22604,
+        22760
       ],
-      "peakRssKiB": 22584,
+      "peakRssKiB": 22760,
       "workloadSourceSha256": "bea8b030290ee10310d6e604cc4ff691032373f3eba5ee9c558b9d06683a2c77",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -187,21 +248,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        84326051
+        79228341,
+        82126439,
+        85776140,
+        85803547,
+        77247582
       ],
       "samplesSeconds": [
-        0.084326051
+        0.079228341,
+        0.082126439,
+        0.08577614,
+        0.085803547,
+        0.077247582
       ],
-      "medianNanoseconds": 84326051,
-      "p99Nanoseconds": 84326051,
-      "minimumNanoseconds": 84326051,
-      "medianSeconds": 0.084326051,
-      "p99Seconds": 0.084326051,
-      "minimumSeconds": 0.084326051,
+      "medianNanoseconds": 82126439,
+      "p99Nanoseconds": 85803547,
+      "minimumNanoseconds": 77247582,
+      "medianSeconds": 0.082126439,
+      "p99Seconds": 0.085803547,
+      "minimumSeconds": 0.077247582,
       "samplePeakRssKiB": [
-        2676
+        2780,
+        2900,
+        2688,
+        2912,
+        2704
       ],
-      "peakRssKiB": 2676,
+      "peakRssKiB": 2912,
       "workloadSourceSha256": "ab173b7b282f4bcd9fe974fbaa508a8cf1729697cabc4dba7e5b450665084cd8",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -214,21 +287,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        36663294
+        33780156,
+        30984295,
+        29639125,
+        46378657,
+        32015219
       ],
       "samplesSeconds": [
-        0.036663294
+        0.033780156,
+        0.030984295,
+        0.029639125,
+        0.046378657,
+        0.032015219
       ],
-      "medianNanoseconds": 36663294,
-      "p99Nanoseconds": 36663294,
-      "minimumNanoseconds": 36663294,
-      "medianSeconds": 0.036663294,
-      "p99Seconds": 0.036663294,
-      "minimumSeconds": 0.036663294,
+      "medianNanoseconds": 32015219,
+      "p99Nanoseconds": 46378657,
+      "minimumNanoseconds": 29639125,
+      "medianSeconds": 0.032015219,
+      "p99Seconds": 0.046378657,
+      "minimumSeconds": 0.029639125,
       "samplePeakRssKiB": [
-        2684
+        2708,
+        2748,
+        2748,
+        2804,
+        2732
       ],
-      "peakRssKiB": 2684,
+      "peakRssKiB": 2804,
       "workloadSourceSha256": "6d405fd55254535a9e15bb80b6d469469b5825c25a2497ce834b7da403cc1610",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -241,21 +326,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        6633506
+        7720482,
+        6263447,
+        7578831,
+        7780308,
+        6698283
       ],
       "samplesSeconds": [
-        0.006633506
+        0.007720482,
+        0.006263447,
+        0.007578831,
+        0.007780308,
+        0.006698283
       ],
-      "medianNanoseconds": 6633506,
-      "p99Nanoseconds": 6633506,
-      "minimumNanoseconds": 6633506,
-      "medianSeconds": 0.006633506,
-      "p99Seconds": 0.006633506,
-      "minimumSeconds": 0.006633506,
+      "medianNanoseconds": 7578831,
+      "p99Nanoseconds": 7780308,
+      "minimumNanoseconds": 6263447,
+      "medianSeconds": 0.007578831,
+      "p99Seconds": 0.007780308,
+      "minimumSeconds": 0.006263447,
       "samplePeakRssKiB": [
-        10864
+        11100,
+        10916,
+        11092,
+        11088,
+        10900
       ],
-      "peakRssKiB": 10864,
+      "peakRssKiB": 11100,
       "workloadSourceSha256": "fc3c4a47a39b539a86fc9fa56791e98e28aaed470f4030bf23e010e4ebf33658",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -268,21 +365,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        18349719
+        22485672,
+        18744437,
+        16310919,
+        17021331,
+        23547429
       ],
       "samplesSeconds": [
-        0.018349719
+        0.022485672,
+        0.018744437,
+        0.016310919,
+        0.017021331,
+        0.023547429
       ],
-      "medianNanoseconds": 18349719,
-      "p99Nanoseconds": 18349719,
-      "minimumNanoseconds": 18349719,
-      "medianSeconds": 0.018349719,
-      "p99Seconds": 0.018349719,
-      "minimumSeconds": 0.018349719,
+      "medianNanoseconds": 18744437,
+      "p99Nanoseconds": 23547429,
+      "minimumNanoseconds": 16310919,
+      "medianSeconds": 0.018744437,
+      "p99Seconds": 0.023547429,
+      "minimumSeconds": 0.016310919,
       "samplePeakRssKiB": [
-        2852
+        2900,
+        2892,
+        2804,
+        2772,
+        2932
       ],
-      "peakRssKiB": 2852,
+      "peakRssKiB": 2932,
       "workloadSourceSha256": "37be5dce6378ab87b4536e82ba2fb0c9b92e50b5ef219b0bde45d07f27b646bd",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -295,21 +404,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        29900874
+        31208872,
+        32773002,
+        28384266,
+        37415208,
+        35031043
       ],
       "samplesSeconds": [
-        0.029900874
+        0.031208872,
+        0.032773002,
+        0.028384266,
+        0.037415208,
+        0.035031043
       ],
-      "medianNanoseconds": 29900874,
-      "p99Nanoseconds": 29900874,
-      "minimumNanoseconds": 29900874,
-      "medianSeconds": 0.029900874,
-      "p99Seconds": 0.029900874,
-      "minimumSeconds": 0.029900874,
+      "medianNanoseconds": 32773002,
+      "p99Nanoseconds": 37415208,
+      "minimumNanoseconds": 28384266,
+      "medianSeconds": 0.032773002,
+      "p99Seconds": 0.037415208,
+      "minimumSeconds": 0.028384266,
       "samplePeakRssKiB": [
-        29680
+        29384,
+        29588,
+        29564,
+        29836,
+        29668
       ],
-      "peakRssKiB": 29680,
+      "peakRssKiB": 29836,
       "workloadSourceSha256": "bea8b030290ee10310d6e604cc4ff691032373f3eba5ee9c558b9d06683a2c77",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -322,21 +443,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        507290349
+        485361666,
+        485273523,
+        471565950,
+        494702237,
+        499960534
       ],
       "samplesSeconds": [
-        0.507290349
+        0.485361666,
+        0.485273523,
+        0.47156595,
+        0.494702237,
+        0.499960534
       ],
-      "medianNanoseconds": 507290349,
-      "p99Nanoseconds": 507290349,
-      "minimumNanoseconds": 507290349,
-      "medianSeconds": 0.507290349,
-      "p99Seconds": 0.507290349,
-      "minimumSeconds": 0.507290349,
+      "medianNanoseconds": 485361666,
+      "p99Nanoseconds": 499960534,
+      "minimumNanoseconds": 471565950,
+      "medianSeconds": 0.485361666,
+      "p99Seconds": 0.499960534,
+      "minimumSeconds": 0.47156595,
       "samplePeakRssKiB": [
-        5552
+        5512,
+        5548,
+        5428,
+        5508,
+        5504
       ],
-      "peakRssKiB": 5552,
+      "peakRssKiB": 5548,
       "workloadSourceSha256": "38a5bee520d9847dd708a5afae5ba8784bd28de5f15ad51766218265d708128c",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -349,21 +482,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        200947997
+        197233991,
+        196424344,
+        197750387,
+        196225120,
+        204521898
       ],
       "samplesSeconds": [
-        0.200947997
+        0.197233991,
+        0.196424344,
+        0.197750387,
+        0.19622512,
+        0.204521898
       ],
-      "medianNanoseconds": 200947997,
-      "p99Nanoseconds": 200947997,
-      "minimumNanoseconds": 200947997,
-      "medianSeconds": 0.200947997,
-      "p99Seconds": 0.200947997,
-      "minimumSeconds": 0.200947997,
+      "medianNanoseconds": 197233991,
+      "p99Nanoseconds": 204521898,
+      "minimumNanoseconds": 196225120,
+      "medianSeconds": 0.197233991,
+      "p99Seconds": 0.204521898,
+      "minimumSeconds": 0.19622512,
       "samplePeakRssKiB": [
-        5376
+        5496,
+        5548,
+        5500,
+        5516,
+        5444
       ],
-      "peakRssKiB": 5376,
+      "peakRssKiB": 5548,
       "workloadSourceSha256": "eae8537f6580be815c06e57d7aa52cf8324de190a77a6b0bafd77777cba27578",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -376,21 +521,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        21136166
+        19949341,
+        21267420,
+        21499533,
+        20563737,
+        20839326
       ],
       "samplesSeconds": [
-        0.021136166
+        0.019949341,
+        0.02126742,
+        0.021499533,
+        0.020563737,
+        0.020839326
       ],
-      "medianNanoseconds": 21136166,
-      "p99Nanoseconds": 21136166,
-      "minimumNanoseconds": 21136166,
-      "medianSeconds": 0.021136166,
-      "p99Seconds": 0.021136166,
-      "minimumSeconds": 0.021136166,
+      "medianNanoseconds": 20839326,
+      "p99Nanoseconds": 21499533,
+      "minimumNanoseconds": 19949341,
+      "medianSeconds": 0.020839326,
+      "p99Seconds": 0.021499533,
+      "minimumSeconds": 0.019949341,
       "samplePeakRssKiB": [
-        20624
+        20648,
+        20876,
+        20864,
+        20820,
+        20728
       ],
-      "peakRssKiB": 20624,
+      "peakRssKiB": 20876,
       "workloadSourceSha256": "4aa017f5f17363fca8ee4f59321bccc3a4fa949107f9d7d1b51f26ede583aa40",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -403,21 +560,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        10198041
+        11353730,
+        11709462,
+        10569303,
+        11653906,
+        10921044
       ],
       "samplesSeconds": [
-        0.010198041
+        0.01135373,
+        0.011709462,
+        0.010569303,
+        0.011653906,
+        0.010921044
       ],
-      "medianNanoseconds": 10198041,
-      "p99Nanoseconds": 10198041,
-      "minimumNanoseconds": 10198041,
-      "medianSeconds": 0.010198041,
-      "p99Seconds": 0.010198041,
-      "minimumSeconds": 0.010198041,
+      "medianNanoseconds": 11353730,
+      "p99Nanoseconds": 11709462,
+      "minimumNanoseconds": 10569303,
+      "medianSeconds": 0.01135373,
+      "p99Seconds": 0.011709462,
+      "minimumSeconds": 0.010569303,
       "samplePeakRssKiB": [
-        5508
+        5668,
+        5616,
+        5672,
+        5676,
+        5712
       ],
-      "peakRssKiB": 5508,
+      "peakRssKiB": 5712,
       "workloadSourceSha256": "a67dfb00f762c2790e61fd8140a30c6a6e20ded453ca1ec0a2d53e99db10b856",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -430,21 +599,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        27083214
+        28418124,
+        21628911,
+        23977089,
+        22559676,
+        25402630
       ],
       "samplesSeconds": [
-        0.027083214
+        0.028418124,
+        0.021628911,
+        0.023977089,
+        0.022559676,
+        0.02540263
       ],
-      "medianNanoseconds": 27083214,
-      "p99Nanoseconds": 27083214,
-      "minimumNanoseconds": 27083214,
-      "medianSeconds": 0.027083214,
-      "p99Seconds": 0.027083214,
-      "minimumSeconds": 0.027083214,
+      "medianNanoseconds": 23977089,
+      "p99Nanoseconds": 28418124,
+      "minimumNanoseconds": 21628911,
+      "medianSeconds": 0.023977089,
+      "p99Seconds": 0.028418124,
+      "minimumSeconds": 0.021628911,
       "samplePeakRssKiB": [
-        25480
+        25636,
+        25576,
+        25452,
+        25548,
+        25552
       ],
-      "peakRssKiB": 25480,
+      "peakRssKiB": 25636,
       "workloadSourceSha256": "b30c4d50f72aef0576cfdb93b4c7e8dba8b5e20702b145f1b5813d87986f2dda",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -457,21 +638,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        309440399
+        308277362,
+        322349103,
+        322824007,
+        335557270,
+        307211163
       ],
       "samplesSeconds": [
-        0.309440399
+        0.308277362,
+        0.322349103,
+        0.322824007,
+        0.33555727,
+        0.307211163
       ],
-      "medianNanoseconds": 309440399,
-      "p99Nanoseconds": 309440399,
-      "minimumNanoseconds": 309440399,
-      "medianSeconds": 0.309440399,
-      "p99Seconds": 0.309440399,
-      "minimumSeconds": 0.309440399,
+      "medianNanoseconds": 322349103,
+      "p99Nanoseconds": 335557270,
+      "minimumNanoseconds": 307211163,
+      "medianSeconds": 0.322349103,
+      "p99Seconds": 0.33555727,
+      "minimumSeconds": 0.307211163,
       "samplePeakRssKiB": [
-        6344
+        6300,
+        6340,
+        6272,
+        6080,
+        6364
       ],
-      "peakRssKiB": 6344,
+      "peakRssKiB": 6364,
       "workloadSourceSha256": "38a5bee520d9847dd708a5afae5ba8784bd28de5f15ad51766218265d708128c",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -484,21 +677,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        143700726
+        123777694,
+        110259424,
+        115771106,
+        128301335,
+        126702854
       ],
       "samplesSeconds": [
-        0.143700726
+        0.123777694,
+        0.110259424,
+        0.115771106,
+        0.128301335,
+        0.126702854
       ],
-      "medianNanoseconds": 143700726,
-      "p99Nanoseconds": 143700726,
-      "minimumNanoseconds": 143700726,
-      "medianSeconds": 0.143700726,
-      "p99Seconds": 0.143700726,
-      "minimumSeconds": 0.143700726,
+      "medianNanoseconds": 123777694,
+      "p99Nanoseconds": 128301335,
+      "minimumNanoseconds": 110259424,
+      "medianSeconds": 0.123777694,
+      "p99Seconds": 0.128301335,
+      "minimumSeconds": 0.110259424,
       "samplePeakRssKiB": [
-        6244
+        6348,
+        6344,
+        6364,
+        6424,
+        6328
       ],
-      "peakRssKiB": 6244,
+      "peakRssKiB": 6424,
       "workloadSourceSha256": "eae8537f6580be815c06e57d7aa52cf8324de190a77a6b0bafd77777cba27578",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -511,21 +716,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        14267229
+        15484671,
+        12657795,
+        12034866,
+        12036911,
+        11875716
       ],
       "samplesSeconds": [
-        0.014267229
+        0.015484671,
+        0.012657795,
+        0.012034866,
+        0.012036911,
+        0.011875716
       ],
-      "medianNanoseconds": 14267229,
-      "p99Nanoseconds": 14267229,
-      "minimumNanoseconds": 14267229,
-      "medianSeconds": 0.014267229,
-      "p99Seconds": 0.014267229,
-      "minimumSeconds": 0.014267229,
+      "medianNanoseconds": 12036911,
+      "p99Nanoseconds": 15484671,
+      "minimumNanoseconds": 11875716,
+      "medianSeconds": 0.012036911,
+      "p99Seconds": 0.015484671,
+      "minimumSeconds": 0.011875716,
       "samplePeakRssKiB": [
-        21620
+        21592,
+        21644,
+        21536,
+        21492,
+        21588
       ],
-      "peakRssKiB": 21620,
+      "peakRssKiB": 21644,
       "workloadSourceSha256": "4aa017f5f17363fca8ee4f59321bccc3a4fa949107f9d7d1b51f26ede583aa40",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -538,21 +755,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        10586284
+        12032828,
+        11696548,
+        10856129,
+        8795138,
+        11227632
       ],
       "samplesSeconds": [
-        0.010586284
+        0.012032828,
+        0.011696548,
+        0.010856129,
+        0.008795138,
+        0.011227632
       ],
-      "medianNanoseconds": 10586284,
-      "p99Nanoseconds": 10586284,
-      "minimumNanoseconds": 10586284,
-      "medianSeconds": 0.010586284,
-      "p99Seconds": 0.010586284,
-      "minimumSeconds": 0.010586284,
+      "medianNanoseconds": 11227632,
+      "p99Nanoseconds": 12032828,
+      "minimumNanoseconds": 8795138,
+      "medianSeconds": 0.011227632,
+      "p99Seconds": 0.012032828,
+      "minimumSeconds": 0.008795138,
       "samplePeakRssKiB": [
-        6304
+        6296,
+        6160,
+        6556,
+        6464,
+        6424
       ],
-      "peakRssKiB": 6304,
+      "peakRssKiB": 6556,
       "workloadSourceSha256": "a67dfb00f762c2790e61fd8140a30c6a6e20ded453ca1ec0a2d53e99db10b856",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -565,21 +794,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        21109057
+        21189201,
+        23098971,
+        22954710,
+        24475724,
+        23101830
       ],
       "samplesSeconds": [
-        0.021109057
+        0.021189201,
+        0.023098971,
+        0.02295471,
+        0.024475724,
+        0.02310183
       ],
-      "medianNanoseconds": 21109057,
-      "p99Nanoseconds": 21109057,
-      "minimumNanoseconds": 21109057,
-      "medianSeconds": 0.021109057,
-      "p99Seconds": 0.021109057,
-      "minimumSeconds": 0.021109057,
+      "medianNanoseconds": 23098971,
+      "p99Nanoseconds": 24475724,
+      "minimumNanoseconds": 21189201,
+      "medianSeconds": 0.023098971,
+      "p99Seconds": 0.024475724,
+      "minimumSeconds": 0.021189201,
       "samplePeakRssKiB": [
-        26360
+        26460,
+        26400,
+        26476,
+        26148,
+        26472
       ],
-      "peakRssKiB": 26360,
+      "peakRssKiB": 26476,
       "workloadSourceSha256": "b30c4d50f72aef0576cfdb93b4c7e8dba8b5e20702b145f1b5813d87986f2dda",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -592,21 +833,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        662837649
+        685237531,
+        663544459,
+        680900253,
+        663841644,
+        683014879
       ],
       "samplesSeconds": [
-        0.662837649
+        0.685237531,
+        0.663544459,
+        0.680900253,
+        0.663841644,
+        0.683014879
       ],
-      "medianNanoseconds": 662837649,
-      "p99Nanoseconds": 662837649,
-      "minimumNanoseconds": 662837649,
-      "medianSeconds": 0.662837649,
-      "p99Seconds": 0.662837649,
-      "minimumSeconds": 0.662837649,
+      "medianNanoseconds": 680900253,
+      "p99Nanoseconds": 685237531,
+      "minimumNanoseconds": 663544459,
+      "medianSeconds": 0.680900253,
+      "p99Seconds": 0.685237531,
+      "minimumSeconds": 0.663544459,
       "samplePeakRssKiB": [
-        15780
+        15732,
+        15644,
+        15784,
+        16056,
+        15812
       ],
-      "peakRssKiB": 15780,
+      "peakRssKiB": 16056,
       "workloadSourceSha256": "ebacf3805fdffc75117e307ad6f8bceeb30235780f59af211729e4a3d724dcbf",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -619,21 +872,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        943139997
+        955175033,
+        962221958,
+        943119625,
+        955697403,
+        957992843
       ],
       "samplesSeconds": [
-        0.943139997
+        0.955175033,
+        0.962221958,
+        0.943119625,
+        0.955697403,
+        0.957992843
       ],
-      "medianNanoseconds": 943139997,
-      "p99Nanoseconds": 943139997,
-      "minimumNanoseconds": 943139997,
-      "medianSeconds": 0.943139997,
-      "p99Seconds": 0.943139997,
-      "minimumSeconds": 0.943139997,
+      "medianNanoseconds": 955697403,
+      "p99Nanoseconds": 962221958,
+      "minimumNanoseconds": 943119625,
+      "medianSeconds": 0.955697403,
+      "p99Seconds": 0.962221958,
+      "minimumSeconds": 0.943119625,
       "samplePeakRssKiB": [
-        15392
+        15724,
+        15768,
+        15908,
+        15636,
+        15800
       ],
-      "peakRssKiB": 15392,
+      "peakRssKiB": 15908,
       "workloadSourceSha256": "8ad1b5398eaa51c976f4081f1bcf208a8d7e3dfa825bab85d9b22791bdf8e07d",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -646,21 +911,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        90422921
+        100615837,
+        91617245,
+        95667235,
+        90357995,
+        94767210
       ],
       "samplesSeconds": [
-        0.090422921
+        0.100615837,
+        0.091617245,
+        0.095667235,
+        0.090357995,
+        0.09476721
       ],
-      "medianNanoseconds": 90422921,
-      "p99Nanoseconds": 90422921,
-      "minimumNanoseconds": 90422921,
-      "medianSeconds": 0.090422921,
-      "p99Seconds": 0.090422921,
-      "minimumSeconds": 0.090422921,
+      "medianNanoseconds": 94767210,
+      "p99Nanoseconds": 100615837,
+      "minimumNanoseconds": 90357995,
+      "medianSeconds": 0.09476721,
+      "p99Seconds": 0.100615837,
+      "minimumSeconds": 0.090357995,
       "samplePeakRssKiB": [
-        23328
+        23704,
+        23516,
+        23332,
+        23588,
+        23420
       ],
-      "peakRssKiB": 23328,
+      "peakRssKiB": 23704,
       "workloadSourceSha256": "702e85000c66e9bba1d5a5b73470ecaa2c9f2f3e0bd1ec2a34434669f3c1ced9",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -673,21 +950,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        45399030
+        50404343,
+        47593025,
+        40348044,
+        46106247,
+        49635725
       ],
       "samplesSeconds": [
-        0.04539903
+        0.050404343,
+        0.047593025,
+        0.040348044,
+        0.046106247,
+        0.049635725
       ],
-      "medianNanoseconds": 45399030,
-      "p99Nanoseconds": 45399030,
-      "minimumNanoseconds": 45399030,
-      "medianSeconds": 0.04539903,
-      "p99Seconds": 0.04539903,
-      "minimumSeconds": 0.04539903,
+      "medianNanoseconds": 47593025,
+      "p99Nanoseconds": 50404343,
+      "minimumNanoseconds": 40348044,
+      "medianSeconds": 0.047593025,
+      "p99Seconds": 0.050404343,
+      "minimumSeconds": 0.040348044,
       "samplePeakRssKiB": [
-        29860
+        29912,
+        29744,
+        30080,
+        29872,
+        29948
       ],
-      "peakRssKiB": 29860,
+      "peakRssKiB": 30080,
       "workloadSourceSha256": "eb70f997eeab3ab5bebf6abe80a294d801b05a2d03d6a1e9fed32a511130c5e1",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -700,21 +989,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        86959306
+        75255477,
+        77953109,
+        87644899,
+        72166599,
+        68063237
       ],
       "samplesSeconds": [
-        0.086959306
+        0.075255477,
+        0.077953109,
+        0.087644899,
+        0.072166599,
+        0.068063237
       ],
-      "medianNanoseconds": 86959306,
-      "p99Nanoseconds": 86959306,
-      "minimumNanoseconds": 86959306,
-      "medianSeconds": 0.086959306,
-      "p99Seconds": 0.086959306,
-      "minimumSeconds": 0.086959306,
+      "medianNanoseconds": 75255477,
+      "p99Nanoseconds": 87644899,
+      "minimumNanoseconds": 68063237,
+      "medianSeconds": 0.075255477,
+      "p99Seconds": 0.087644899,
+      "minimumSeconds": 0.068063237,
       "samplePeakRssKiB": [
-        25720
+        25888,
+        25708,
+        25860,
+        25664,
+        25604
       ],
-      "peakRssKiB": 25720,
+      "peakRssKiB": 25888,
       "workloadSourceSha256": "ffa3457e9f75c7634b715432e7f534157bdae91dbb64ba57fa485dbd18f31f44",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -727,21 +1028,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        833160649
+        832951786,
+        847680502,
+        846117823,
+        848370484,
+        887167787
       ],
       "samplesSeconds": [
-        0.833160649
+        0.832951786,
+        0.847680502,
+        0.846117823,
+        0.848370484,
+        0.887167787
       ],
-      "medianNanoseconds": 833160649,
-      "p99Nanoseconds": 833160649,
-      "minimumNanoseconds": 833160649,
-      "medianSeconds": 0.833160649,
-      "p99Seconds": 0.833160649,
-      "minimumSeconds": 0.833160649,
+      "medianNanoseconds": 847680502,
+      "p99Nanoseconds": 887167787,
+      "minimumNanoseconds": 832951786,
+      "medianSeconds": 0.847680502,
+      "p99Seconds": 0.887167787,
+      "minimumSeconds": 0.832951786,
       "samplePeakRssKiB": [
-        11236
+        11460,
+        11380,
+        11476,
+        11448,
+        11444
       ],
-      "peakRssKiB": 11236,
+      "peakRssKiB": 11476,
       "workloadSourceSha256": "5c0923b8ac562b3ae64752e2695fbb480d030e655f20f84f2b0172b7bc96fb6b",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -754,21 +1067,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        4285380345
+        4652429235,
+        4576267921,
+        4250983293,
+        4228962332,
+        4718878878
       ],
       "samplesSeconds": [
-        4.285380345
+        4.652429235,
+        4.576267921,
+        4.250983293,
+        4.228962332,
+        4.718878878
       ],
-      "medianNanoseconds": 4285380345,
-      "p99Nanoseconds": 4285380345,
-      "minimumNanoseconds": 4285380345,
-      "medianSeconds": 4.285380345,
-      "p99Seconds": 4.285380345,
-      "minimumSeconds": 4.285380345,
+      "medianNanoseconds": 4576267921,
+      "p99Nanoseconds": 4718878878,
+      "minimumNanoseconds": 4228962332,
+      "medianSeconds": 4.576267921,
+      "p99Seconds": 4.718878878,
+      "minimumSeconds": 4.228962332,
       "samplePeakRssKiB": [
-        10964
+        11348,
+        11184,
+        11220,
+        11336,
+        11220
       ],
-      "peakRssKiB": 10964,
+      "peakRssKiB": 11348,
       "workloadSourceSha256": "88702b63bd4db7288e8f58aa0a1db531c784c6facd9fa92632cf02fd5a7d0569",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -781,21 +1106,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        271182459
+        263638071,
+        249226394,
+        243477008,
+        270343852,
+        258587424
       ],
       "samplesSeconds": [
-        0.271182459
+        0.263638071,
+        0.249226394,
+        0.243477008,
+        0.270343852,
+        0.258587424
       ],
-      "medianNanoseconds": 271182459,
-      "p99Nanoseconds": 271182459,
-      "minimumNanoseconds": 271182459,
-      "medianSeconds": 0.271182459,
-      "p99Seconds": 0.271182459,
-      "minimumSeconds": 0.271182459,
+      "medianNanoseconds": 258587424,
+      "p99Nanoseconds": 270343852,
+      "minimumNanoseconds": 243477008,
+      "medianSeconds": 0.258587424,
+      "p99Seconds": 0.270343852,
+      "minimumSeconds": 0.243477008,
       "samplePeakRssKiB": [
-        50432
+        50232,
+        50384,
+        50236,
+        50260,
+        50388
       ],
-      "peakRssKiB": 50432,
+      "peakRssKiB": 50388,
       "workloadSourceSha256": "287b100e2b0727097c8d1613f4b5d6ea1d6325c54c5122b546b6f2627cb5afe4",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -808,18 +1145,30 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        17983308
+        18533304,
+        20319106,
+        17479536,
+        26776715,
+        25837344
       ],
       "samplesSeconds": [
-        0.017983308
+        0.018533304,
+        0.020319106,
+        0.017479536,
+        0.026776715,
+        0.025837344
       ],
-      "medianNanoseconds": 17983308,
-      "p99Nanoseconds": 17983308,
-      "minimumNanoseconds": 17983308,
-      "medianSeconds": 0.017983308,
-      "p99Seconds": 0.017983308,
-      "minimumSeconds": 0.017983308,
+      "medianNanoseconds": 20319106,
+      "p99Nanoseconds": 26776715,
+      "minimumNanoseconds": 17479536,
+      "medianSeconds": 0.020319106,
+      "p99Seconds": 0.026776715,
+      "minimumSeconds": 0.017479536,
       "samplePeakRssKiB": [
+        11336,
+        11220,
+        11168,
+        11248,
         11348
       ],
       "peakRssKiB": 11348,
@@ -835,21 +1184,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        120980697
+        113903599,
+        103013725,
+        102749076,
+        102816405,
+        116822070
       ],
       "samplesSeconds": [
-        0.120980697
+        0.113903599,
+        0.103013725,
+        0.102749076,
+        0.102816405,
+        0.11682207
       ],
-      "medianNanoseconds": 120980697,
-      "p99Nanoseconds": 120980697,
-      "minimumNanoseconds": 120980697,
-      "medianSeconds": 0.120980697,
-      "p99Seconds": 0.120980697,
-      "minimumSeconds": 0.120980697,
+      "medianNanoseconds": 103013725,
+      "p99Nanoseconds": 116822070,
+      "minimumNanoseconds": 102749076,
+      "medianSeconds": 0.103013725,
+      "p99Seconds": 0.11682207,
+      "minimumSeconds": 0.102749076,
       "samplePeakRssKiB": [
-        28504
+        28348,
+        28476,
+        28592,
+        28628,
+        28376
       ],
-      "peakRssKiB": 28504,
+      "peakRssKiB": 28628,
       "workloadSourceSha256": "1193f82b25b9cff98cc3b0fc82bd28dc3f6fadaad07663f28c42747e372f58b6",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -862,21 +1223,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        111554863
+        106814693,
+        110997916,
+        109874213,
+        111901929,
+        102845135
       ],
       "samplesSeconds": [
-        0.111554863
+        0.106814693,
+        0.110997916,
+        0.109874213,
+        0.111901929,
+        0.102845135
       ],
-      "medianNanoseconds": 111554863,
-      "p99Nanoseconds": 111554863,
-      "minimumNanoseconds": 111554863,
-      "medianSeconds": 0.111554863,
-      "p99Seconds": 0.111554863,
-      "minimumSeconds": 0.111554863,
+      "medianNanoseconds": 109874213,
+      "p99Nanoseconds": 111901929,
+      "minimumNanoseconds": 102845135,
+      "medianSeconds": 0.109874213,
+      "p99Seconds": 0.111901929,
+      "minimumSeconds": 0.102845135,
       "samplePeakRssKiB": [
-        49084
+        51232,
+        51324,
+        51140,
+        51244,
+        51004
       ],
-      "peakRssKiB": 49084,
+      "peakRssKiB": 51324,
       "workloadSourceSha256": "dfa907071275be58929ee2c5d801a80a4ef60748da437d7c34acf32863f45fb5",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -889,21 +1262,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        235555320
+        233246030,
+        224533560,
+        246333892,
+        235254452,
+        232470773
       ],
       "samplesSeconds": [
-        0.23555532
+        0.23324603,
+        0.22453356,
+        0.246333892,
+        0.235254452,
+        0.232470773
       ],
-      "medianNanoseconds": 235555320,
-      "p99Nanoseconds": 235555320,
-      "minimumNanoseconds": 235555320,
-      "medianSeconds": 0.23555532,
-      "p99Seconds": 0.23555532,
-      "minimumSeconds": 0.23555532,
+      "medianNanoseconds": 233246030,
+      "p99Nanoseconds": 246333892,
+      "minimumNanoseconds": 224533560,
+      "medianSeconds": 0.23324603,
+      "p99Seconds": 0.246333892,
+      "minimumSeconds": 0.22453356,
       "samplePeakRssKiB": [
-        51396
+        53700,
+        53832,
+        54044,
+        53900,
+        53936
       ],
-      "peakRssKiB": 51396,
+      "peakRssKiB": 54044,
       "workloadSourceSha256": "a3d72a877f8f028b99ab6e13e9495902a6d3088326b7b99a441ce6e5c43e3fb1",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -916,21 +1301,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        32114973
+        39898288,
+        31534013,
+        37413442,
+        34060225,
+        34329617
       ],
       "samplesSeconds": [
-        0.032114973
+        0.039898288,
+        0.031534013,
+        0.037413442,
+        0.034060225,
+        0.034329617
       ],
-      "medianNanoseconds": 32114973,
-      "p99Nanoseconds": 32114973,
-      "minimumNanoseconds": 32114973,
-      "medianSeconds": 0.032114973,
-      "p99Seconds": 0.032114973,
-      "minimumSeconds": 0.032114973,
+      "medianNanoseconds": 34329617,
+      "p99Nanoseconds": 39898288,
+      "minimumNanoseconds": 31534013,
+      "medianSeconds": 0.034329617,
+      "p99Seconds": 0.039898288,
+      "minimumSeconds": 0.031534013,
       "samplePeakRssKiB": [
-        59376
+        61396,
+        61492,
+        61260,
+        61368,
+        61392
       ],
-      "peakRssKiB": 59376,
+      "peakRssKiB": 61492,
       "workloadSourceSha256": "dc8aba1d976da2999bbd21daa4901fa136a6527ed963a6bae5db64b786f4b934",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -943,21 +1340,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        42872876
+        34667005,
+        38113634,
+        34400042,
+        35532657,
+        40863435
       ],
       "samplesSeconds": [
-        0.042872876
+        0.034667005,
+        0.038113634,
+        0.034400042,
+        0.035532657,
+        0.040863435
       ],
-      "medianNanoseconds": 42872876,
-      "p99Nanoseconds": 42872876,
-      "minimumNanoseconds": 42872876,
-      "medianSeconds": 0.042872876,
-      "p99Seconds": 0.042872876,
-      "minimumSeconds": 0.042872876,
+      "medianNanoseconds": 35532657,
+      "p99Nanoseconds": 40863435,
+      "minimumNanoseconds": 34400042,
+      "medianSeconds": 0.035532657,
+      "p99Seconds": 0.040863435,
+      "minimumSeconds": 0.034400042,
       "samplePeakRssKiB": [
-        52980
+        54988,
+        54912,
+        55128,
+        54876,
+        54760
       ],
-      "peakRssKiB": 52980,
+      "peakRssKiB": 55128,
       "workloadSourceSha256": "f1015c84fdc77d9fb3ef417f57787bab75ecab06532a3b93ee69d3313e1390a9",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -970,21 +1379,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        49947927
+        54734723,
+        48392653,
+        49528228,
+        52049558,
+        50681903
       ],
       "samplesSeconds": [
-        0.049947927
+        0.054734723,
+        0.048392653,
+        0.049528228,
+        0.052049558,
+        0.050681903
       ],
-      "medianNanoseconds": 49947927,
-      "p99Nanoseconds": 49947927,
-      "minimumNanoseconds": 49947927,
-      "medianSeconds": 0.049947927,
-      "p99Seconds": 0.049947927,
-      "minimumSeconds": 0.049947927,
+      "medianNanoseconds": 50681903,
+      "p99Nanoseconds": 54734723,
+      "minimumNanoseconds": 48392653,
+      "medianSeconds": 0.050681903,
+      "p99Seconds": 0.054734723,
+      "minimumSeconds": 0.048392653,
       "samplePeakRssKiB": [
-        73672
+        76540,
+        75960,
+        74956,
+        75384,
+        74800
       ],
-      "peakRssKiB": 73672,
+      "peakRssKiB": 76540,
       "workloadSourceSha256": "d64f9c74f3dbf95381305caa493466c4eb6c76c6939ed2668ea613120da3469a",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -997,21 +1418,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        2244229
+        2397022,
+        2196427,
+        2492794,
+        2383633,
+        2159932
       ],
       "samplesSeconds": [
-        0.002244229
+        0.002397022,
+        0.002196427,
+        0.002492794,
+        0.002383633,
+        0.002159932
       ],
-      "medianNanoseconds": 2244229,
-      "p99Nanoseconds": 2244229,
-      "minimumNanoseconds": 2244229,
-      "medianSeconds": 0.002244229,
-      "p99Seconds": 0.002244229,
-      "minimumSeconds": 0.002244229,
+      "medianNanoseconds": 2383633,
+      "p99Nanoseconds": 2492794,
+      "minimumNanoseconds": 2159932,
+      "medianSeconds": 0.002383633,
+      "p99Seconds": 0.002492794,
+      "minimumSeconds": 0.002159932,
       "samplePeakRssKiB": [
-        2228
+        2228,
+        2060,
+        2212,
+        2252,
+        2200
       ],
-      "peakRssKiB": 2228,
+      "peakRssKiB": 2252,
       "workloadSourceSha256": "eb04f7a1b8eae000b56b0072d1a9edfbd157a16a86fde76e5ada493de95234e8",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1024,21 +1457,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        1176047
+        1145596,
+        1025622,
+        1106562,
+        1059139,
+        1099490
       ],
       "samplesSeconds": [
-        0.001176047
+        0.001145596,
+        0.001025622,
+        0.001106562,
+        0.001059139,
+        0.00109949
       ],
-      "medianNanoseconds": 1176047,
-      "p99Nanoseconds": 1176047,
-      "minimumNanoseconds": 1176047,
-      "medianSeconds": 0.001176047,
-      "p99Seconds": 0.001176047,
-      "minimumSeconds": 0.001176047,
+      "medianNanoseconds": 1099490,
+      "p99Nanoseconds": 1145596,
+      "minimumNanoseconds": 1025622,
+      "medianSeconds": 0.00109949,
+      "p99Seconds": 0.001145596,
+      "minimumSeconds": 0.001025622,
       "samplePeakRssKiB": [
-        2200
+        2240,
+        2260,
+        2228,
+        2196,
+        2280
       ],
-      "peakRssKiB": 2200,
+      "peakRssKiB": 2280,
       "workloadSourceSha256": "7d7e1d1aa182dd745be81c17a4f40685393a3c1648b56a02b24b78dd8dab9d18",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1051,21 +1496,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        4719947
+        4390828,
+        4477974,
+        4631160,
+        4073575,
+        4596257
       ],
       "samplesSeconds": [
-        0.004719947
+        0.004390828,
+        0.004477974,
+        0.00463116,
+        0.004073575,
+        0.004596257
       ],
-      "medianNanoseconds": 4719947,
-      "p99Nanoseconds": 4719947,
-      "minimumNanoseconds": 4719947,
-      "medianSeconds": 0.004719947,
-      "p99Seconds": 0.004719947,
-      "minimumSeconds": 0.004719947,
+      "medianNanoseconds": 4477974,
+      "p99Nanoseconds": 4631160,
+      "minimumNanoseconds": 4073575,
+      "medianSeconds": 0.004477974,
+      "p99Seconds": 0.00463116,
+      "minimumSeconds": 0.004073575,
       "samplePeakRssKiB": [
-        10024
+        9872,
+        10020,
+        9992,
+        9856,
+        9984
       ],
-      "peakRssKiB": 10024,
+      "peakRssKiB": 10020,
       "workloadSourceSha256": "ff147ca9bbb2d146d5f0a431f3b8bd13b1ea6f3ca6042292c297b957b66d99cd",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1078,21 +1535,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        2254983
+        1970819,
+        1969639,
+        1952200,
+        2074882,
+        2079715
       ],
       "samplesSeconds": [
-        0.002254983
+        0.001970819,
+        0.001969639,
+        0.0019522,
+        0.002074882,
+        0.002079715
       ],
-      "medianNanoseconds": 2254983,
-      "p99Nanoseconds": 2254983,
-      "minimumNanoseconds": 2254983,
-      "medianSeconds": 0.002254983,
-      "p99Seconds": 0.002254983,
-      "minimumSeconds": 0.002254983,
+      "medianNanoseconds": 1970819,
+      "p99Nanoseconds": 2079715,
+      "minimumNanoseconds": 1952200,
+      "medianSeconds": 0.001970819,
+      "p99Seconds": 0.002079715,
+      "minimumSeconds": 0.0019522,
       "samplePeakRssKiB": [
-        2204
+        2312,
+        2320,
+        2036,
+        2252,
+        2388
       ],
-      "peakRssKiB": 2204,
+      "peakRssKiB": 2388,
       "workloadSourceSha256": "e952d93a18edf184c5bf9fe142d2b6f86f211f2b3057934637c9a6375d6a2366",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1105,21 +1574,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        11432030
+        10531591,
+        10494400,
+        7610276,
+        10906612,
+        13148901
       ],
       "samplesSeconds": [
-        0.01143203
+        0.010531591,
+        0.0104944,
+        0.007610276,
+        0.010906612,
+        0.013148901
       ],
-      "medianNanoseconds": 11432030,
-      "p99Nanoseconds": 11432030,
-      "minimumNanoseconds": 11432030,
-      "medianSeconds": 0.01143203,
-      "p99Seconds": 0.01143203,
-      "minimumSeconds": 0.01143203,
+      "medianNanoseconds": 10531591,
+      "p99Nanoseconds": 13148901,
+      "minimumNanoseconds": 7610276,
+      "medianSeconds": 0.010531591,
+      "p99Seconds": 0.013148901,
+      "minimumSeconds": 0.007610276,
       "samplePeakRssKiB": [
-        9996
+        9868,
+        9956,
+        9864,
+        9844,
+        9992
       ],
-      "peakRssKiB": 9996,
+      "peakRssKiB": 9992,
       "workloadSourceSha256": "24eaaa80be2df73814707619d63d690af1da91ee4952e18c90912be97556d396",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -1132,21 +1613,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        47380086
+        46124040,
+        42619421,
+        47090596,
+        46076110,
+        45509656
       ],
       "samplesSeconds": [
-        0.047380086
+        0.04612404,
+        0.042619421,
+        0.047090596,
+        0.04607611,
+        0.045509656
       ],
-      "medianNanoseconds": 47380086,
-      "p99Nanoseconds": 47380086,
-      "minimumNanoseconds": 47380086,
-      "medianSeconds": 0.047380086,
-      "p99Seconds": 0.047380086,
-      "minimumSeconds": 0.047380086,
+      "medianNanoseconds": 46076110,
+      "p99Nanoseconds": 47090596,
+      "minimumNanoseconds": 42619421,
+      "medianSeconds": 0.04607611,
+      "p99Seconds": 0.047090596,
+      "minimumSeconds": 0.042619421,
       "samplePeakRssKiB": [
+        1992,
+        1992,
+        1992,
+        1992,
         1864
       ],
-      "peakRssKiB": 1864,
+      "peakRssKiB": 1992,
       "workloadSourceSha256": "8eb6cd602b1cf19b8e0c7d66eddc47f6cc53006d204101a8703db247a6cf99ae",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1159,21 +1652,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        33210278
+        25042602,
+        21997134,
+        14730814,
+        19568560,
+        21930154
       ],
       "samplesSeconds": [
-        0.033210278
+        0.025042602,
+        0.021997134,
+        0.014730814,
+        0.01956856,
+        0.021930154
       ],
-      "medianNanoseconds": 33210278,
-      "p99Nanoseconds": 33210278,
-      "minimumNanoseconds": 33210278,
-      "medianSeconds": 0.033210278,
-      "p99Seconds": 0.033210278,
-      "minimumSeconds": 0.033210278,
+      "medianNanoseconds": 21930154,
+      "p99Nanoseconds": 25042602,
+      "minimumNanoseconds": 14730814,
+      "medianSeconds": 0.021930154,
+      "p99Seconds": 0.025042602,
+      "minimumSeconds": 0.014730814,
       "samplePeakRssKiB": [
-        2176
+        1992,
+        1992,
+        1992,
+        2048,
+        1992
       ],
-      "peakRssKiB": 2176,
+      "peakRssKiB": 2048,
       "workloadSourceSha256": "fc3c846ce93b9fd971e27a4216c54f898db67f4b762238056e43dc2b0ffe465d",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1186,21 +1691,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        6123821
+        5757933,
+        5076343,
+        5630536,
+        5533727,
+        5917779
       ],
       "samplesSeconds": [
-        0.006123821
+        0.005757933,
+        0.005076343,
+        0.005630536,
+        0.005533727,
+        0.005917779
       ],
-      "medianNanoseconds": 6123821,
-      "p99Nanoseconds": 6123821,
-      "minimumNanoseconds": 6123821,
-      "medianSeconds": 0.006123821,
-      "p99Seconds": 0.006123821,
-      "minimumSeconds": 0.006123821,
+      "medianNanoseconds": 5630536,
+      "p99Nanoseconds": 5917779,
+      "minimumNanoseconds": 5076343,
+      "medianSeconds": 0.005630536,
+      "p99Seconds": 0.005917779,
+      "minimumSeconds": 0.005076343,
       "samplePeakRssKiB": [
-        10240
+        10240,
+        10240,
+        10368,
+        10112,
+        10112
       ],
-      "peakRssKiB": 10240,
+      "peakRssKiB": 10368,
       "workloadSourceSha256": "1ff48fba33f8fdc49d5a1320592b883bd2d4c596d4dd50e3403e934e64150d4c",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1213,19 +1730,31 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        3838105
+        6271363,
+        3121705,
+        3372151,
+        5963874,
+        6131609
       ],
       "samplesSeconds": [
-        0.003838105
+        0.006271363,
+        0.003121705,
+        0.003372151,
+        0.005963874,
+        0.006131609
       ],
-      "medianNanoseconds": 3838105,
-      "p99Nanoseconds": 3838105,
-      "minimumNanoseconds": 3838105,
-      "medianSeconds": 0.003838105,
-      "p99Seconds": 0.003838105,
-      "minimumSeconds": 0.003838105,
+      "medianNanoseconds": 5963874,
+      "p99Nanoseconds": 6271363,
+      "minimumNanoseconds": 3121705,
+      "medianSeconds": 0.005963874,
+      "p99Seconds": 0.006271363,
+      "minimumSeconds": 0.003121705,
       "samplePeakRssKiB": [
-        2048
+        1992,
+        2048,
+        1992,
+        1992,
+        1992
       ],
       "peakRssKiB": 2048,
       "workloadSourceSha256": "dec52f7b0fbdac582f864ca15a1a33e9d628e76dafee5fc155c0b97a0b7e2b27",
@@ -1240,21 +1769,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        5046620
+        4181795,
+        5243589,
+        5663557,
+        5611725,
+        5287610
       ],
       "samplesSeconds": [
-        0.00504662
+        0.004181795,
+        0.005243589,
+        0.005663557,
+        0.005611725,
+        0.00528761
       ],
-      "medianNanoseconds": 5046620,
-      "p99Nanoseconds": 5046620,
-      "minimumNanoseconds": 5046620,
-      "medianSeconds": 0.00504662,
-      "p99Seconds": 0.00504662,
-      "minimumSeconds": 0.00504662,
+      "medianNanoseconds": 5287610,
+      "p99Nanoseconds": 5663557,
+      "minimumNanoseconds": 4181795,
+      "medianSeconds": 0.00528761,
+      "p99Seconds": 0.005663557,
+      "minimumSeconds": 0.004181795,
       "samplePeakRssKiB": [
+        5064,
+        5192,
+        5192,
+        5192,
         5064
       ],
-      "peakRssKiB": 5064,
+      "peakRssKiB": 5192,
       "workloadSourceSha256": "2e4688e09eafc6b5b9fa4335b4e26eba405036a24d71bfaa8786356c3909e9be",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -1267,21 +1808,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        2109481
+        2193574,
+        2277227,
+        2057379,
+        2299209,
+        2261706
       ],
       "samplesSeconds": [
-        0.002109481
+        0.002193574,
+        0.002277227,
+        0.002057379,
+        0.002299209,
+        0.002261706
       ],
-      "medianNanoseconds": 2109481,
-      "p99Nanoseconds": 2109481,
-      "minimumNanoseconds": 2109481,
-      "medianSeconds": 0.002109481,
-      "p99Seconds": 0.002109481,
-      "minimumSeconds": 0.002109481,
+      "medianNanoseconds": 2261706,
+      "p99Nanoseconds": 2299209,
+      "minimumNanoseconds": 2057379,
+      "medianSeconds": 0.002261706,
+      "p99Seconds": 0.002299209,
+      "minimumSeconds": 0.002057379,
       "samplePeakRssKiB": [
-        1692
+        1696,
+        1696,
+        1580,
+        1696,
+        1696
       ],
-      "peakRssKiB": 1692,
+      "peakRssKiB": 1696,
       "workloadSourceSha256": "9ca710383833d4a5006a92f43d8d58d54ce2eeb9dbe3e3423ab63c36b603968f",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1294,19 +1847,31 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        1034911
+        964946,
+        934056,
+        952775,
+        941750,
+        1010758
       ],
       "samplesSeconds": [
-        0.001034911
+        0.000964946,
+        0.000934056,
+        0.000952775,
+        0.00094175,
+        0.001010758
       ],
-      "medianNanoseconds": 1034911,
-      "p99Nanoseconds": 1034911,
-      "minimumNanoseconds": 1034911,
-      "medianSeconds": 0.001034911,
-      "p99Seconds": 0.001034911,
-      "minimumSeconds": 0.001034911,
+      "medianNanoseconds": 952775,
+      "p99Nanoseconds": 1010758,
+      "minimumNanoseconds": 934056,
+      "medianSeconds": 0.000952775,
+      "p99Seconds": 0.001010758,
+      "minimumSeconds": 0.000934056,
       "samplePeakRssKiB": [
-        1696
+        1692,
+        1696,
+        1696,
+        1692,
+        1572
       ],
       "peakRssKiB": 1696,
       "workloadSourceSha256": "4b0c45c453b400b8e25baa6b2cc46c638f197cd1ae6ff97499f93b50aac27cb3",
@@ -1321,21 +1886,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        5842173
+        4397921,
+        5561515,
+        5656573,
+        4408049,
+        4199880
       ],
       "samplesSeconds": [
-        0.005842173
+        0.004397921,
+        0.005561515,
+        0.005656573,
+        0.004408049,
+        0.00419988
       ],
-      "medianNanoseconds": 5842173,
-      "p99Nanoseconds": 5842173,
-      "minimumNanoseconds": 5842173,
-      "medianSeconds": 0.005842173,
-      "p99Seconds": 0.005842173,
-      "minimumSeconds": 0.005842173,
+      "medianNanoseconds": 4408049,
+      "p99Nanoseconds": 5656573,
+      "minimumNanoseconds": 4199880,
+      "medianSeconds": 0.004408049,
+      "p99Seconds": 0.005656573,
+      "minimumSeconds": 0.00419988,
       "samplePeakRssKiB": [
+        9244,
+        9376,
+        9376,
+        9376,
         9372
       ],
-      "peakRssKiB": 9372,
+      "peakRssKiB": 9376,
       "workloadSourceSha256": "a499794dfe583c5da680e8d91863d3ea990f76390b468321221b53078aeb75dc",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1348,21 +1925,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        1865483
+        1835061,
+        1862491,
+        1804320,
+        1750833,
+        1634266
       ],
       "samplesSeconds": [
-        0.001865483
+        0.001835061,
+        0.001862491,
+        0.00180432,
+        0.001750833,
+        0.001634266
       ],
-      "medianNanoseconds": 1865483,
-      "p99Nanoseconds": 1865483,
-      "minimumNanoseconds": 1865483,
-      "medianSeconds": 0.001865483,
-      "p99Seconds": 0.001865483,
-      "minimumSeconds": 0.001865483,
+      "medianNanoseconds": 1804320,
+      "p99Nanoseconds": 1862491,
+      "minimumNanoseconds": 1634266,
+      "medianSeconds": 0.00180432,
+      "p99Seconds": 0.001862491,
+      "minimumSeconds": 0.001634266,
       "samplePeakRssKiB": [
-        1568
+        1692,
+        1696,
+        1692,
+        1692,
+        1692
       ],
-      "peakRssKiB": 1568,
+      "peakRssKiB": 1696,
       "workloadSourceSha256": "477fde15ecf70ad8ebe092b8643d439a0cf065b2042e5d242a54ca9217dbb323",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1375,18 +1964,30 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        9679264
+        7914189,
+        8156320,
+        9400526,
+        6240051,
+        9412290
       ],
       "samplesSeconds": [
-        0.009679264
+        0.007914189,
+        0.00815632,
+        0.009400526,
+        0.006240051,
+        0.00941229
       ],
-      "medianNanoseconds": 9679264,
-      "p99Nanoseconds": 9679264,
-      "minimumNanoseconds": 9679264,
-      "medianSeconds": 0.009679264,
-      "p99Seconds": 0.009679264,
-      "minimumSeconds": 0.009679264,
+      "medianNanoseconds": 8156320,
+      "p99Nanoseconds": 9412290,
+      "minimumNanoseconds": 6240051,
+      "medianSeconds": 0.00815632,
+      "p99Seconds": 0.00941229,
+      "minimumSeconds": 0.006240051,
       "samplePeakRssKiB": [
+        9116,
+        9244,
+        9116,
+        9240,
         9244
       ],
       "peakRssKiB": 9244,
@@ -1402,21 +2003,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        2467256
+        2690942,
+        2531063,
+        2584976,
+        2650288,
+        2615576
       ],
       "samplesSeconds": [
-        0.002467256
+        0.002690942,
+        0.002531063,
+        0.002584976,
+        0.002650288,
+        0.002615576
       ],
-      "medianNanoseconds": 2467256,
-      "p99Nanoseconds": 2467256,
-      "minimumNanoseconds": 2467256,
-      "medianSeconds": 0.002467256,
-      "p99Seconds": 0.002467256,
-      "minimumSeconds": 0.002467256,
+      "medianNanoseconds": 2615576,
+      "p99Nanoseconds": 2690942,
+      "minimumNanoseconds": 2531063,
+      "medianSeconds": 0.002615576,
+      "p99Seconds": 0.002690942,
+      "minimumSeconds": 0.002531063,
       "samplePeakRssKiB": [
-        2824
+        2768,
+        2824,
+        2768,
+        2912,
+        2724
       ],
-      "peakRssKiB": 2824,
+      "peakRssKiB": 2912,
       "workloadSourceSha256": "28976756025b8bbb7ad75e5726a21aa14827929016049329b20a824375c16042",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1429,21 +2042,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        1439135
+        1303571,
+        1307566,
+        1357557,
+        1339420,
+        1323708
       ],
       "samplesSeconds": [
-        0.001439135
+        0.001303571,
+        0.001307566,
+        0.001357557,
+        0.00133942,
+        0.001323708
       ],
-      "medianNanoseconds": 1439135,
-      "p99Nanoseconds": 1439135,
-      "minimumNanoseconds": 1439135,
-      "medianSeconds": 0.001439135,
-      "p99Seconds": 0.001439135,
-      "minimumSeconds": 0.001439135,
+      "medianNanoseconds": 1323708,
+      "p99Nanoseconds": 1357557,
+      "minimumNanoseconds": 1303571,
+      "medianSeconds": 0.001323708,
+      "p99Seconds": 0.001357557,
+      "minimumSeconds": 0.001303571,
       "samplePeakRssKiB": [
-        2956
+        2916,
+        2912,
+        2884,
+        2864,
+        2864
       ],
-      "peakRssKiB": 2956,
+      "peakRssKiB": 2916,
       "workloadSourceSha256": "88c579b500cac8059edfd7a9e1f48ed5858fabeec2c8f2c5964d55ca4a6d09ad",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1456,19 +2081,31 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        6829057
+        6533595,
+        6763796,
+        7255735,
+        6222235,
+        6908640
       ],
       "samplesSeconds": [
-        0.006829057
+        0.006533595,
+        0.006763796,
+        0.007255735,
+        0.006222235,
+        0.00690864
       ],
-      "medianNanoseconds": 6829057,
-      "p99Nanoseconds": 6829057,
-      "minimumNanoseconds": 6829057,
-      "medianSeconds": 0.006829057,
-      "p99Seconds": 0.006829057,
-      "minimumSeconds": 0.006829057,
+      "medianNanoseconds": 6763796,
+      "p99Nanoseconds": 7255735,
+      "minimumNanoseconds": 6222235,
+      "medianSeconds": 0.006763796,
+      "p99Seconds": 0.007255735,
+      "minimumSeconds": 0.006222235,
       "samplePeakRssKiB": [
-        10624
+        10616,
+        10560,
+        10624,
+        10596,
+        10580
       ],
       "peakRssKiB": 10624,
       "workloadSourceSha256": "d1ae9fc0555ee494fe11b30958029d87e49a806a60bc12a8e18d4193d65519b3",
@@ -1483,21 +2120,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        5863832
+        5785040,
+        5081625,
+        6287680,
+        5980207,
+        5857949
       ],
       "samplesSeconds": [
-        0.005863832
+        0.00578504,
+        0.005081625,
+        0.00628768,
+        0.005980207,
+        0.005857949
       ],
-      "medianNanoseconds": 5863832,
-      "p99Nanoseconds": 5863832,
-      "minimumNanoseconds": 5863832,
-      "medianSeconds": 0.005863832,
-      "p99Seconds": 0.005863832,
-      "minimumSeconds": 0.005863832,
+      "medianNanoseconds": 5857949,
+      "p99Nanoseconds": 6287680,
+      "minimumNanoseconds": 5081625,
+      "medianSeconds": 0.005857949,
+      "p99Seconds": 0.00628768,
+      "minimumSeconds": 0.005081625,
       "samplePeakRssKiB": [
-        4108
+        4208,
+        3948,
+        3980,
+        3916,
+        4092
       ],
-      "peakRssKiB": 4108,
+      "peakRssKiB": 4208,
       "workloadSourceSha256": "ed6a90f89da435ff251d6399783c59ce3b0b82395e9b7d0290fe2353189c8077",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1510,21 +2159,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        9673090
+        10137155,
+        10693873,
+        11262334,
+        10030665,
+        10380013
       ],
       "samplesSeconds": [
-        0.00967309
+        0.010137155,
+        0.010693873,
+        0.011262334,
+        0.010030665,
+        0.010380013
       ],
-      "medianNanoseconds": 9673090,
-      "p99Nanoseconds": 9673090,
-      "minimumNanoseconds": 9673090,
-      "medianSeconds": 0.00967309,
-      "p99Seconds": 0.00967309,
-      "minimumSeconds": 0.00967309,
+      "medianNanoseconds": 10380013,
+      "p99Nanoseconds": 11262334,
+      "minimumNanoseconds": 10030665,
+      "medianSeconds": 0.010380013,
+      "p99Seconds": 0.011262334,
+      "minimumSeconds": 0.010030665,
       "samplePeakRssKiB": [
-        11208
+        11100,
+        11164,
+        11212,
+        11088,
+        11184
       ],
-      "peakRssKiB": 11208,
+      "peakRssKiB": 11212,
       "workloadSourceSha256": "51f235a55d1646fbf2fcb24143a285db6519152e05f603da246be259387f370e",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -1537,21 +2198,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        76835464
+        66563039,
+        69894829,
+        69762170,
+        86072389,
+        71653823
       ],
       "samplesSeconds": [
-        0.076835464
+        0.066563039,
+        0.069894829,
+        0.06976217,
+        0.086072389,
+        0.071653823
       ],
-      "medianNanoseconds": 76835464,
-      "p99Nanoseconds": 76835464,
-      "minimumNanoseconds": 76835464,
-      "medianSeconds": 0.076835464,
-      "p99Seconds": 0.076835464,
-      "minimumSeconds": 0.076835464,
+      "medianNanoseconds": 69894829,
+      "p99Nanoseconds": 86072389,
+      "minimumNanoseconds": 66563039,
+      "medianSeconds": 0.069894829,
+      "p99Seconds": 0.086072389,
+      "minimumSeconds": 0.066563039,
       "samplePeakRssKiB": [
-        27336
+        29208,
+        29312,
+        29428,
+        29060,
+        29408
       ],
-      "peakRssKiB": 27336,
+      "peakRssKiB": 29428,
       "workloadSourceSha256": "7c7e1e0811579116f6f0d5b892e1aa4ed61224471509839d2118d5be19a0e85b",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1564,21 +2237,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        32556651
+        35515490,
+        35050671,
+        36915361,
+        33526452,
+        32722191
       ],
       "samplesSeconds": [
-        0.032556651
+        0.03551549,
+        0.035050671,
+        0.036915361,
+        0.033526452,
+        0.032722191
       ],
-      "medianNanoseconds": 32556651,
-      "p99Nanoseconds": 32556651,
-      "minimumNanoseconds": 32556651,
-      "medianSeconds": 0.032556651,
-      "p99Seconds": 0.032556651,
-      "minimumSeconds": 0.032556651,
+      "medianNanoseconds": 35050671,
+      "p99Nanoseconds": 36915361,
+      "minimumNanoseconds": 32722191,
+      "medianSeconds": 0.035050671,
+      "p99Seconds": 0.036915361,
+      "minimumSeconds": 0.032722191,
       "samplePeakRssKiB": [
-        27904
+        29776,
+        29760,
+        29656,
+        29456,
+        29788
       ],
-      "peakRssKiB": 27904,
+      "peakRssKiB": 29788,
       "workloadSourceSha256": "7feb604d02010c6a4308cde0ead82e66ba4d819664d14e9bd7a71c4aa8a7bb50",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1591,21 +2276,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        24266467
+        28028674,
+        28163315,
+        24150939,
+        27203134,
+        33735427
       ],
       "samplesSeconds": [
-        0.024266467
+        0.028028674,
+        0.028163315,
+        0.024150939,
+        0.027203134,
+        0.033735427
       ],
-      "medianNanoseconds": 24266467,
-      "p99Nanoseconds": 24266467,
-      "minimumNanoseconds": 24266467,
-      "medianSeconds": 0.024266467,
-      "p99Seconds": 0.024266467,
-      "minimumSeconds": 0.024266467,
+      "medianNanoseconds": 28028674,
+      "p99Nanoseconds": 33735427,
+      "minimumNanoseconds": 24150939,
+      "medianSeconds": 0.028028674,
+      "p99Seconds": 0.033735427,
+      "minimumSeconds": 0.024150939,
       "samplePeakRssKiB": [
-        35656
+        37592,
+        37204,
+        37592,
+        37656,
+        37780
       ],
-      "peakRssKiB": 35656,
+      "peakRssKiB": 37780,
       "workloadSourceSha256": "78bbca4fca6adf146c12cee64be4624d64584c30da0e9476ebf0e3924fff1cdb",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1618,21 +2315,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        39273845
+        31612886,
+        33378009,
+        33965790,
+        31558707,
+        34100765
       ],
       "samplesSeconds": [
-        0.039273845
+        0.031612886,
+        0.033378009,
+        0.03396579,
+        0.031558707,
+        0.034100765
       ],
-      "medianNanoseconds": 39273845,
-      "p99Nanoseconds": 39273845,
-      "minimumNanoseconds": 39273845,
-      "medianSeconds": 0.039273845,
-      "p99Seconds": 0.039273845,
-      "minimumSeconds": 0.039273845,
+      "medianNanoseconds": 33378009,
+      "p99Nanoseconds": 34100765,
+      "minimumNanoseconds": 31558707,
+      "medianSeconds": 0.033378009,
+      "p99Seconds": 0.034100765,
+      "minimumSeconds": 0.031558707,
       "samplePeakRssKiB": [
-        34788
+        36508,
+        36836,
+        36708,
+        36364,
+        36660
       ],
-      "peakRssKiB": 34788,
+      "peakRssKiB": 36836,
       "workloadSourceSha256": "e5e5c7bdaeeb8ab2482d06c5087ad9034030af531e359959ae8f45e9140d256b",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1645,21 +2354,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        35046319
+        29781848,
+        29672019,
+        29680696,
+        30241549,
+        29330473
       ],
       "samplesSeconds": [
-        0.035046319
+        0.029781848,
+        0.029672019,
+        0.029680696,
+        0.030241549,
+        0.029330473
       ],
-      "medianNanoseconds": 35046319,
-      "p99Nanoseconds": 35046319,
-      "minimumNanoseconds": 35046319,
-      "medianSeconds": 0.035046319,
-      "p99Seconds": 0.035046319,
-      "minimumSeconds": 0.035046319,
+      "medianNanoseconds": 29680696,
+      "p99Nanoseconds": 30241549,
+      "minimumNanoseconds": 29330473,
+      "medianSeconds": 0.029680696,
+      "p99Seconds": 0.030241549,
+      "minimumSeconds": 0.029330473,
       "samplePeakRssKiB": [
-        34064
+        36056,
+        36144,
+        36184,
+        35840,
+        36120
       ],
-      "peakRssKiB": 34064,
+      "peakRssKiB": 36184,
       "workloadSourceSha256": "8351df4d664b9dae7ec6a5efe30b1d9f3cf4e12d9460ef35f74db2f2a966d5a1",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
@@ -1672,21 +2393,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        48334758
+        50566835,
+        43249945,
+        51044588,
+        40186395,
+        41966210
       ],
       "samplesSeconds": [
-        0.048334758
+        0.050566835,
+        0.043249945,
+        0.051044588,
+        0.040186395,
+        0.04196621
       ],
-      "medianNanoseconds": 48334758,
-      "p99Nanoseconds": 48334758,
-      "minimumNanoseconds": 48334758,
-      "medianSeconds": 0.048334758,
-      "p99Seconds": 0.048334758,
-      "minimumSeconds": 0.048334758,
+      "medianNanoseconds": 43249945,
+      "p99Nanoseconds": 51044588,
+      "minimumNanoseconds": 40186395,
+      "medianSeconds": 0.043249945,
+      "p99Seconds": 0.051044588,
+      "minimumSeconds": 0.040186395,
       "samplePeakRssKiB": [
+        2888,
+        2780,
+        2788,
+        2836,
         2764
       ],
-      "peakRssKiB": 2764,
+      "peakRssKiB": 2888,
       "workloadSourceSha256": "b483749a744cbdcdb3c5bad9c36a5c5c288254b64c392298ed811331dfd7d604",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1699,21 +2432,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        19139981
+        20127081,
+        16270635,
+        15686036,
+        17156022,
+        16733587
       ],
       "samplesSeconds": [
-        0.019139981
+        0.020127081,
+        0.016270635,
+        0.015686036,
+        0.017156022,
+        0.016733587
       ],
-      "medianNanoseconds": 19139981,
-      "p99Nanoseconds": 19139981,
-      "minimumNanoseconds": 19139981,
-      "medianSeconds": 0.019139981,
-      "p99Seconds": 0.019139981,
-      "minimumSeconds": 0.019139981,
+      "medianNanoseconds": 16733587,
+      "p99Nanoseconds": 20127081,
+      "minimumNanoseconds": 15686036,
+      "medianSeconds": 0.016733587,
+      "p99Seconds": 0.020127081,
+      "minimumSeconds": 0.015686036,
       "samplePeakRssKiB": [
-        2780
+        2784,
+        2848,
+        2848,
+        2784,
+        2764
       ],
-      "peakRssKiB": 2780,
+      "peakRssKiB": 2848,
       "workloadSourceSha256": "2293014a83e6801edc445f115ede3823193c5136bf1ff7df9be252a7528a4492",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1726,21 +2471,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        7028844
+        6919749,
+        7485807,
+        7596581,
+        6918476,
+        7355343
       ],
       "samplesSeconds": [
-        0.007028844
+        0.006919749,
+        0.007485807,
+        0.007596581,
+        0.006918476,
+        0.007355343
       ],
-      "medianNanoseconds": 7028844,
-      "p99Nanoseconds": 7028844,
-      "minimumNanoseconds": 7028844,
-      "medianSeconds": 0.007028844,
-      "p99Seconds": 0.007028844,
-      "minimumSeconds": 0.007028844,
+      "medianNanoseconds": 7355343,
+      "p99Nanoseconds": 7596581,
+      "minimumNanoseconds": 6918476,
+      "medianSeconds": 0.007355343,
+      "p99Seconds": 0.007596581,
+      "minimumSeconds": 0.006918476,
       "samplePeakRssKiB": [
-        10588
+        10592,
+        10592,
+        10648,
+        10440,
+        10592
       ],
-      "peakRssKiB": 10588,
+      "peakRssKiB": 10648,
       "workloadSourceSha256": "dd3c28f4c736b2974686addd5b555ca21c1192410a6e568faf0e2e340dff153b",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1753,21 +2510,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        9321692
+        12052483,
+        11285073,
+        13415393,
+        11412008,
+        13806607
       ],
       "samplesSeconds": [
-        0.009321692
+        0.012052483,
+        0.011285073,
+        0.013415393,
+        0.011412008,
+        0.013806607
       ],
-      "medianNanoseconds": 9321692,
-      "p99Nanoseconds": 9321692,
-      "minimumNanoseconds": 9321692,
-      "medianSeconds": 0.009321692,
-      "p99Seconds": 0.009321692,
-      "minimumSeconds": 0.009321692,
+      "medianNanoseconds": 12052483,
+      "p99Nanoseconds": 13806607,
+      "minimumNanoseconds": 11285073,
+      "medianSeconds": 0.012052483,
+      "p99Seconds": 0.013806607,
+      "minimumSeconds": 0.011285073,
       "samplePeakRssKiB": [
-        3156
+        3300,
+        3236,
+        3144,
+        3172,
+        3164
       ],
-      "peakRssKiB": 3156,
+      "peakRssKiB": 3300,
       "workloadSourceSha256": "6c143f79016885f1aaf8fad74c0ca9c62e71e472958c8f942b0f9f9e0563f4c4",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1780,19 +2549,31 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        9822475
+        7822686,
+        7731166,
+        9364586,
+        7453661,
+        8753680
       ],
       "samplesSeconds": [
-        0.009822475
+        0.007822686,
+        0.007731166,
+        0.009364586,
+        0.007453661,
+        0.00875368
       ],
-      "medianNanoseconds": 9822475,
-      "p99Nanoseconds": 9822475,
-      "minimumNanoseconds": 9822475,
-      "medianSeconds": 0.009822475,
-      "p99Seconds": 0.009822475,
-      "minimumSeconds": 0.009822475,
+      "medianNanoseconds": 7822686,
+      "p99Nanoseconds": 9364586,
+      "minimumNanoseconds": 7453661,
+      "medianSeconds": 0.007822686,
+      "p99Seconds": 0.009364586,
+      "minimumSeconds": 0.007453661,
       "samplePeakRssKiB": [
-        11108
+        10976,
+        11096,
+        11108,
+        11068,
+        10960
       ],
       "peakRssKiB": 11108,
       "workloadSourceSha256": "0c3987d65abb2e4df6dccd9ecb2cc0196aba0f6413e81dc7418841725ae23ae8",
@@ -1807,21 +2588,33 @@
       "workload": "fibonacci",
       "workloadName": "Recursive Fibonacci",
       "samplesNanoseconds": [
-        2736537
+        3060916,
+        3267276,
+        3134779,
+        3083724,
+        2787196
       ],
       "samplesSeconds": [
-        0.002736537
+        0.003060916,
+        0.003267276,
+        0.003134779,
+        0.003083724,
+        0.002787196
       ],
-      "medianNanoseconds": 2736537,
-      "p99Nanoseconds": 2736537,
-      "minimumNanoseconds": 2736537,
-      "medianSeconds": 0.002736537,
-      "p99Seconds": 0.002736537,
-      "minimumSeconds": 0.002736537,
+      "medianNanoseconds": 3083724,
+      "p99Nanoseconds": 3267276,
+      "minimumNanoseconds": 2787196,
+      "medianSeconds": 0.003083724,
+      "p99Seconds": 0.003267276,
+      "minimumSeconds": 0.002787196,
       "samplePeakRssKiB": [
-        3068
+        3156,
+        3076,
+        3084,
+        3156,
+        3024
       ],
-      "peakRssKiB": 3068,
+      "peakRssKiB": 3156,
       "workloadSourceSha256": "c384174a81e11b00cac5e982196743bd10448fe744e8ee435cfdee11e5f7cba9",
       "expectedChecksumSha256": "24dffd5abc8e559a688b0509691acba52a4a904a895603769a869210eb7abc5b",
       "checksumValidated": true,
@@ -1835,21 +2628,33 @@
       "workload": "integerLoop",
       "workloadName": "Integer loop",
       "samplesNanoseconds": [
-        1268042
+        1193425,
+        1276797,
+        1193271,
+        1233280,
+        1247706
       ],
       "samplesSeconds": [
-        0.001268042
+        0.001193425,
+        0.001276797,
+        0.001193271,
+        0.00123328,
+        0.001247706
       ],
-      "medianNanoseconds": 1268042,
-      "p99Nanoseconds": 1268042,
-      "minimumNanoseconds": 1268042,
-      "medianSeconds": 0.001268042,
-      "p99Seconds": 0.001268042,
-      "minimumSeconds": 0.001268042,
+      "medianNanoseconds": 1233280,
+      "p99Nanoseconds": 1276797,
+      "minimumNanoseconds": 1193271,
+      "medianSeconds": 0.00123328,
+      "p99Seconds": 0.001276797,
+      "minimumSeconds": 0.001193271,
       "samplePeakRssKiB": [
-        3056
+        3200,
+        3068,
+        3140,
+        3028,
+        3168
       ],
-      "peakRssKiB": 3056,
+      "peakRssKiB": 3200,
       "workloadSourceSha256": "4af723720bd09dabbc3e13fe3e9bab2add0a9dd2373f9b40c7d127d9ca3aa31a",
       "expectedChecksumSha256": "7aa2bc41dbbfe739c0b5dc7baf4a16e18969273b306c0ad95e21f3791963dd0e",
       "checksumValidated": true,
@@ -1863,21 +2668,33 @@
       "workload": "tableLoop",
       "workloadName": "Numeric array",
       "samplesNanoseconds": [
-        5739202
+        5632662,
+        5726180,
+        6071682,
+        5887077,
+        5691216
       ],
       "samplesSeconds": [
-        0.005739202
+        0.005632662,
+        0.00572618,
+        0.006071682,
+        0.005887077,
+        0.005691216
       ],
-      "medianNanoseconds": 5739202,
-      "p99Nanoseconds": 5739202,
-      "minimumNanoseconds": 5739202,
-      "medianSeconds": 0.005739202,
-      "p99Seconds": 0.005739202,
-      "minimumSeconds": 0.005739202,
+      "medianNanoseconds": 5726180,
+      "p99Nanoseconds": 6071682,
+      "minimumNanoseconds": 5632662,
+      "medianSeconds": 0.00572618,
+      "p99Seconds": 0.006071682,
+      "minimumSeconds": 0.005632662,
       "samplePeakRssKiB": [
-        10664
+        10968,
+        11224,
+        10836,
+        10840,
+        10840
       ],
-      "peakRssKiB": 10664,
+      "peakRssKiB": 11224,
       "workloadSourceSha256": "0e9c890866ffb81140dc0c02fbadf74ad6b0fe5422ac2f54a26158663088e650",
       "expectedChecksumSha256": "5686e0c7e4dc13fd1094468bd05fec6364410fc61f519c0b8310911c822a7374",
       "checksumValidated": true,
@@ -1891,21 +2708,33 @@
       "workload": "allocationChurn",
       "workloadName": "Allocation churn",
       "samplesNanoseconds": [
-        1267761
+        1273769,
+        1276819,
+        1203154,
+        1116409,
+        1018754
       ],
       "samplesSeconds": [
-        0.001267761
+        0.001273769,
+        0.001276819,
+        0.001203154,
+        0.001116409,
+        0.001018754
       ],
-      "medianNanoseconds": 1267761,
-      "p99Nanoseconds": 1267761,
-      "minimumNanoseconds": 1267761,
-      "medianSeconds": 0.001267761,
-      "p99Seconds": 0.001267761,
-      "minimumSeconds": 0.001267761,
+      "medianNanoseconds": 1203154,
+      "p99Nanoseconds": 1276819,
+      "minimumNanoseconds": 1018754,
+      "medianSeconds": 0.001203154,
+      "p99Seconds": 0.001276819,
+      "minimumSeconds": 0.001018754,
       "samplePeakRssKiB": [
-        2948
+        3336,
+        3444,
+        3316,
+        3440,
+        3324
       ],
-      "peakRssKiB": 2948,
+      "peakRssKiB": 3444,
       "workloadSourceSha256": "c28b8ae35a3d4dc70d2db59887da51252d4b12ff0bcbd0918ce9832ba34cfffe",
       "expectedChecksumSha256": "933e67929a0df9a237c756664bba0cb88315f2c1c6a718928635ea808da9f2fa",
       "checksumValidated": true,
@@ -1919,21 +2748,33 @@
       "workload": "objectArray",
       "workloadName": "Retained object array",
       "samplesNanoseconds": [
-        38810807
+        13078564,
+        11147671,
+        11959343,
+        12313741,
+        12488085
       ],
       "samplesSeconds": [
-        0.038810807
+        0.013078564,
+        0.011147671,
+        0.011959343,
+        0.012313741,
+        0.012488085
       ],
-      "medianNanoseconds": 38810807,
-      "p99Nanoseconds": 38810807,
-      "minimumNanoseconds": 38810807,
-      "medianSeconds": 0.038810807,
-      "p99Seconds": 0.038810807,
-      "minimumSeconds": 0.038810807,
+      "medianNanoseconds": 12313741,
+      "p99Nanoseconds": 13078564,
+      "minimumNanoseconds": 11147671,
+      "medianSeconds": 0.012313741,
+      "p99Seconds": 0.013078564,
+      "minimumSeconds": 0.011147671,
       "samplePeakRssKiB": [
-        34112
+        12136,
+        11848,
+        11948,
+        11956,
+        11960
       ],
-      "peakRssKiB": 34112,
+      "peakRssKiB": 12136,
       "workloadSourceSha256": "383dff44da4fa0a4cc858c6a2f45c11b5a34935aed870400e5fbc98b30036a77",
       "expectedChecksumSha256": "80318278668a65584b64df8779e86dd61957427ab38d04b4138cfd41ad19aeb6",
       "checksumValidated": true,
