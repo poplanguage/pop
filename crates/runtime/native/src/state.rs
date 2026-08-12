@@ -17,6 +17,7 @@ use pop_runtime_interface::{
 static ABI_RUNTIME: OnceLock<Mutex<StableGenerationalRuntime>> = OnceLock::new();
 static ABI_TABLES: OnceLock<Mutex<BTreeMap<u64, TableMetadata>>> = OnceLock::new();
 static ABI_LISTS: OnceLock<Mutex<BTreeMap<u64, ListMetadata>>> = OnceLock::new();
+static ABI_BYTE_BUFFERS: OnceLock<Mutex<BTreeMap<u64, Vec<u8>>>> = OnceLock::new();
 #[cfg(test)]
 static NATIVE_RUNTIME_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -182,6 +183,22 @@ pub(crate) fn abi_tables() -> &'static Mutex<BTreeMap<u64, TableMetadata>> {
 
 pub(crate) fn abi_lists() -> &'static Mutex<BTreeMap<u64, ListMetadata>> {
     ABI_LISTS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+pub(crate) fn abi_byte_buffers() -> &'static Mutex<BTreeMap<u64, Vec<u8>>> {
+    ABI_BYTE_BUFFERS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+pub(crate) fn prune_collected_byte_buffers(
+    runtime: &StableGenerationalRuntime,
+) -> Result<(), RuntimeFailure> {
+    let mut buffers = abi_byte_buffers()
+        .lock()
+        .map_err(|_| RuntimeFailure::runtime_invariant())?;
+    buffers.retain(|reference, _| {
+        runtime.contains(pop_runtime_interface::ManagedReference::new(*reference))
+    });
+    Ok(())
 }
 
 fn task_root_runtime()

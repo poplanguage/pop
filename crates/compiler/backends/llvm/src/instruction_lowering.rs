@@ -7,7 +7,10 @@
 use pop_foundation::{BubbleId, FieldId, FunctionId, SymbolId, TypeId, ValueId};
 use pop_mir::{MirFfiLayoutCatalog, MirInstructionKind, MirTerminator};
 use pop_runtime_interface::{ArrayElementMap, RuntimeOperation};
-use pop_runtime_native_abi::{IterationCollectionKind, IterationStatus};
+use pop_runtime_native_abi::{
+    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, ChannelReceiveStatus,
+    ChannelSendStatus, IterationCollectionKind, IterationStatus, SocketIoStatus,
+};
 use pop_types::{FloatKind, IntegerKind, PrimitiveType, SemanticType, TypeArena};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -94,6 +97,15 @@ pub(crate) fn lower_instruction(
                 format!("{result} = add i64 0, 0")
             }
         }
+        MirInstructionKind::OptionalMake { value } => {
+            let inner = optional_inner_type(types, instruction.result_type())
+                .ok_or(LlvmLoweringError::InvalidType(instruction.result_type()))?;
+            let inner = llvm_type(inner, types)?;
+            format!(
+                "{result} = insertvalue {{ i1, {inner} }} {{ i1 true, {inner} undef }}, {inner} %v{}, 1",
+                value.raw()
+            )
+        }
         MirInstructionKind::OptionalIsPresent { optional } => {
             let optional_type = value_types
                 .get(optional)
@@ -119,6 +131,24 @@ pub(crate) fn lower_instruction(
                 "{result} = extractvalue {{ i1, {inner} }} %v{}, 1",
                 optional.raw()
             )
+        }
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            format!(
+                "{result}_within_maximum = icmp ule i32 %v{}, 1114111\n\
+                 {result}_before_surrogates = icmp ult i32 %v{}, 55296\n\
+                 {result}_after_surrogates = icmp ugt i32 %v{}, 57343\n\
+                 {result}_not_surrogate = or i1 {result}_before_surrogates, {result}_after_surrogates\n\
+                 {result}_valid = and i1 {result}_within_maximum, {result}_not_surrogate\n\
+                 {result}_with_presence = insertvalue {{ i1, i32 }} zeroinitializer, i1 {result}_valid, 0\n\
+                 {result} = insertvalue {{ i1, i32 }} {result}_with_presence, i32 %v{}, 1",
+                value.raw(),
+                value.raw(),
+                value.raw(),
+                value.raw(),
+            )
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            format!("{result} = add i32 0, %v{}", value.raw())
         }
         MirInstructionKind::FfiPointerNone => {
             let ty = llvm_type(instruction.result_type(), types)?;
@@ -163,9 +193,9 @@ pub(crate) fn lower_instruction(
             allocation_site,
             arguments,
             ..
-        } => lower_union_make(
+        } => lower_iteration_make(
             &result,
-            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            *case,
             arguments,
             value_types,
             types,
@@ -541,27 +571,72 @@ pub(crate) fn lower_instruction(
             function,
             arguments,
             ..
-        } => {
-            if arguments.len() != 1 {
+        } => match function.raw() {
+            0 if arguments.len() == 1 => {
+                format!("call void @pop_std_print_int(i64 %v{})", arguments[0].raw())
+            }
+            1 if arguments.len() == 1 => format!(
+                "call void @pop_std_print_string(i64 %v{})",
+                arguments[0].raw()
+            ),
+            2..=24 | 59..=63 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
+            25..=34 => lower_actor_standard_call(
+                &result,
+                function.raw(),
+                arguments,
+                instruction.result_type(),
+                value_types,
+                types,
+            )?,
+            35..=58 | 64..=122 | 128..=182 => {
+                lower_net_standard_call(&result, function.raw(), arguments)?
+            }
+            123..=127 => lower_live_time_standard_call(&result, function.raw(), arguments)?,
+            183 if arguments.is_empty() => {
+                format!("{result} = call i64 @pop_std_rust_process_id()")
+            }
+            184 if arguments.is_empty() => {
+                format!("{result} = call i64 @pop_std_rust_available_parallelism()")
+            }
+            185 if arguments.is_empty() => {
+                format!("{result} = call i1 @pop_std_rust_stdout_is_terminal()")
+            }
+            186 if arguments.is_empty() => {
+                format!("{result} = call i1 @pop_std_rust_stderr_is_terminal()")
+            }
+            187..=190 if arguments.len() == 1 => {
+                let symbol = match function.raw() {
+                    187 => "pop_std_rust_net_ipv4_is_link_local",
+                    188 => "pop_std_rust_net_ipv4_is_multicast",
+                    189 => "pop_std_rust_net_ipv4_is_broadcast",
+                    190 => "pop_std_rust_net_ipv4_is_documentation",
+                    _ => unreachable!(),
+                };
+                format!("{result} = call i1 @{symbol}(i64 %v{})", arguments[0].raw())
+            }
+            191..=194 if arguments.len() == 4 => {
+                let symbol = match function.raw() {
+                    191 => "pop_std_rust_net_ipv6_is_multicast",
+                    192 => "pop_std_rust_net_ipv6_is_unique_local",
+                    193 => "pop_std_rust_net_ipv6_is_unicast_link_local",
+                    194 => "pop_std_rust_net_ipv6_is_documentation",
+                    _ => unreachable!(),
+                };
+                format!(
+                    "{result} = call i1 @{symbol}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                )
+            }
+            _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),
                     value: instruction.result(),
                 });
             }
-            match function.raw() {
-                0 => format!("call void @pop_std_print_int(i64 %v{})", arguments[0].raw()),
-                1 => format!(
-                    "call void @pop_std_print_string(i64 %v{})",
-                    arguments[0].raw()
-                ),
-                _ => {
-                    return Err(LlvmLoweringError::UnsupportedInstruction {
-                        function: FunctionId::from_raw(u32::MAX),
-                        value: instruction.result(),
-                    });
-                }
-            }
-        }
+        },
         MirInstructionKind::GcSafePoint {
             safe_point, roots, ..
         } => lower_gc_safe_point(
@@ -569,12 +644,14 @@ pub(crate) fn lower_instruction(
             safe_point.raw(),
             roots,
             direct_scalar_arrays,
+            value_types,
+            types,
             matches!(
                 options.runtime_profile,
                 pop_backend_api::RuntimeProfile::ProductionGenerational
             ),
             options.gc_poll_interval.get(),
-        ),
+        )?,
         MirInstructionKind::RetainRoot { value } => format!(
             "{result} = call i64 @{}(i64 %v{})",
             native_runtime_symbol(RuntimeOperation::RetainRoot),
@@ -1014,6 +1091,248 @@ pub(crate) fn lower_instruction(
             value_types,
             types,
         )?,
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            allocation_site,
+            ..
+        } => lower_channel_create(
+            &result,
+            *capacity,
+            value_types,
+            types,
+            &allocation_site_symbol(bubble, owner, *allocation_site),
+        )?,
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element_map,
+            ..
+        } => lower_channel_try_send(&result, *sender, *value, *element_map, value_types, types)?,
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element_map,
+            allocation_site,
+            ..
+        } => lower_channel_try_receive(
+            &result,
+            *receiver,
+            *element_map,
+            value_types,
+            types,
+            &allocation_site_symbol(bubble, owner, *allocation_site),
+        )?,
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => lower_channel_close(&result, *endpoint, *direction),
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelSendOutcomeKind::Accepted => 0,
+                pop_types::ChannelSendOutcomeKind::Full => 1,
+                pop_types::ChannelSendOutcomeKind::Closed => 2,
+            };
+            format!("{result} = icmp eq i64 %v{}, {expected}", outcome.raw())
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            lower_channel_receive_item(&result, *outcome, *element, types)?
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelReceiveOutcomeKind::Empty => 1,
+                pop_types::ChannelReceiveOutcomeKind::Closed => 2,
+            };
+            [
+                format!(
+                    "{result}_tag = call i64 @{}(i64 %v{}, i64 1)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    outcome.raw()
+                ),
+                format!("{result} = icmp eq i64 {result}_tag, {expected}"),
+            ]
+            .join("\n")
+        }
+        MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            lower_byte_buffer_create(&result, *capacity)
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => lower_array_output_call(
+            &result,
+            instruction.result_type(),
+            RuntimeOperation::ByteBufferLength,
+            &[*buffer],
+            value_types,
+            types,
+        )?,
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferReserve,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i64 %v{}", additional_capacity.raw()),
+            ],
+            Some(format!("%v{}", additional_capacity.raw())),
+        ),
+        MirInstructionKind::ByteBufferClear { buffer } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferClear,
+            &[format!("i64 %v{}", buffer.raw())],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferWriteByte,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i8 %v{}", value.raw()),
+            ],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => lower_byte_buffer_status(
+            &result,
+            RuntimeOperation::ByteBufferWriteBytes,
+            &[
+                format!("i64 %v{}", buffer.raw()),
+                format!("i64 %v{}", value.raw()),
+            ],
+            None,
+        ),
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::ByteBufferWriteView);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result}_status = call i8 @{symbol}(i64 %v{}, i64 {result}_lender, i64 {result}_offset, i64 {result}_length)\n\
+                 {result}_success = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_success, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result} = add i64 0, 0",
+                value.raw(),
+                value.raw(),
+                value.raw(),
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let bits = kind.bit_width();
+            let mut lines = Vec::new();
+            let stored = if bits == 64 {
+                format!("%v{}", value.raw())
+            } else {
+                let widened = format!("{result}_value");
+                lines.push(format!("{widened} = zext i{bits} %v{} to i64", value.raw()));
+                widened
+            };
+            lines.push(lower_byte_buffer_status(
+                &result,
+                RuntimeOperation::ByteBufferWriteInteger,
+                &[
+                    format!("i64 %v{}", buffer.raw()),
+                    format!("i64 {stored}"),
+                    format!("i8 {}", bits / 8),
+                    format!(
+                        "i8 {}",
+                        u8::from(*order == pop_types::ByteOrder::LittleEndian)
+                    ),
+                ],
+                None,
+            ));
+            lines.join("\n")
+        }
+        MirInstructionKind::ByteBufferMaterialize { buffer, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::ByteBufferMaterialize);
+            format!(
+                "{result} = call i64 @{symbol}(i64 %v{})\n\
+                 {result}_allocated = icmp ne i64 {result}, 0\n\
+                 br i1 {result}_allocated, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:",
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::Utf8Encode { view, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8Encode);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result} = call i64 @{symbol}(i64 {result}_lender, i64 {result}_offset, i64 {result}_length)\n\
+                 {result}_allocated = icmp ne i64 {result}, 0\n\
+                 br i1 {result}_allocated, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:",
+                view.raw(),
+                view.raw(),
+                view.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::Utf8DecodeView { view, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8DecodeView);
+            format!(
+                "{result}_lender = extractvalue {{ i64, i64, i64, i64 }} %v{}, 0\n\
+                 {result}_offset = extractvalue {{ i64, i64, i64, i64 }} %v{}, 1\n\
+                 {result}_length = extractvalue {{ i64, i64, i64, i64 }} %v{}, 2\n\
+                 {result}_output = alloca i64, align 8\n\
+                 store i64 0, ptr {result}_output, align 8\n\
+                 {result}_status = call i8 @{symbol}(i64 {result}_lender, i64 {result}_offset, i64 {result}_length, ptr {result}_output)\n\
+                 {result}_completed = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_completed, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result}_present = icmp eq i8 {result}_status, 2\n\
+                   {result}_value = load i64, ptr {result}_output, align 8\n\
+                   {result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0\n\
+                   {result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {result}_value, 1",
+                view.raw(),
+                view.raw(),
+                view.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
+        MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => {
+            let label = result.trim_start_matches('%');
+            let symbol = native_runtime_symbol(RuntimeOperation::Utf8DecodeBuffer);
+            format!(
+                "{result}_output = alloca i64, align 8\n\
+                 store i64 0, ptr {result}_output, align 8\n\
+                 {result}_status = call i8 @{symbol}(i64 %v{}, ptr {result}_output)\n\
+                 {result}_completed = icmp ne i8 {result}_status, 0\n\
+                 br i1 {result}_completed, label %{label}_continue, label %{label}_trap\n\
+                 {label}_trap:\n\
+                   call void @{}()\n\
+                   unreachable\n\
+                 {label}_continue:\n\
+                   {result}_present = icmp eq i8 {result}_status, 2\n\
+                   {result}_value = load i64, ptr {result}_output, align 8\n\
+                   {result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0\n\
+                   {result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {result}_value, 1",
+                buffer.raw(),
+                native_runtime_symbol(RuntimeOperation::Trap),
+            )
+        }
         MirInstructionKind::RangeCreate { first, last, step } => lower_range_create(
             &result,
             instruction.result_type(),
@@ -1085,7 +1404,18 @@ pub(crate) fn lower_instruction(
             &format!("%v{}", iteration.raw()),
             2,
             types,
-        )?
+        )
+        .or_else(|error| {
+            optional_inner_type(types, instruction.result_type()).map_or(Err(error), |inner| {
+                lower_optional_iteration_item(
+                    &result,
+                    instruction.result_type(),
+                    inner,
+                    *iteration,
+                    types,
+                )
+            })
+        })?
         .join("\n"),
         MirInstructionKind::InterfaceUpcast { value, .. } => {
             format!("{result} = add i64 %v{}, 0", value.raw())
@@ -1110,6 +1440,7 @@ pub(crate) fn lower_instruction(
         | MirInstructionKind::ViewSlice { .. }
         | MirInstructionKind::ViewLength { .. }
         | MirInstructionKind::ViewGetByte { .. }
+        | MirInstructionKind::ViewGetRune { .. }
         | MirInstructionKind::ViewMaterialize { .. }
         | MirInstructionKind::ViewEnd { .. } => crate::views::lower(instruction, view_lenders)
             .expect("closed view MIR lowering handles every view instruction"),
@@ -1237,6 +1568,7 @@ pub(crate) fn lower_builtin_iteration_call(
             .ok_or(LlvmLoweringError::InvalidType(receiver_type))?;
         let kind = match types.get(receiver_type) {
             Some(SemanticType::Array(_)) => IterationCollectionKind::Array,
+            Some(SemanticType::Primitive(PrimitiveType::String)) => IterationCollectionKind::String,
             Some(SemanticType::Table { .. }) => IterationCollectionKind::Table,
             Some(SemanticType::Builtin { definition, .. }) if *definition == protocol.list() => {
                 IterationCollectionKind::List
@@ -2086,13 +2418,18 @@ fn lower_foreign_call(
         lines.push(format!("{root_array} = alloca [{} x i64]", roots.len()));
         for (index, root) in roots.iter().enumerate() {
             let slot = format!("{root_array}_{index}");
-            lines.extend([
-                format!(
-                    "{slot} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
-                    roots.len()
-                ),
-                format!("store i64 %v{}, ptr {slot}", root.raw()),
-            ]);
+            lines.push(format!(
+                "{slot} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
+                roots.len()
+            ));
+            let type_id = *values
+                .get(root)
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let source = format!("%v{}", root.raw());
+            let (conversions, stored) =
+                lower_gc_root_value(&source, &format!("{slot}_value"), type_id, types)?;
+            lines.extend(conversions);
+            lines.push(format!("store i64 {stored}, ptr {slot}"));
         }
         lines.push(format!(
             "{root_pointer} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 0",
@@ -2262,6 +2599,7 @@ pub(crate) fn lower_array_create(
         initial_value,
         initial_type,
         &llvm_type(initial_type, types)?,
+        types,
     )?;
     let label = result.trim_start_matches('%');
     lines.extend([
@@ -2309,6 +2647,7 @@ pub(crate) fn lower_direct_array_create(
         allocation.initial_value,
         initial_type,
         &llvm_type(initial_type, types)?,
+        types,
     )?;
     let label = result.trim_start_matches('%');
     lines.extend([
@@ -2511,7 +2850,7 @@ pub(crate) fn lower_direct_array_set(
         return Err(LlvmLoweringError::InvalidType(allocation.element_type));
     }
     let (mut conversion, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     conversion.extend([
         format!("{result}_zero_index = sub i64 %v{}, 1", index.raw()),
@@ -2559,7 +2898,7 @@ pub(crate) fn lower_direct_array_fill(
         return Err(LlvmLoweringError::InvalidType(allocation.element_type));
     }
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!("{result}_storage = inttoptr i64 %v{} to ptr", origin.raw()),
@@ -2791,6 +3130,71 @@ pub(crate) fn lower_list_create(
     lines.join("\n")
 }
 
+fn lower_byte_buffer_create(result: &str, capacity: Option<ValueId>) -> String {
+    let label = result.trim_start_matches('%');
+    let capacity_value =
+        capacity.map_or_else(|| "0".to_owned(), |value| format!("%v{}", value.raw()));
+    let mut lines = Vec::new();
+    if capacity.is_some() {
+        lines.extend([
+            format!("{result}_nonnegative = icmp sge i64 {capacity_value}, 0"),
+            format!("br i1 {result}_nonnegative, label %{label}_allocate, label %{label}_trap"),
+            format!("{label}_allocate:"),
+        ]);
+    }
+    lines.extend([
+        format!(
+            "{result} = call i64 @{}(i64 {capacity_value})",
+            native_runtime_symbol(RuntimeOperation::ByteBufferCreate)
+        ),
+        format!("{result}_allocated = icmp ne i64 {result}, 0"),
+        format!("br i1 {result}_allocated, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "  call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "  unreachable".to_owned(),
+        format!("{label}_continue:"),
+    ]);
+    lines.join("\n")
+}
+
+fn lower_byte_buffer_status(
+    result: &str,
+    operation: RuntimeOperation,
+    arguments: &[String],
+    nonnegative: Option<String>,
+) -> String {
+    let label = result.trim_start_matches('%');
+    let mut lines = Vec::new();
+    if let Some(value) = nonnegative {
+        lines.extend([
+            format!("{result}_nonnegative = icmp sge i64 {value}, 0"),
+            format!("br i1 {result}_nonnegative, label %{label}_call, label %{label}_trap"),
+            format!("{label}_call:"),
+        ]);
+    }
+    lines.extend([
+        format!(
+            "{result}_status = call i8 @{}({})",
+            native_runtime_symbol(operation),
+            arguments.join(", ")
+        ),
+        format!("{result}_success = icmp ne i8 {result}_status, 0"),
+        format!("br i1 {result}_success, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "  call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "  unreachable".to_owned(),
+        format!("{label}_continue:"),
+        format!("  {result} = add i64 0, 0"),
+    ]);
+    lines.join("\n")
+}
+
 fn lower_range_create(
     result: &str,
     result_type: TypeId,
@@ -2866,7 +3270,7 @@ pub(crate) fn lower_list_mutation(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     let index = index.map_or_else(String::new, |index| format!(", i64 %v{}", index.raw()));
     lines.extend([
@@ -2887,6 +3291,2393 @@ pub(crate) fn lower_list_mutation(
         "  unreachable".to_owned(),
         format!("{label}_continue:"),
         format!("  {result} = add i64 0, 0"),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_create(
+    result: &str,
+    capacity: ValueId,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let label = result.trim_start_matches('%');
+    let handle = format!("{result}_handle");
+    let available = format!("{result}_available");
+    let endpoints = format!("{result}_endpoints");
+    let absent = format!("{result}_absent_value");
+    let allocation_failed = format!("{result}_allocation_failed_value");
+    let endpoints_available = format!("{result}_endpoints_available");
+    let present = format!("{result}_present");
+    let mut lines = vec![
+        format!(
+            "{handle} = call i64 @{}(i64 %v{})",
+            native_runtime_symbol(RuntimeOperation::ChannelCreate),
+            capacity.raw()
+        ),
+        format!("{available} = icmp ne i64 {handle}, 0"),
+        format!("br i1 {available}, label %{label}_create, label %{label}_absent"),
+        format!("{label}_absent:"),
+        format!("{absent} = insertvalue {{ i1, i64 }} zeroinitializer, i1 false, 0"),
+        format!("br label %{label}_continue"),
+        format!("{label}_create:"),
+    ];
+    lines.extend(
+        lower_initialized_values(
+            &endpoints,
+            vec![
+                ObjectInitializer::Rendered(handle.clone()),
+                ObjectInitializer::Rendered(handle.clone()),
+            ],
+            values,
+            types,
+            descriptor,
+        )?
+        .lines()
+        .map(str::to_owned),
+    );
+    lines.extend([
+        format!("{endpoints_available} = icmp ne i64 {endpoints}, 0"),
+        format!(
+            "br i1 {endpoints_available}, label %{label}_ready, label %{label}_cleanup"
+        ),
+        format!("{label}_cleanup:"),
+        format!(
+            "call i8 @{}(i64 {handle})",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseSender)
+        ),
+        format!(
+            "call i8 @{}(i64 {handle})",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseReceiver)
+        ),
+        format!(
+            "{allocation_failed} = insertvalue {{ i1, i64 }} zeroinitializer, i1 false, 0"
+        ),
+        format!("br label %{label}_continue"),
+        format!("{label}_ready:"),
+        format!(
+            "{present} = insertvalue {{ i1, i64 }} {{ i1 true, i64 undef }}, i64 {endpoints}, 1"
+        ),
+        format!("br label %{label}_continue"),
+        format!("{label}_continue:"),
+        format!(
+            "{result} = phi {{ i1, i64 }} [ {absent}, %{label}_absent ], [ {allocation_failed}, %{label}_cleanup ], [ {present}, %{label}_ready ]"
+        ),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+#[allow(clippy::too_many_lines)]
+fn lower_atomic_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    if let Some(order) = match function {
+        2 | 5 | 8 => Some(0),
+        3 | 6 | 9 => Some(1),
+        4 | 7 | 10 => Some(2),
+        11 => Some(3),
+        12 => Some(4),
+        _ => None,
+    } {
+        if !arguments.is_empty() {
+            return Err(unsupported());
+        }
+        return Ok(format!("{result} = add i64 0, {order}"));
+    }
+
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    match function {
+        13 if arguments.len() == 1 => {
+            let handle = format!("{result}_handle");
+            Ok([
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{})",
+                    native_runtime_symbol(RuntimeOperation::AtomicIntCreate),
+                    arguments[0].raw()
+                ),
+                format!("{result}_valid = icmp ne i64 {handle}, 0"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result} = add i64 {handle}, 0"),
+            ]
+            .join("\n"))
+        }
+        14 if arguments.len() == 1 => {
+            let handle = format!("{result}_handle");
+            Ok([
+                format!("{result}_initial = zext i1 %v{} to i8", arguments[0].raw()),
+                format!(
+                    "{handle} = call i64 @{}(i8 {result}_initial)",
+                    native_runtime_symbol(RuntimeOperation::AtomicBoolCreate)
+                ),
+                format!("{result}_valid = icmp ne i64 {handle}, 0"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result} = add i64 {handle}, 0"),
+            ]
+            .join("\n"))
+        }
+        15 | 16 if arguments.len() == 2 => {
+            let boolean = function == 16;
+            let output_type = if boolean { "i8" } else { "i64" };
+            let operation = if boolean {
+                RuntimeOperation::AtomicBoolLoad
+            } else {
+                RuntimeOperation::AtomicIntLoad
+            };
+            let final_value = if boolean {
+                format!("{result} = icmp ne i8 {result}_loaded, 0")
+            } else {
+                format!("{result} = add i64 {result}_loaded, 0")
+            };
+            Ok([
+                format!("{result}_order = trunc i64 %v{} to i8", arguments[1].raw()),
+                format!("{result}_output = alloca {output_type}"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i8 {result}_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result}_valid = icmp eq i8 {result}_status, 1"),
+                format!(
+                    "br i1 {result}_valid, label %{label}_continue, label %{label}_trap"
+                ),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_loaded = load {output_type}, ptr {result}_output"),
+                final_value,
+            ]
+            .join("\n"))
+        }
+        17 | 18 if arguments.len() == 3 => {
+            let boolean = function == 18;
+            let operation = if boolean {
+                RuntimeOperation::AtomicBoolStore
+            } else {
+                RuntimeOperation::AtomicIntStore
+            };
+            let mut lines = vec![format!(
+                "{result}_order = trunc i64 %v{} to i8",
+                arguments[2].raw()
+            )];
+            let value = if boolean {
+                lines.push(format!(
+                    "{result}_value = zext i1 %v{} to i8",
+                    arguments[1].raw()
+                ));
+                format!("i8 {result}_value")
+            } else {
+                format!("i64 %v{}", arguments[1].raw())
+            };
+            lines.extend([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {value}, i8 {result}_order)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]);
+            Ok(lines.join("\n"))
+        }
+        19 | 20 if arguments.len() == 3 => {
+            let boolean = function == 20;
+            let operation = if boolean {
+                RuntimeOperation::AtomicBoolSwap
+            } else {
+                RuntimeOperation::AtomicIntSwap
+            };
+            let output_type = if boolean { "i8" } else { "i64" };
+            let mut lines = vec![format!(
+                "{result}_order = trunc i64 %v{} to i8",
+                arguments[2].raw()
+            )];
+            let value = if boolean {
+                lines.push(format!(
+                    "{result}_value = zext i1 %v{} to i8",
+                    arguments[1].raw()
+                ));
+                format!("i8 {result}_value")
+            } else {
+                format!("i64 %v{}", arguments[1].raw())
+            };
+            lines.extend([
+                format!("{result}_output = alloca {output_type}"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {value}, i8 {result}_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result}_valid = icmp eq i8 {result}_status, 1"),
+                format!(
+                    "br i1 {result}_valid, label %{label}_continue, label %{label}_trap"
+                ),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_loaded = load {output_type}, ptr {result}_output"),
+                if boolean {
+                    format!("{result} = icmp ne i8 {result}_loaded, 0")
+                } else {
+                    format!("{result} = add i64 {result}_loaded, 0")
+                },
+            ]);
+            Ok(lines.join("\n"))
+        }
+        21 | 22 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::AtomicRelease),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        23 | 24 if arguments.len() == 5 => {
+            let boolean = function == 24;
+            let operation = if boolean {
+                RuntimeOperation::AtomicBoolCompareExchange
+            } else {
+                RuntimeOperation::AtomicIntCompareExchange
+            };
+            let output_type = if boolean { "i8" } else { "i64" };
+            let mut lines = Vec::from([
+                format!(
+                    "{result}_success_order = trunc i64 %v{} to i8",
+                    arguments[3].raw()
+                ),
+                format!(
+                    "{result}_failure_order = trunc i64 %v{} to i8",
+                    arguments[4].raw()
+                ),
+            ]);
+            let (current, new) = if boolean {
+                lines.extend([
+                    format!("{result}_current = zext i1 %v{} to i8", arguments[1].raw()),
+                    format!("{result}_new = zext i1 %v{} to i8", arguments[2].raw()),
+                ]);
+                (format!("i8 {result}_current"), format!("i8 {result}_new"))
+            } else {
+                (
+                    format!("i64 %v{}", arguments[1].raw()),
+                    format!("i64 %v{}", arguments[2].raw()),
+                )
+            };
+            lines.extend([
+                format!("{result}_output = alloca {output_type}"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {current}, {new}, i8 {result}_success_order, i8 {result}_failure_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result}_valid = icmp ne i8 {result}_status, 0"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_observed = load {output_type}, ptr {result}_output"),
+                if boolean {
+                    format!("{result} = icmp ne i8 {result}_observed, 0")
+                } else {
+                    format!("{result} = add i64 {result}_observed, 0")
+                },
+            ]);
+            Ok(lines.join("\n"))
+        }
+        59..=63 if arguments.len() == 3 => {
+            let operation = match function {
+                59 => RuntimeOperation::AtomicIntFetchAdd,
+                60 => RuntimeOperation::AtomicIntFetchSubtract,
+                61 => RuntimeOperation::AtomicIntFetchAnd,
+                62 => RuntimeOperation::AtomicIntFetchOr,
+                63 => RuntimeOperation::AtomicIntFetchXor,
+                _ => unreachable!(),
+            };
+            Ok([
+                format!("{result}_order = trunc i64 %v{} to i8", arguments[2].raw()),
+                format!("{result}_output = alloca i64"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 %v{}, i8 {result}_order, ptr {result}_output)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                ),
+                format!("{result}_valid = icmp eq i8 {result}_status, 1"),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result} = load i64, ptr {result}_output"),
+            ]
+            .join("\n"))
+        }
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_actor_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+    result_type: TypeId,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    match function {
+        25 if arguments.len() == 3 => Ok([
+            format!(
+                "{result}_handle = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorCreate),
+                arguments[0].raw(),
+                arguments[1].raw(),
+                arguments[2].raw()
+            ),
+            format!(
+                "{result}_status = call i8 @{}(i64 {result}_handle)",
+                native_runtime_symbol(RuntimeOperation::ActorActivate)
+            ),
+            format!(
+                "{result}_present = icmp eq i8 {result}_status, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!("{result}_payload = select i1 {result}_present, i64 {result}_handle, i64 0"),
+            format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+            format!(
+                "{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_payload, 1"
+            ),
+        ]
+        .join("\n")),
+        26 if arguments.len() == 1 => Ok(format!("{result} = add i64 %v{}, 0", arguments[0].raw())),
+        27 if arguments.len() == 2 => {
+            let value_type = *values
+                .get(&arguments[1])
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let (mut lines, stored) = lower_runtime_slot_store(
+                arguments[1],
+                value_type,
+                &llvm_type(value_type, types)?,
+                types,
+            )?;
+            lines.extend([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 {stored}, i8 0)",
+                    native_runtime_symbol(RuntimeOperation::ActorTrySendHandle),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_valid = icmp ne i8 {result}_status, {}",
+                    ActorSendStatus::Failure as u8
+                ),
+                format!("br i1 {result}_valid, label %{label}_continue, label %{label}_trap"),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!("{result}_wide = zext i8 {result}_status to i64"),
+                format!(
+                    "{result} = sub i64 {result}_wide, {}",
+                    ActorSendStatus::Sent as u8
+                ),
+            ]);
+            Ok(lines.join("\n"))
+        }
+        28 if arguments.len() == 1 => {
+            let element = optional_inner_type(types, result_type).ok_or_else(unsupported)?;
+            let element_type = llvm_type(element, types)?;
+            let loaded = if element_type == "i64" {
+                format!("{result}_value = add i64 {result}_raw, 0")
+            } else {
+                format!("{result}_value = trunc i64 {result}_raw to {element_type}")
+            };
+            Ok([
+                format!("{result}_output = alloca i64"),
+                format!("{result}_managed = alloca i8"),
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, ptr {result}_output, ptr {result}_managed)",
+                    native_runtime_symbol(RuntimeOperation::ActorTryReceive),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_valid = icmp ne i8 {result}_status, {}",
+                    ActorReceiveStatus::Failure as u8
+                ),
+                format!(
+                    "br i1 {result}_valid, label %{label}_continue, label %{label}_trap"
+                ),
+                format!("{label}_trap:"),
+                format!("call void @{trap}()"),
+                "unreachable".to_owned(),
+                format!("{label}_continue:"),
+                format!(
+                    "{result}_present = icmp eq i8 {result}_status, {}",
+                    ActorReceiveStatus::Item as u8
+                ),
+                format!("{result}_raw = load i64, ptr {result}_output"),
+                loaded,
+                format!(
+                    "{result}_tagged = insertvalue {{ i1, {element_type} }} undef, i1 {result}_present, 0"
+                ),
+                format!(
+                    "{result} = insertvalue {{ i1, {element_type} }} {result}_tagged, {element_type} {result}_value, 1"
+                ),
+            ]
+            .join("\n"))
+        }
+        29 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_begin = call i8 @{}(i64 %v{}, i8 0)",
+                native_runtime_symbol(RuntimeOperation::ActorBeginExit),
+                arguments[0].raw()
+            ),
+            format!(
+                "{result}_complete = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorCompleteExit),
+                arguments[0].raw()
+            ),
+            format!(
+                "{result}_began = icmp eq i8 {result}_begin, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!(
+                "{result}_completed = icmp eq i8 {result}_complete, {}",
+                ActorLifecycleStatus::Applied as u8
+            ),
+            format!("{result} = and i1 {result}_began, {result}_completed"),
+        ]
+        .join("\n")),
+        30 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::ActorRelease),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        31..=34 if arguments.len() == 1 => Ok(format!(
+            "{result} = icmp eq i64 %v{}, {}",
+            arguments[0].raw(),
+            function - 31
+        )),
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_net_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    let trap_status = |status: &str, valid: String, mut lines: Vec<String>| {
+        lines.extend([
+            valid,
+            format!("br i1 {status}_valid, label %{label}_continue, label %{label}_trap"),
+            format!("{label}_trap:"),
+            format!("call void @{trap}()"),
+            "unreachable".to_owned(),
+            format!("{label}_continue:"),
+        ]);
+        lines
+    };
+    match function {
+        35 | 38 | 51 if arguments.len() == 1 => {
+            let operation = match function {
+                35 => RuntimeOperation::TcpListen,
+                38 => RuntimeOperation::TcpConnect,
+                _ => RuntimeOperation::UdpBind,
+            };
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}(i16 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        36 | 37 | 52 if arguments.len() == 1 => {
+            let operation = if function == 52 {
+                RuntimeOperation::UdpLocalPort
+            } else {
+                RuntimeOperation::TcpLocalPort
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i16"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i16, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        39 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_handle = call i64 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TcpAccept),
+                arguments[0].raw()
+            ),
+            format!("{result}_present = icmp ne i64 {result}_handle, 0"),
+            format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+            format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_handle, 1"),
+        ]
+        .join("\n")),
+        40 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 %v{}, ptr {result}_byte", arguments[1].raw()),
+                    format!("{result}_written = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::TcpSend),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_wide = zext i8 {status} to i64"),
+                    format!("{result} = sub i64 {result}_wide, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        41 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 0, ptr {result}_byte"),
+                    format!("{result}_received = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::TcpReceive),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_byte_value = load i8, ptr {result}_byte"),
+                    format!("{result}_byte_wide = zext i8 {result}_byte_value to i64"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_status_index = sub i64 {result}_status_wide, 1"),
+                    format!("{result}_status_bits = shl i64 {result}_status_index, 8"),
+                    format!("{result} = or i64 {result}_status_bits, {result}_byte_wide"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        42 | 43 | 55 if arguments.len() == 1 => {
+            let operation = if function == 55 {
+                RuntimeOperation::UdpClose
+            } else {
+                RuntimeOperation::TcpClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        44..=46 if arguments.len() == 1 => Ok(format!(
+            "{result} = icmp eq i64 %v{}, {}",
+            arguments[0].raw(),
+            function - 44
+        )),
+        47 | 49 | 50 if arguments.len() == 1 => {
+            let expected = match function {
+                47 => 0,
+                49 => 1,
+                _ => 2,
+            };
+            Ok([
+                format!("{result}_status = lshr i64 %v{}, 8", arguments[0].raw()),
+                format!("{result} = icmp eq i64 {result}_status, {expected}"),
+            ]
+            .join("\n"))
+        }
+        48 if arguments.len() == 1 => Ok([
+            format!("{result}_status = lshr i64 %v{}, 8", arguments[0].raw()),
+            format!("{result}_present = icmp eq i64 {result}_status, 0"),
+            format!("{result}_byte = trunc i64 %v{} to i8", arguments[0].raw()),
+            format!("{result}_tagged = insertvalue {{ i1, i8 }} undef, i1 {result}_present, 0"),
+            format!("{result} = insertvalue {{ i1, i8 }} {result}_tagged, i8 {result}_byte, 1"),
+        ]
+        .join("\n")),
+        53 if arguments.len() == 4 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 %v{}, ptr {result}_byte", arguments[3].raw()),
+                    format!("{result}_written = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i32 %v{}, i16 %v{}, ptr {result}_byte, i64 1, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::UdpSendTo),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_wide = zext i8 {status} to i64"),
+                    format!("{result} = sub i64 {result}_wide, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        54 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_byte = alloca i8"),
+                    format!("store i8 0, ptr {result}_byte"),
+                    format!("{result}_address = alloca i32"),
+                    format!("store i32 0, ptr {result}_address"),
+                    format!("{result}_port = alloca i16"),
+                    format!("store i16 0, ptr {result}_port"),
+                    format!("{result}_received = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_byte, i64 1, ptr {result}_address, ptr {result}_port, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::UdpReceive),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!(
+                        "{result}_present = icmp eq i8 {status}, {}",
+                        SocketIoStatus::Progress as u8
+                    ),
+                    format!("{result}_byte_value = load i8, ptr {result}_byte"),
+                    format!("{result}_address_value = load i32, ptr {result}_address"),
+                    format!("{result}_port_value = load i16, ptr {result}_port"),
+                    format!("{result}_byte_wide = zext i8 {result}_byte_value to i64"),
+                    format!("{result}_address_wide = zext i32 {result}_address_value to i64"),
+                    format!("{result}_port_wide = zext i16 {result}_port_value to i64"),
+                    format!("{result}_byte_bits = shl i64 {result}_byte_wide, 48"),
+                    format!("{result}_port_bits = shl i64 {result}_port_wide, 32"),
+                    format!("{result}_address_port = or i64 {result}_address_wide, {result}_port_bits"),
+                    format!("{result}_payload = or i64 {result}_address_port, {result}_byte_bits"),
+                    format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+                    format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_payload, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        56 if arguments.len() == 1 => Ok([
+            format!("{result}_shifted = lshr i64 %v{}, 48", arguments[0].raw()),
+            format!("{result} = trunc i64 {result}_shifted to i8"),
+        ]
+        .join("\n")),
+        57 if arguments.len() == 1 => Ok(format!(
+            "{result} = trunc i64 %v{} to i32",
+            arguments[0].raw()
+        )),
+        58 if arguments.len() == 1 => Ok([
+            format!("{result}_shifted = lshr i64 %v{}, 32", arguments[0].raw()),
+            format!("{result} = trunc i64 {result}_shifted to i16"),
+        ]
+        .join("\n")),
+        64 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_written = alloca i64"),
+                    format!("store i64 0, ptr {result}_written"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::TcpSendBytes),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_written"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        65 if arguments.len() == 3 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_received = alloca i64"),
+                    format!("store i64 0, ptr {result}_received"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::TcpReceiveBuffer),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_received"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        66..=68 if arguments.len() == 1 => Ok([
+            format!("{result}_tag = and i64 %v{}, 3", arguments[0].raw()),
+            format!("{result} = icmp eq i64 {result}_tag, {}", function - 66),
+        ]
+        .join("\n")),
+        69 if arguments.len() == 1 => {
+            Ok(format!("{result} = lshr i64 %v{}, 2", arguments[0].raw()))
+        }
+        70 if arguments.len() == 4 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_written = alloca i64"),
+                    format!("store i64 0, ptr {result}_written"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i32 %v{}, i16 %v{}, i64 %v{}, ptr {result}_written)",
+                        native_runtime_symbol(RuntimeOperation::UdpSendBytesTo),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw(),
+                        arguments[3].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_written"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        71 if arguments.len() == 3 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_address = alloca i32"),
+                    format!("store i32 0, ptr {result}_address"),
+                    format!("{result}_port = alloca i16"),
+                    format!("store i16 0, ptr {result}_port"),
+                    format!("{result}_received = alloca i64"),
+                    format!("store i64 0, ptr {result}_received"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_address, ptr {result}_port, ptr {result}_received)",
+                        native_runtime_symbol(RuntimeOperation::UdpReceiveBuffer),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines.into_iter().chain([
+                format!("{result}_present = icmp eq i8 {status}, {}", SocketIoStatus::Progress as u8),
+                format!("{result}_address_value = load i32, ptr {result}_address"),
+                format!("{result}_port_value = load i16, ptr {result}_port"),
+                format!("{result}_count_value = load i64, ptr {result}_received"),
+                format!("{result}_address_wide = zext i32 {result}_address_value to i64"),
+                format!("{result}_port_wide = zext i16 {result}_port_value to i64"),
+                format!("{result}_port_bits = shl i64 {result}_port_wide, 32"),
+                format!("{result}_count_bits = shl i64 {result}_count_value, 48"),
+                format!("{result}_address_port = or i64 {result}_address_wide, {result}_port_bits"),
+                format!("{result}_payload = or i64 {result}_address_port, {result}_count_bits"),
+                format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+                format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_payload, 1"),
+            ]).collect::<Vec<_>>().join("\n"))
+        }
+        72 if arguments.len() == 1 => {
+            Ok(format!("{result} = lshr i64 %v{}, 48", arguments[0].raw()))
+        }
+        73 if arguments.len() == 1 => Ok(format!(
+            "{result} = trunc i64 %v{} to i32",
+            arguments[0].raw()
+        )),
+        74 if arguments.len() == 1 => Ok([
+            format!("{result}_shifted = lshr i64 %v{}, 32", arguments[0].raw()),
+            format!("{result} = trunc i64 {result}_shifted to i16"),
+        ]
+        .join("\n")),
+        75..=77 if arguments.len() == 2 => {
+            let operation = match function {
+                75 => RuntimeOperation::TcpListenIpv4,
+                76 => RuntimeOperation::TcpConnectIpv4,
+                _ => RuntimeOperation::UdpBindIpv4,
+            };
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!(
+                        "{result}_address_raw = call i64 @{}(i64 %v{}, i64 0)",
+                        native_runtime_symbol(RuntimeOperation::FieldGet),
+                        arguments[0].raw()
+                    ),
+                    format!("{result}_address = trunc i64 {result}_address_raw to i32"),
+                    format!(
+                        "{handle} = call i64 @{}(i32 {result}_address, i16 %v{})",
+                        native_runtime_symbol(operation),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        78..=80 if arguments.len() == 2 => {
+            let operation = match function {
+                78 => RuntimeOperation::TcpListenIpv6,
+                79 => RuntimeOperation::TcpConnectIpv6,
+                _ => RuntimeOperation::UdpBindIpv6,
+            };
+            let handle = format!("{result}_handle");
+            let mut setup = Vec::new();
+            for index in 0..4 {
+                setup.push(format!(
+                    "{result}_word{index}_raw = call i64 @{}(i64 %v{}, i64 {index})",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ));
+                setup.push(format!(
+                    "{result}_word{index} = trunc i64 {result}_word{index}_raw to i32"
+                ));
+            }
+            setup.push(format!(
+                "{handle} = call i64 @{}(i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i16 %v{}, i32 0)",
+                native_runtime_symbol(operation),
+                arguments[1].raw()
+            ));
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                setup,
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        81..=83 if arguments.len() == 2 => {
+            let operation = match function {
+                81 => RuntimeOperation::TcpListenIpv6,
+                82 => RuntimeOperation::TcpConnectIpv6,
+                _ => RuntimeOperation::UdpBindIpv6,
+            };
+            let handle = format!("{result}_handle");
+            let mut setup = vec![
+                format!(
+                    "{result}_address_ref = call i64 @{}(i64 %v{}, i64 0)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_interface_ref = call i64 @{}(i64 %v{}, i64 1)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet),
+                    arguments[0].raw()
+                ),
+                format!(
+                    "{result}_scope_raw = call i64 @{}(i64 {result}_interface_ref, i64 0)",
+                    native_runtime_symbol(RuntimeOperation::FieldGet)
+                ),
+                format!("{result}_scope = trunc i64 {result}_scope_raw to i32"),
+            ];
+            for index in 0..4 {
+                setup.push(format!("{result}_word{index}_raw = call i64 @{}(i64 {result}_address_ref, i64 {index})", native_runtime_symbol(RuntimeOperation::FieldGet)));
+                setup.push(format!(
+                    "{result}_word{index} = trunc i64 {result}_word{index}_raw to i32"
+                ));
+            }
+            setup.push(format!(
+                "{handle} = call i64 @{}(i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i16 %v{}, i32 {result}_scope)",
+                native_runtime_symbol(operation), arguments[1].raw()
+            ));
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                setup,
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        84 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::DnsResolverCreate)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        85 if arguments.len() == 3 => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!(
+                        "{result}_name = call i64 @{}(i64 %v{}, i64 0)",
+                        native_runtime_symbol(RuntimeOperation::FieldGet),
+                        arguments[1].raw()
+                    ),
+                    format!(
+                        "{handle} = call i64 @{}(i64 %v{}, i64 {result}_name, i16 %v{})",
+                        native_runtime_symbol(RuntimeOperation::DnsResolve),
+                        arguments[0].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        86 | 91 if arguments.len() == 1 => {
+            let operation = if function == 86 {
+                RuntimeOperation::DnsResolverClose
+            } else {
+                RuntimeOperation::DnsAnswersClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        87 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::DnsAnswerCount),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        88 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::DnsAnswerFamily),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i8, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        89 | 90
+            if (function == 89 && arguments.len() == 2)
+                || (function == 90 && arguments.len() == 3) =>
+        {
+            let operation = if function == 89 {
+                RuntimeOperation::DnsAnswerIpv4
+            } else {
+                RuntimeOperation::DnsAnswerIpv6Word
+            };
+            let mut call_arguments =
+                format!("i64 %v{}, i64 %v{}", arguments[0].raw(), arguments[1].raw());
+            if function == 90 {
+                call_arguments.push_str(&format!(", i8 %v{}", arguments[2].raw()));
+            }
+            Ok([
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{result}_status = call i8 @{}({call_arguments}, ptr {result}_output)",
+                    native_runtime_symbol(operation)
+                ),
+                format!("{result}_present = icmp eq i8 {result}_status, 1"),
+                format!("{result}_value = load i32, ptr {result}_output"),
+                format!(
+                    "{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"
+                ),
+                format!(
+                    "{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"
+                ),
+            ]
+            .join("\n"))
+        }
+        92 | 93 if arguments.len() == 1 => {
+            let direction = function - 92;
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i8 {direction})",
+                    native_runtime_symbol(RuntimeOperation::TcpShutdown),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        94 if arguments.len() == 2 => Ok([
+            format!("{result}_enabled = zext i1 %v{} to i8", arguments[1].raw()),
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i8 {result}_enabled)",
+                native_runtime_symbol(RuntimeOperation::TcpSetNoDelay),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        95 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpNoDelay),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_value = load i8, ptr {result}_output"),
+                    format!("{result} = icmp eq i8 {result}_value, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        96 if arguments.len() == 2 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i32 %v{})",
+                native_runtime_symbol(RuntimeOperation::TcpSetTtl),
+                arguments[0].raw(),
+                arguments[1].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        97 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i32"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpTtl),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i32, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        98..=104 if arguments.len() == usize::from(matches!(function, 100 | 101)) + 1 => {
+            let peer = u8::from(matches!(function, 99 | 101 | 103 | 104));
+            let field = match function {
+                98 | 99 => 0,
+                100 | 101 => 1,
+                102 | 103 => 3,
+                104 => 2,
+                _ => unreachable!(),
+            };
+            let index = if matches!(function, 100 | 101) {
+                format!("i8 %v{}", arguments[1].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let call = vec![
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i8 {peer}, i8 {field}, {index}, ptr {result}_output)",
+                    native_runtime_symbol(RuntimeOperation::TcpEndpointPart),
+                    arguments[0].raw()
+                ),
+            ];
+            if matches!(function, 100 | 101) {
+                Ok(call
+                    .into_iter()
+                    .chain([
+                        format!("{result}_present = icmp eq i8 {status}, 1"),
+                        format!("{result}_value = load i32, ptr {result}_output"),
+                        format!("{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"),
+                        format!("{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"),
+                    ])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            } else {
+                let lines = trap_status(
+                    &status,
+                    format!("{status}_valid = icmp eq i8 {status}, 1"),
+                    call,
+                );
+                let load = match function {
+                    98 | 99 => format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                    ),
+                    104 => format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i16"
+                    ),
+                    _ => format!("{result} = load i32, ptr {result}_output"),
+                };
+                Ok(lines
+                    .into_iter()
+                    .chain([load])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
+        105..=107 if arguments.len() == usize::from(function == 106) + 1 => {
+            let field = match function {
+                105 => 0,
+                106 => 1,
+                _ => 2,
+            };
+            let index = if function == 106 {
+                format!("i8 %v{}", arguments[1].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let call = vec![
+                format!("{result}_output = alloca i32"),
+                format!("store i32 0, ptr {result}_output"),
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i8 {field}, {index}, ptr {result}_output)",
+                    native_runtime_symbol(RuntimeOperation::UdpEndpointPart),
+                    arguments[0].raw()
+                ),
+            ];
+            if function == 106 {
+                Ok(call.into_iter().chain([
+                    format!("{result}_present = icmp eq i8 {status}, 1"),
+                    format!("{result}_value = load i32, ptr {result}_output"),
+                    format!("{result}_tagged = insertvalue {{ i1, i32 }} undef, i1 {result}_present, 0"),
+                    format!("{result} = insertvalue {{ i1, i32 }} {result}_tagged, i32 {result}_value, 1"),
+                ]).collect::<Vec<_>>().join("\n"))
+            } else {
+                let lines = trap_status(
+                    &status,
+                    format!("{status}_valid = icmp eq i8 {status}, 1"),
+                    call,
+                );
+                let load = if function == 105 {
+                    format!(
+                        "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                    )
+                } else {
+                    format!("{result} = load i32, ptr {result}_output")
+                };
+                Ok(lines
+                    .into_iter()
+                    .chain([load])
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+        }
+        108 | 110 if arguments.len() == 2 => {
+            let operation = if function == 108 {
+                RuntimeOperation::UdpSetBroadcast
+            } else {
+                RuntimeOperation::UdpSetTtl
+            };
+            let value = if function == 108 {
+                format!("{result}_value = zext i1 %v{} to i8", arguments[1].raw())
+            } else {
+                format!("{result}_value = add i32 %v{}, 0", arguments[1].raw())
+            };
+            let ty = if function == 108 { "i8" } else { "i32" };
+            Ok([
+                value,
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, {ty} {result}_value)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        109 | 111 if arguments.len() == 1 => {
+            let operation = if function == 109 {
+                RuntimeOperation::UdpBroadcast
+            } else {
+                RuntimeOperation::UdpTtl
+            };
+            let output_type = if function == 109 { "i8" } else { "i32" };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca {output_type}"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            let load = if function == 109 {
+                format!(
+                    "{result}_value = load i8, ptr {result}_output\n{result} = icmp eq i8 {result}_value, 1"
+                )
+            } else {
+                format!("{result} = load i32, ptr {result}_output")
+            };
+            Ok(lines
+                .into_iter()
+                .chain([load])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        112 | 113 if arguments.len() == 3 => {
+            let operation = if function == 112 {
+                RuntimeOperation::UdpJoinMulticastIpv4
+            } else {
+                RuntimeOperation::UdpLeaveMulticastIpv4
+            };
+            Ok([
+                format!("{result}_group_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_group = trunc i64 {result}_group_raw to i32"),
+                format!("{result}_interface_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[2].raw()),
+                format!("{result}_interface = trunc i64 {result}_interface_raw to i32"),
+                format!("{result}_status = call i8 @{}(i64 %v{}, i32 {result}_group, i32 {result}_interface)", native_runtime_symbol(operation), arguments[0].raw()),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ].join("\n"))
+        }
+        114 | 115 if arguments.len() == 1 => {
+            let operation = if function == 114 {
+                RuntimeOperation::UnixListen
+            } else {
+                RuntimeOperation::UnixConnect
+            };
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        116 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_handle = call i64 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::UnixAccept),
+                arguments[0].raw()
+            ),
+            format!("{result}_present = icmp ne i64 {result}_handle, 0"),
+            format!("{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0"),
+            format!("{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_handle, 1"),
+        ]
+        .join("\n")),
+        117 | 118
+            if (function == 117 && arguments.len() == 2)
+                || (function == 118 && arguments.len() == 3) =>
+        {
+            let operation = if function == 117 {
+                RuntimeOperation::UnixSendBytes
+            } else {
+                RuntimeOperation::UnixReceiveBuffer
+            };
+            let slot = if function == 117 {
+                "written"
+            } else {
+                "received"
+            };
+            let status = format!("{result}_status");
+            let call = if function == 117 {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_{slot})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            } else {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_{slot})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            };
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_{slot} = alloca i64"),
+                    format!("store i64 0, ptr {result}_{slot}"),
+                    call,
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count = load i64, ptr {result}_{slot}"),
+                    format!("{result}_count_bits = shl i64 {result}_count, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        119 | 120 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i8 {})",
+                native_runtime_symbol(RuntimeOperation::UnixShutdown),
+                arguments[0].raw(),
+                function - 119
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        121 | 122 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::UnixClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        128..=131 if arguments.len() == 1 => Ok(format!(
+            "{result}_kind = and i64 %v{}, 7\n{result} = icmp eq i64 {result}_kind, {}",
+            arguments[0].raw(),
+            function - 128
+        )),
+        132 if arguments.len() == 1 => {
+            Ok(format!("{result} = lshr i64 %v{}, 3", arguments[0].raw()))
+        }
+        133 | 134 | 143 | 144
+            if (matches!(function, 133 | 143) && arguments.len() == 4)
+                || (matches!(function, 134 | 144) && arguments.len() == 5) =>
+        {
+            let operation = match function {
+                133 => RuntimeOperation::TcpSendBytesUntil,
+                134 => RuntimeOperation::TcpReceiveBufferUntil,
+                143 => RuntimeOperation::UnixSendBytesUntil,
+                _ => RuntimeOperation::UnixReceiveBufferUntil,
+            };
+            let output = format!("{result}_count");
+            let call = if matches!(function, 133 | 143) {
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, ptr {output})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw()
+                )
+            } else {
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, ptr {output})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                    arguments[4].raw()
+                )
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp ne i8 {status}, 0"),
+                vec![format!("{output} = alloca i64"), call],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count_value = load i64, ptr {output}"),
+                    format!("{result}_count_bits = shl i64 {result}_count_value, 3"),
+                    format!("{result}_is_progress = icmp eq i8 {status}, 1"),
+                    format!("{result}_status_offset = sub i8 {status}, 2"),
+                    format!("{result}_kind8 = select i1 {result}_is_progress, i8 0, i8 {result}_status_offset"),
+                    format!("{result}_kind = zext i8 {result}_kind8 to i64"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_kind"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        135 if arguments.len() == 6 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp ne i8 {status}, 0"),
+                vec![
+                    format!("{result}_count = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i32 %v{}, i16 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_count)",
+                        native_runtime_symbol(RuntimeOperation::UdpSendBytesToUntil),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw(),
+                        arguments[3].raw(),
+                        arguments[4].raw(),
+                        arguments[5].raw()
+                    ),
+                ],
+            );
+            Ok(lines.into_iter().chain([
+                format!("{result}_count_value = load i64, ptr {result}_count"),
+                format!("{result}_count_bits = shl i64 {result}_count_value, 3"),
+                format!("{result}_is_progress = icmp eq i8 {status}, 1"),
+                format!("{result}_status_offset = sub i8 {status}, 2"),
+                format!("{result}_kind8 = select i1 {result}_is_progress, i8 0, i8 {result}_status_offset"),
+                format!("{result}_kind = zext i8 {result}_kind8 to i64"),
+                format!("{result} = or i64 {result}_count_bits, {result}_kind"),
+            ]).collect::<Vec<_>>().join("\n"))
+        }
+        136 if arguments.len() == 5 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp ne i8 {status}, 0"),
+                vec![
+                    format!("{result}_address = alloca i32"),
+                    format!("{result}_port = alloca i16"),
+                    format!("{result}_count = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_address, ptr {result}_port, ptr {result}_count)",
+                        native_runtime_symbol(RuntimeOperation::UdpReceiveBufferUntil),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw(),
+                        arguments[3].raw(),
+                        arguments[4].raw()
+                    ),
+                ],
+            );
+            Ok(lines.into_iter().chain([
+                format!("{result}_address_value = load i32, ptr {result}_address"),
+                format!("{result}_address64 = zext i32 {result}_address_value to i64"),
+                format!("{result}_address_bits = shl i64 {result}_address64, 32"),
+                format!("{result}_port_value = load i16, ptr {result}_port"),
+                format!("{result}_port64 = zext i16 {result}_port_value to i64"),
+                format!("{result}_port_bits = shl i64 {result}_port64, 16"),
+                format!("{result}_count_value = load i64, ptr {result}_count"),
+                format!("{result}_count_bounded = and i64 {result}_count_value, 8191"),
+                format!("{result}_count_bits = shl i64 {result}_count_bounded, 3"),
+                format!("{result}_is_progress = icmp eq i8 {status}, 1"),
+                format!("{result}_status_offset = sub i8 {status}, 2"),
+                format!("{result}_kind8 = select i1 {result}_is_progress, i8 0, i8 {result}_status_offset"),
+                format!("{result}_kind = zext i8 {result}_kind8 to i64"),
+                format!("{result}_payload = or i64 {result}_address_bits, {result}_port_bits"),
+                format!("{result}_payload_count = or i64 {result}_payload, {result}_count_bits"),
+                format!("{result} = or i64 {result}_payload_count, {result}_kind"),
+            ]).collect::<Vec<_>>().join("\n"))
+        }
+        137..=139 if arguments.len() == 1 => Ok(format!(
+            "{result}_kind = and i64 %v{}, 7\n{result} = icmp eq i64 {result}_kind, {}",
+            arguments[0].raw(),
+            match function {
+                137 => 0,
+                138 => 2,
+                _ => 3,
+            }
+        )),
+        140 if arguments.len() == 1 => Ok(format!(
+            "{result}_shifted = lshr i64 %v{}, 3\n{result} = and i64 {result}_shifted, 8191",
+            arguments[0].raw()
+        )),
+        141 if arguments.len() == 1 => Ok(format!(
+            "{result}_shifted = lshr i64 %v{}, 32\n{result} = trunc i64 {result}_shifted to i32",
+            arguments[0].raw()
+        )),
+        142 if arguments.len() == 1 => Ok(format!(
+            "{result}_shifted = lshr i64 %v{}, 16\n{result} = trunc i64 {result}_shifted to i16",
+            arguments[0].raw()
+        )),
+        145 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::NetInterfacesSnapshot)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        146 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::NetInterfacesClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        147 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetInterfaceCount),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        148..=151 if arguments.len() == 2 => {
+            let (operation, output_type) = match function {
+                148 => (RuntimeOperation::NetInterfaceName, "i64"),
+                149 => (RuntimeOperation::NetInterfaceIndex, "i32"),
+                150 => (RuntimeOperation::NetInterfaceFlags, "i32"),
+                _ => (RuntimeOperation::NetInterfaceAddressCount, "i64"),
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca {output_type}"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(operation),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!(
+                    "{result} = load {output_type}, ptr {result}_output"
+                )])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        152..=155 if arguments.len() == if function == 153 { 4 } else { 3 } => {
+            let part = match function {
+                152 => 0,
+                153 => 1,
+                154 => 2,
+                _ => 3,
+            };
+            let word = if function == 153 {
+                format!("i8 %v{}", arguments[3].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i32"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i8 {part}, {word}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetInterfaceAddressPart),
+                        arguments[0].raw(),
+                        arguments[1].raw(),
+                        arguments[2].raw()
+                    ),
+                ],
+            );
+            let load = if matches!(function, 152 | 154) {
+                format!(
+                    "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                )
+            } else {
+                format!("{result} = load i32, ptr {result}_output")
+            };
+            Ok(lines
+                .into_iter()
+                .chain([load])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        156 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::NetRoutesSnapshot)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        157 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::NetRoutesClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        158 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetRouteCount),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        159..=165 if arguments.len() == if matches!(function, 160 | 162) { 3 } else { 2 } => {
+            let part = function - 159;
+            let word = if matches!(function, 160 | 162) {
+                format!("i8 %v{}", arguments[2].raw())
+            } else {
+                "i8 0".to_owned()
+            };
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i32"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i8 {part}, {word}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::NetRoutePart),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            let load = if matches!(function, 159 | 161) {
+                format!(
+                    "{result}_wide = load i32, ptr {result}_output\n{result} = trunc i32 {result}_wide to i8"
+                )
+            } else {
+                format!("{result} = load i32, ptr {result}_output")
+            };
+            Ok(lines
+                .into_iter()
+                .chain([load])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        166 | 167 if arguments.len() == 3 => {
+            let operation = if function == 166 {
+                RuntimeOperation::UdpJoinMulticastIpv6
+            } else {
+                RuntimeOperation::UdpLeaveMulticastIpv6
+            };
+            Ok([
+                format!("{result}_word0_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word1_raw = call i64 @{}(i64 %v{}, i64 1)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word2_raw = call i64 @{}(i64 %v{}, i64 2)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word3_raw = call i64 @{}(i64 %v{}, i64 3)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[1].raw()),
+                format!("{result}_word0 = trunc i64 {result}_word0_raw to i32"),
+                format!("{result}_word1 = trunc i64 {result}_word1_raw to i32"),
+                format!("{result}_word2 = trunc i64 {result}_word2_raw to i32"),
+                format!("{result}_word3 = trunc i64 {result}_word3_raw to i32"),
+                format!("{result}_interface_raw = call i64 @{}(i64 %v{}, i64 0)", native_runtime_symbol(RuntimeOperation::FieldGet), arguments[2].raw()),
+                format!("{result}_interface = trunc i64 {result}_interface_raw to i32"),
+                format!("{result}_status = call i8 @{}(i64 %v{}, i32 {result}_word0, i32 {result}_word1, i32 {result}_word2, i32 {result}_word3, i32 {result}_interface)", native_runtime_symbol(operation), arguments[0].raw()),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ].join("\n"))
+        }
+        168 if arguments.len() == 2 => Ok([
+            format!("{result}_enabled = zext i1 %v{} to i8", arguments[1].raw()),
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{}, i8 {result}_enabled)",
+                native_runtime_symbol(RuntimeOperation::TcpSetKeepalive),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        169 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpKeepalive),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_value = load i8, ptr {result}_output"),
+                    format!("{result} = icmp eq i8 {result}_value, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        170 | 171 if arguments.len() == 2 => {
+            let operation = if function == 170 {
+                RuntimeOperation::TcpSetKeepaliveIdle
+            } else {
+                RuntimeOperation::TcpSetLinger
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        172 if arguments.len() == 1 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_output = alloca i64"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, ptr {result}_output)",
+                        native_runtime_symbol(RuntimeOperation::TcpLinger),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = load i64, ptr {result}_output")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        173 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::TlsClientSystemConfig)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        174 | 175 if arguments.len() == usize::from(function == 175) + 1 => {
+            let operation = if function == 174 {
+                RuntimeOperation::TlsClientRootConfig
+            } else {
+                RuntimeOperation::TlsServerConfig
+            };
+            let handle = format!("{result}_handle");
+            let call = if function == 174 {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                )
+            } else {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            };
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![call],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        176 | 177 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TlsConfigClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        178 | 179 if arguments.len() == if function == 178 { 5 } else { 4 } => {
+            let operation = if function == 178 {
+                RuntimeOperation::TlsClientHandshake
+            } else {
+                RuntimeOperation::TlsServerHandshake
+            };
+            let handle = format!("{result}_handle");
+            let call = if function == 178 {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                    arguments[4].raw()
+                )
+            } else {
+                format!(
+                    "{handle} = call i64 @{}(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw()
+                )
+            };
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![call],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        180 | 181 if arguments.len() == if function == 180 { 2 } else { 3 } => {
+            let operation = if function == 180 {
+                RuntimeOperation::TlsSendBytes
+            } else {
+                RuntimeOperation::TlsReceiveBuffer
+            };
+            let status = format!("{result}_status");
+            let call = if function == 180 {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_count)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            } else {
+                format!(
+                    "{status} = call i8 @{}(i64 %v{}, i64 %v{}, i64 %v{}, ptr {result}_count)",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            };
+            let lines = trap_status(
+                &status,
+                format!(
+                    "{status}_valid = icmp ne i8 {status}, {}",
+                    SocketIoStatus::Failure as u8
+                ),
+                vec![
+                    format!("{result}_count = alloca i64"),
+                    format!("store i64 0, ptr {result}_count"),
+                    call,
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_count_value = load i64, ptr {result}_count"),
+                    format!("{result}_count_bits = shl i64 {result}_count_value, 2"),
+                    format!("{result}_status_wide = zext i8 {status} to i64"),
+                    format!("{result}_tag = sub i64 {result}_status_wide, 1"),
+                    format!("{result} = or i64 {result}_count_bits, {result}_tag"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        182 if arguments.len() == 1 => Ok([
+            format!(
+                "{result}_status = call i8 @{}(i64 %v{})",
+                native_runtime_symbol(RuntimeOperation::TlsClose),
+                arguments[0].raw()
+            ),
+            format!("{result} = icmp eq i8 {result}_status, 1"),
+        ]
+        .join("\n")),
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_live_time_standard_call(
+    result: &str,
+    function: u32,
+    arguments: &[ValueId],
+) -> Result<String, LlvmLoweringError> {
+    let unsupported = || LlvmLoweringError::UnsupportedInstruction {
+        function: FunctionId::from_raw(u32::MAX),
+        value: ValueId::from_raw(u32::MAX),
+    };
+    let label = result.trim_start_matches('%');
+    let trap = native_runtime_symbol(RuntimeOperation::Trap);
+    let trap_status = |status: &str, valid: String, mut lines: Vec<String>| {
+        lines.extend([
+            valid,
+            format!("br i1 {status}_valid, label %{label}_continue, label %{label}_trap"),
+            format!("{label}_trap:"),
+            format!("call void @{trap}()"),
+            "unreachable".to_owned(),
+            format!("{label}_continue:"),
+        ]);
+        lines
+    };
+    match function {
+        123 if arguments.is_empty() => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![format!(
+                    "{handle} = call i64 @{}()",
+                    native_runtime_symbol(RuntimeOperation::MonotonicClockCreate)
+                )],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        124 if arguments.len() == 2 => {
+            let handle = format!("{result}_handle");
+            let lines = trap_status(
+                &handle,
+                format!("{handle}_valid = icmp ne i64 {handle}, 0"),
+                vec![
+                    format!("{result}_seconds = udiv i64 %v{}, 1000", arguments[1].raw()),
+                    format!(
+                        "{result}_milliseconds = urem i64 %v{}, 1000",
+                        arguments[1].raw()
+                    ),
+                    format!("{result}_milliseconds32 = trunc i64 {result}_milliseconds to i32"),
+                    format!("{result}_nanoseconds = mul i32 {result}_milliseconds32, 1000000"),
+                    format!(
+                        "{handle} = call i64 @{}(i64 %v{}, i64 {result}_seconds, i32 {result}_nanoseconds)",
+                        native_runtime_symbol(RuntimeOperation::DeadlineAfter),
+                        arguments[0].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([format!("{result} = add i64 {handle}, 0")])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        125 if arguments.len() == 2 => {
+            let status = format!("{result}_status");
+            let lines = trap_status(
+                &status,
+                format!("{status}_valid = icmp eq i8 {status}, 1"),
+                vec![
+                    format!("{result}_expired = alloca i8"),
+                    format!(
+                        "{status} = call i8 @{}(i64 %v{}, i64 %v{}, ptr {result}_expired)",
+                        native_runtime_symbol(RuntimeOperation::DeadlineExpired),
+                        arguments[0].raw(),
+                        arguments[1].raw()
+                    ),
+                ],
+            );
+            Ok(lines
+                .into_iter()
+                .chain([
+                    format!("{result}_value = load i8, ptr {result}_expired"),
+                    format!("{result} = icmp eq i8 {result}_value, 1"),
+                ])
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+        126 | 127 if arguments.len() == 1 => {
+            let operation = if function == 126 {
+                RuntimeOperation::DeadlineClose
+            } else {
+                RuntimeOperation::MonotonicClockClose
+            };
+            Ok([
+                format!(
+                    "{result}_status = call i8 @{}(i64 %v{})",
+                    native_runtime_symbol(operation),
+                    arguments[0].raw()
+                ),
+                format!("{result} = icmp eq i8 {result}_status, 1"),
+            ]
+            .join("\n"))
+        }
+        _ => Err(unsupported()),
+    }
+}
+
+fn lower_channel_try_send(
+    result: &str,
+    sender: ValueId,
+    value: ValueId,
+    element_map: ArrayElementMap,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let value_type = *values
+        .get(&value)
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+    let (mut lines, stored) =
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
+    let label = result.trim_start_matches('%');
+    lines.extend([
+        format!(
+            "{result}_status = call i8 @{}(i64 %v{}, i64 {stored}, i8 {})",
+            native_runtime_symbol(RuntimeOperation::ChannelTrySend),
+            sender.raw(),
+            u8::from(element_map == ArrayElementMap::ManagedReference),
+        ),
+        format!(
+            "{result}_success = icmp ne i8 {result}_status, {}",
+            ChannelSendStatus::Failure as u8
+        ),
+        format!("br i1 {result}_success, label %{label}_continue, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_continue:"),
+        format!("{result}_wide = zext i8 {result}_status to i64"),
+        format!(
+            "{result} = sub i64 {result}_wide, {}",
+            ChannelSendStatus::Sent as u8
+        ),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_try_receive(
+    result: &str,
+    receiver: ValueId,
+    _element_map: ArrayElementMap,
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let label = result.trim_start_matches('%');
+    let output = format!("{result}_output");
+    let status = format!("{result}_status");
+    let valid = format!("{result}_valid");
+    let tag = format!("{result}_tag");
+    let payload = format!("{result}_payload");
+    let mut lines = lower_initialized_values(
+        result,
+        vec![
+            ObjectInitializer::Rendered("0".to_owned()),
+            ObjectInitializer::Rendered("0".to_owned()),
+        ],
+        values,
+        types,
+        descriptor,
+    )?
+    .lines()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    lines.extend([
+        format!("{output} = alloca i64"),
+        format!("store i64 0, ptr {output}"),
+        format!(
+            "{status} = call i8 @{}(i64 %v{}, ptr {output})",
+            native_runtime_symbol(RuntimeOperation::ChannelTryReceive),
+            receiver.raw()
+        ),
+        format!(
+            "{valid} = icmp ne i8 {status}, {}",
+            ChannelReceiveStatus::Failure as u8
+        ),
+        format!("br i1 {valid}, label %{label}_received, label %{label}_trap"),
+        format!("{label}_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_received:"),
+        format!("{result}_status_wide = zext i8 {status} to i64"),
+        format!(
+            "{tag} = sub i64 {result}_status_wide, {}",
+            ChannelReceiveStatus::Item as u8
+        ),
+        format!("{payload} = load i64, ptr {output}"),
+        format!(
+            "{result}_tag_stored = call i8 @{}(i64 {result}, i64 1, i64 {tag})",
+            native_runtime_symbol(RuntimeOperation::FieldSet)
+        ),
+        format!(
+            "{result}_payload_stored = call i8 @{}(i64 {result}, i64 2, i64 {payload})",
+            native_runtime_symbol(RuntimeOperation::FieldSet)
+        ),
+        format!("{result}_tag_valid = icmp ne i8 {result}_tag_stored, 0"),
+        format!("{result}_payload_valid = icmp ne i8 {result}_payload_stored, 0"),
+        format!("{result}_stored = and i1 {result}_tag_valid, {result}_payload_valid"),
+        format!("br i1 {result}_stored, label %{label}_continue, label %{label}_store_trap"),
+        format!("{label}_store_trap:"),
+        format!(
+            "call void @{}()",
+            native_runtime_symbol(RuntimeOperation::Trap)
+        ),
+        "unreachable".to_owned(),
+        format!("{label}_continue:"),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn lower_channel_close(
+    result: &str,
+    endpoint: ValueId,
+    direction: pop_types::ChannelDirection,
+) -> String {
+    let operation = match direction {
+        pop_types::ChannelDirection::Sender => RuntimeOperation::ChannelClose,
+        pop_types::ChannelDirection::Receiver => RuntimeOperation::ChannelReleaseReceiver,
+    };
+    [
+        format!(
+            "{result}_status = call i8 @{}(i64 %v{})",
+            native_runtime_symbol(operation),
+            endpoint.raw()
+        ),
+        format!("{result} = trunc i8 {result}_status to i1"),
+    ]
+    .join("\n")
+}
+
+fn lower_channel_receive_item(
+    result: &str,
+    outcome: ValueId,
+    element: TypeId,
+    types: &TypeArena,
+) -> Result<String, LlvmLoweringError> {
+    let element_type = llvm_type(element, types)?;
+    let tag = format!("{result}_tag");
+    let present = format!("{result}_present");
+    let partial = format!("{result}_partial");
+    let payload = format!("{result}_payload");
+    let mut lines = vec![
+        format!(
+            "{tag} = call i64 @{}(i64 %v{}, i64 1)",
+            native_runtime_symbol(RuntimeOperation::FieldGet),
+            outcome.raw()
+        ),
+        format!("{present} = icmp eq i64 {tag}, 0"),
+    ];
+    lines.extend(lower_runtime_slot_load_named(
+        &payload,
+        element,
+        &format!("%v{}", outcome.raw()),
+        2,
+        types,
+    )?);
+    lines.extend([
+        format!(
+            "{partial} = insertvalue {{ i1, {element_type} }} zeroinitializer, i1 {present}, 0"
+        ),
+        format!(
+            "{result} = insertvalue {{ i1, {element_type} }} {partial}, {element_type} {payload}, 1"
+        ),
     ]);
     Ok(lines.join("\n"))
 }
@@ -2933,7 +5724,7 @@ pub(crate) fn lower_array_fill(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!(
@@ -2968,7 +5759,7 @@ pub(crate) fn lower_array_set(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     let label = result.trim_start_matches('%');
     lines.extend([
         format!(
@@ -3147,8 +5938,12 @@ fn lower_initialized_values_with_store(
                     let type_id = *values
                         .get(&value)
                         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
-                    let (conversions, stored) =
-                        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+                    let (conversions, stored) = lower_runtime_slot_store(
+                        value,
+                        type_id,
+                        &llvm_type(type_id, types)?,
+                        types,
+                    )?;
                     lines.extend(conversions);
                     stored
                 }
@@ -3284,9 +6079,11 @@ pub(crate) fn lower_gc_safe_point(
     safe_point: u32,
     roots: &[ValueId],
     direct_scalar_arrays: &DirectScalarArrays,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
     writable_roots: bool,
     poll_interval: u32,
-) -> String {
+) -> Result<String, LlvmLoweringError> {
     let roots = roots
         .iter()
         .copied()
@@ -3304,13 +6101,18 @@ pub(crate) fn lower_gc_safe_point(
     if !roots.is_empty() {
         for (index, root) in roots.iter().enumerate() {
             let entry = format!("{root_array}_{index}");
-            lines.extend([
-                format!(
-                    "{entry} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
-                    roots.len()
-                ),
-                format!("store i64 %v{}, ptr {entry}", root.raw()),
-            ]);
+            lines.push(format!(
+                "{entry} = getelementptr [{} x i64], ptr {root_array}, i64 0, i64 {index}",
+                roots.len()
+            ));
+            let type_id = *value_types
+                .get(root)
+                .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+            let source = format!("%v{}", root.raw());
+            let (conversions, stored) =
+                lower_gc_root_value(&source, &format!("{entry}_value"), type_id, types)?;
+            lines.extend(conversions);
+            lines.push(format!("store i64 {stored}, ptr {entry}"));
         }
     }
     lines.extend([
@@ -3354,7 +6156,7 @@ pub(crate) fn lower_gc_safe_point(
                 format!("{continuation}:"),
             ]);
         }
-        return lines.join("\n");
+        return Ok(lines.join("\n"));
     }
     if writable_roots {
         let status = format!("{result}_gc_status");
@@ -3399,11 +6201,50 @@ pub(crate) fn lower_gc_safe_point(
             ]);
         }
     }
-    lines.join("\n")
+    Ok(lines.join("\n"))
 }
 
 pub(crate) fn is_managed_type(type_id: TypeId, types: &TypeArena) -> bool {
     pop_mir::is_managed_reference_type_id(type_id, Some(types))
+}
+
+pub(crate) fn is_optional_managed_type(type_id: TypeId, types: &TypeArena) -> bool {
+    optional_inner_type(types, type_id).is_some_and(|inner| is_managed_type(inner, types))
+}
+
+fn lower_gc_root_value(
+    source: &str,
+    prefix: &str,
+    type_id: TypeId,
+    types: &TypeArena,
+) -> Result<(Vec<String>, String), LlvmLoweringError> {
+    if matches!(
+        types.get(type_id),
+        Some(SemanticType::Builtin { definition, .. })
+            if matches!(
+                *definition,
+                pop_types::BYTES_VIEW_TYPE_ID | pop_types::TEXT_VIEW_TYPE_ID
+            )
+    ) {
+        return Ok((Vec::new(), source.to_owned()));
+    }
+    if is_optional_managed_type(type_id, types) {
+        let present = format!("{prefix}_present");
+        let payload = format!("{prefix}_payload");
+        let stored = format!("{prefix}_stored");
+        return Ok((
+            vec![
+                format!("{present} = extractvalue {{ i1, i64 }} {source}, 0"),
+                format!("{payload} = extractvalue {{ i1, i64 }} {source}, 1"),
+                format!("{stored} = select i1 {present}, i64 {payload}, i64 0"),
+            ],
+            stored,
+        ));
+    }
+    if llvm_type(type_id, types)? != "i64" {
+        return Err(LlvmLoweringError::InvalidType(type_id));
+    }
+    Ok((Vec::new(), source.to_owned()))
 }
 
 pub(crate) fn lower_tuple_make(
@@ -3526,6 +6367,114 @@ pub(crate) fn lower_union_make(
     )
 }
 
+fn lower_iteration_make(
+    result: &str,
+    case: pop_foundation::IterationCaseId,
+    arguments: &[ValueId],
+    values: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
+    descriptor: &str,
+) -> Result<String, LlvmLoweringError> {
+    let [argument] = arguments else {
+        return lower_union_make(
+            result,
+            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            arguments,
+            values,
+            types,
+            descriptor,
+        );
+    };
+    let argument_type = values
+        .get(argument)
+        .copied()
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+    let Some(inner) = optional_inner_type(types, argument_type) else {
+        return lower_union_make(
+            result,
+            pop_foundation::UnionCaseId::from_raw(case.raw()),
+            arguments,
+            values,
+            types,
+            descriptor,
+        );
+    };
+    let inner_type = llvm_type(inner, types)?;
+    let presence = format!("%v{}_iteration_presence", argument.raw());
+    let presence_slot = format!("{presence}_slot");
+    let payload = format!("%v{}_iteration_payload", argument.raw());
+    let payload_slot = format!("{payload}_slot");
+    let mut lines = vec![
+        format!(
+            "{presence} = extractvalue {{ i1, {inner_type} }} %v{}, 0",
+            argument.raw()
+        ),
+        format!("{presence_slot} = zext i1 {presence} to i64"),
+        format!(
+            "{payload} = extractvalue {{ i1, {inner_type} }} %v{}, 1",
+            argument.raw()
+        ),
+    ];
+    lines.extend(lower_rendered_runtime_slot_store(
+        &payload,
+        &payload_slot,
+        inner,
+        &inner_type,
+    )?);
+    lines.push(lower_initialized_values(
+        result,
+        vec![
+            ObjectInitializer::Rendered(case.raw().to_string()),
+            ObjectInitializer::Rendered(presence_slot),
+            ObjectInitializer::Rendered(payload_slot),
+        ],
+        values,
+        types,
+        descriptor,
+    )?);
+    Ok(lines.join("\n"))
+}
+
+fn lower_optional_iteration_item(
+    result: &str,
+    result_type: TypeId,
+    inner: TypeId,
+    iteration: ValueId,
+    types: &TypeArena,
+) -> Result<Vec<String>, LlvmLoweringError> {
+    let inner_type = llvm_type(inner, types)?;
+    let presence_slot = format!("{result}_presence_slot");
+    let presence = format!("{result}_presence");
+    let payload = format!("{result}_payload");
+    let mut lines = vec![
+        format!(
+            "{presence_slot} = call i64 @{}(i64 %v{}, i64 2)",
+            native_runtime_symbol(RuntimeOperation::FieldGet),
+            iteration.raw()
+        ),
+        format!("{presence} = trunc i64 {presence_slot} to i1"),
+    ];
+    lines.extend(lower_runtime_slot_load_named(
+        &payload,
+        inner,
+        &format!("%v{}", iteration.raw()),
+        3,
+        types,
+    )?);
+    lines.extend([
+        format!(
+            "{result}_partial = insertvalue {{ i1, {inner_type} }} zeroinitializer, i1 {presence}, 0"
+        ),
+        format!(
+            "{result} = insertvalue {{ i1, {inner_type} }} {result}_partial, {inner_type} {payload}, 1"
+        ),
+    ]);
+    if optional_inner_type(types, result_type) != Some(inner) {
+        return Err(LlvmLoweringError::InvalidType(result_type));
+    }
+    Ok(lines)
+}
+
 fn lower_ffi_pointer_require(
     result: &str,
     pointer: ValueId,
@@ -3641,7 +6590,7 @@ pub(crate) fn lower_capture_store(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored) =
-        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+        lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?, types)?;
     lines.push(format!(
         "call i8 @{}(i64 {owner}, i64 1, i64 {stored})",
         native_runtime_symbol(RuntimeOperation::FieldSet)
@@ -3705,9 +6654,24 @@ pub(crate) fn lower_runtime_slot_store(
     value: ValueId,
     type_id: TypeId,
     ty: &str,
+    types: &TypeArena,
 ) -> Result<(Vec<String>, String), LlvmLoweringError> {
     let source = format!("%v{}", value.raw());
-    let converted = format!("%v{}_slot", value.raw());
+    let converted = format!("%v{}_stored_slot", value.raw());
+    if ty == "{ i1, i64 }"
+        && optional_inner_type(types, type_id).is_some_and(|inner| is_managed_type(inner, types))
+    {
+        return Ok((
+            vec![
+                format!("{converted}_present = extractvalue {{ i1, i64 }} {source}, 0"),
+                format!("{converted}_payload = extractvalue {{ i1, i64 }} {source}, 1"),
+                format!(
+                    "{converted} = select i1 {converted}_present, i64 {converted}_payload, i64 0"
+                ),
+            ],
+            converted,
+        ));
+    }
     match ty {
         "i64" => Ok((Vec::new(), source)),
         "i1" | "i8" | "i16" | "i32" => Ok((
@@ -3729,6 +6693,27 @@ pub(crate) fn lower_runtime_slot_store(
             vec![format!("{converted} = ptrtoint ptr {source} to i64")],
             converted,
         )),
+        _ => Err(LlvmLoweringError::InvalidType(type_id)),
+    }
+}
+
+fn lower_rendered_runtime_slot_store(
+    source: &str,
+    converted: &str,
+    type_id: TypeId,
+    ty: &str,
+) -> Result<Vec<String>, LlvmLoweringError> {
+    match ty {
+        "i64" => Ok(vec![format!("{converted} = add i64 {source}, 0")]),
+        "i1" | "i8" | "i16" | "i32" => Ok(vec![format!("{converted} = zext {ty} {source} to i64")]),
+        "float" => Ok(vec![
+            format!("{converted}_bits = bitcast float {source} to i32"),
+            format!("{converted} = zext i32 {converted}_bits to i64"),
+        ]),
+        "double" => Ok(vec![format!(
+            "{converted} = bitcast double {source} to i64"
+        )]),
+        "ptr" => Ok(vec![format!("{converted} = ptrtoint ptr {source} to i64")]),
         _ => Err(LlvmLoweringError::InvalidType(type_id)),
     }
 }
@@ -3773,6 +6758,19 @@ pub(crate) fn lower_runtime_slot_load_named(
         "call i64 @{}(i64 {owner}, i64 {slot})",
         native_runtime_symbol(RuntimeOperation::FieldGet),
     );
+    if ty == "{ i1, i64 }"
+        && optional_inner_type(types, result_type)
+            .is_some_and(|inner| is_managed_type(inner, types))
+    {
+        return Ok(vec![
+            format!("{loaded} = {call}"),
+            format!("{result}_present = icmp ne i64 {loaded}, 0"),
+            format!(
+                "{result}_with_presence = insertvalue {{ i1, i64 }} zeroinitializer, i1 {result}_present, 0"
+            ),
+            format!("{result} = insertvalue {{ i1, i64 }} {result}_with_presence, i64 {loaded}, 1"),
+        ]);
+    }
     Ok(match ty.as_str() {
         "i64" => vec![format!("{result} = {call}")],
         "i1" | "i8" | "i16" | "i32" => vec![
@@ -3822,7 +6820,7 @@ pub(crate) fn runtime_field_call(
             .get(&value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (mut lines, stored) =
-            lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?)?;
+            lower_runtime_slot_store(value, type_id, &llvm_type(type_id, types)?, types)?;
         lines.push(format!(
             "call i8 @{}(i64 %v{}, i64 {}, i64 {stored})",
             native_runtime_symbol(operation),
@@ -3865,7 +6863,7 @@ pub(crate) fn lower_array_make(
             .get(value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (conversions, stored) =
-            lower_runtime_slot_store(*value, type_id, &llvm_type(type_id, types)?)?;
+            lower_runtime_slot_store(*value, type_id, &llvm_type(type_id, types)?, types)?;
         lines.extend(conversions);
         lines.push(format!(
             "call i8 @{}(i64 {result}, i64 {}, i64 {stored})",
@@ -3899,9 +6897,9 @@ pub(crate) fn lower_table_make(
             .get(value)
             .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
         let (key_conversions, stored_key) =
-            lower_runtime_slot_store(*key, key_type, &llvm_type(key_type, types)?)?;
+            lower_runtime_slot_store(*key, key_type, &llvm_type(key_type, types)?, types)?;
         let (value_conversions, stored_value) =
-            lower_runtime_slot_store(*value, value_type, &llvm_type(value_type, types)?)?;
+            lower_runtime_slot_store(*value, value_type, &llvm_type(value_type, types)?, types)?;
         lines.extend(key_conversions);
         lines.extend(value_conversions);
         lines.push(format!(
@@ -3929,7 +6927,7 @@ pub(crate) fn lower_table_get(
         .get(&key)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored_key) =
-        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?)?;
+        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?, types)?;
     let output = format!("{result}_output");
     let status = format!("{result}_status");
     let present = format!("{result}_present");
@@ -3973,9 +6971,9 @@ pub(crate) fn lower_table_set(
         .get(&value)
         .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let (mut lines, stored_key) =
-        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?)?;
+        lower_runtime_slot_store(key, key_type, &llvm_type(key_type, types)?, types)?;
     let (value_conversions, stored_value) =
-        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?)?;
+        lower_runtime_slot_store(value, value_type, &llvm_type(value_type, types)?, types)?;
     lines.extend(value_conversions);
     let label = result.trim_start_matches('%');
     lines.extend([
@@ -4045,6 +7043,7 @@ pub(crate) fn llvm_type(type_id: TypeId, types: &TypeArena) -> Result<String, Ll
         }
         SemanticType::Primitive(PrimitiveType::Float32) => Ok("float".to_owned()),
         SemanticType::Primitive(PrimitiveType::Float64) => Ok("double".to_owned()),
+        SemanticType::Primitive(PrimitiveType::Rune) => Ok("i32".to_owned()),
         SemanticType::Primitive(PrimitiveType::Never) => Ok("void".to_owned()),
         SemanticType::Enum { .. } => Ok("i32".to_owned()),
         SemanticType::Builtin {

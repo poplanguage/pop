@@ -7,7 +7,7 @@ use pop_source::SourceFile;
 
 use crate::{FrontEndBubbleInput, FrontEndModule, ReferenceMetadata, analyze_bubble};
 
-const INTERNAL_BUBBLE: BubbleId = BubbleId::from_raw(1);
+pub const TOOLING_INTERNAL_BUBBLE: BubbleId = BubbleId::from_raw(1);
 pub const TOOLING_STANDARD_BUBBLE: BubbleId = BubbleId::from_raw(2);
 
 static STANDARD_REFERENCE: OnceLock<ReferenceMetadata> = OnceLock::new();
@@ -38,8 +38,24 @@ pub fn tooling_standard_reference_metadata() -> &'static ReferenceMetadata {
                 include_str!("../../../libraries/standard/pop/src/math.pop"),
             ),
             (
+                "Pop.Standard/src/bytes.pop",
+                include_str!("../../../libraries/standard/pop/src/bytes.pop"),
+            ),
+            (
+                "Pop.Standard/src/unicode.pop",
+                include_str!("../../../libraries/standard/pop/src/unicode.pop"),
+            ),
+            (
+                "Pop.Standard/src/text.pop",
+                include_str!("../../../libraries/standard/pop/src/text.pop"),
+            ),
+            (
                 "Pop.Standard/src/sequence.pop",
                 include_str!("../../../libraries/standard/pop/src/sequence.pop"),
+            ),
+            (
+                "Pop.Standard/src/random.pop",
+                include_str!("../../../libraries/standard/pop/src/random.pop"),
             ),
         ]
         .into_iter()
@@ -57,7 +73,7 @@ pub fn tooling_standard_reference_metadata() -> &'static ReferenceMetadata {
         let result = analyze_bubble(FrontEndBubbleInput::new(
             TOOLING_STANDARD_BUBBLE,
             NamespaceId::from_raw(TOOLING_STANDARD_BUBBLE.raw()),
-            vec![INTERNAL_BUBBLE],
+            vec![TOOLING_INTERNAL_BUBBLE],
             modules,
         ));
         assert!(

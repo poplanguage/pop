@@ -87,6 +87,136 @@ fn full_runtime_profile_satisfies_allocator_contract_in_unit_resolution() {
 }
 
 #[test]
+fn native_runtime_requires_explicit_atomic_and_network_target_capabilities() {
+    let origin = RequirementOrigin::Instruction {
+        function: FunctionId::from_raw(4),
+        value: ValueId::from_raw(8),
+    };
+    let mut requirements = ProgramRequirements::default();
+    requirements.require_runtime(RuntimeContract::AtomicOperations, origin);
+    requirements.require_runtime(RuntimeContract::NetworkIo, origin);
+
+    assert_eq!(
+        validate_runtime_contracts(
+            &requirements,
+            RuntimeProfile::BootstrapStableHandles,
+            &native_target(),
+        ),
+        Ok(())
+    );
+
+    let target = TargetSpec::builder("custom-linux")
+        .pointer_width(pop_target::PointerWidth::Bits64)
+        .endianness(pop_target::Endianness::Little)
+        .capability(TargetCapability::Atomics)
+        .build()
+        .expect("custom target");
+    assert!(matches!(
+        validate_runtime_contracts(
+            &requirements,
+            RuntimeProfile::BootstrapStableHandles,
+            &target,
+        ),
+        Err(RuntimeContractError::MissingTargetCapability {
+            capability: TargetCapability::Networking,
+            ref requirement,
+            ..
+        }) if requirement.contract() == RuntimeContract::NetworkIo
+            && requirement.origin() == origin
+    ));
+}
+
+#[test]
+fn atomic_standard_calls_derive_the_atomic_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t5) effects[Synchronizes,MayTrap]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer Int64 0\n",
+        "    v1:t5 = const.integer Int64 0\n",
+        "    v2:t5 = callStandard sf15 (v0, v1) effects[Synchronizes,MayTrap]\n",
+        "    return (v2)\n",
+    ))
+    .expect("structural Atomic MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::AtomicOperations
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(2))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| requirement.contract() == RuntimeContract::StandardLibraryAdapters)
+    );
+}
+
+#[test]
+fn actor_standard_calls_derive_the_actor_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t0) effects[]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer Int64 0\n",
+        "    v1:t0 = callStandard sf31 (v0) effects[]\n",
+        "    return (v1)\n",
+    ))
+    .expect("structural Actor MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::ActorOperations
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(1))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| {
+                requirement.contract() == RuntimeContract::StandardLibraryAdapters
+                    && matches!(requirement.origin(), RequirementOrigin::Instruction { .. })
+            })
+    );
+}
+
+#[test]
+fn net_standard_calls_derive_the_network_runtime_contract() {
+    let mir = parse_mir_dump(concat!(
+        "mir bubble b0 namespace n0\n",
+        "dependencies\n",
+        "function s0 f0() -> (t5) effects[AmbientIo,MayTrap]\n",
+        "  b0():\n",
+        "    v0:t5 = const.integer UInt16 0\n",
+        "    v1:t138 = callStandard sf35 (v0) effects[AmbientIo,MayTrap]\n",
+        "    v2:t5 = callStandard sf36 (v1) effects[MayTrap]\n",
+        "    return (v2)\n",
+    ))
+    .expect("structural Net MIR");
+    let requirements = ProgramRequirements::derive_from_mir(&mir);
+
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::NetworkIo
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(1))
+    }));
+    assert!(requirements.runtime_requirements().iter().any(|requirement| {
+        requirement.contract() == RuntimeContract::NetworkIo
+            && matches!(requirement.origin(), RequirementOrigin::Instruction { value, .. } if value == ValueId::from_raw(2))
+    }));
+    assert!(
+        !requirements
+            .runtime_requirements()
+            .iter()
+            .any(|requirement| {
+                requirement.contract() == RuntimeContract::StandardLibraryAdapters
+                    && matches!(requirement.origin(), RequirementOrigin::Instruction { .. })
+            })
+    );
+}
+
+#[test]
 fn blocking_effect_requires_a_distinct_blocking_pool_contract() {
     let mut requirements = ProgramRequirements::default();
     let origin = RequirementOrigin::FunctionEffect {

@@ -11,17 +11,17 @@ use std::rc::Rc;
 use pop_foundation::{
     AllocationSiteId, BindingId, BlockId, BorrowRegionId, BuiltinTypeId, CaptureId, ClassId,
     CleanupScopeId, CoroutineStateId, FieldId, FileId, FunctionId, IterationProtocolMethodId,
-    LifetimeId, LocalId, MethodId, ResultCaseId, SourceSpan, SymbolId, SymbolIdentity, TextRange,
-    TextSize, TypeId, ValueId, ValueParameterId,
+    LifetimeId, LocalId, MethodId, ResultCaseId, SourceSpan, StandardFunctionId, SymbolId,
+    SymbolIdentity, TextRange, TextSize, TypeId, ValueId, ValueParameterId,
 };
 use pop_hir::{
     HirAssignmentTarget, HirBubble, HirCallDispatch, HirCaptureMode, HirCaptureSource, HirClosure,
     HirCodecErrorMatchArm, HirDataSpecialization, HirDeclaration, HirDeclarationKind,
     HirErrorMatchArm, HirExpression, HirExpressionKind, HirFieldValue, HirFunction,
     HirGeneratedCodecEntry, HirGeneratedCodecEntryBody, HirGeneratedCodecMemberId,
-    HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm, HirResultMatchArm,
-    HirStatement, HirStatementKind, HirTableEntry, hir_generic_call_instances,
-    remap_hir_function_dispatches, specialize_hir_function,
+    HirIterationMatchArm, HirIterationProtocol, HirIterationSource, HirLocalBinding, HirMatchArm,
+    HirResultMatchArm, HirStatement, HirStatementKind, HirTableEntry, hir_direct_call_instances,
+    hir_generic_call_instances, remap_hir_function_dispatches, specialize_hir_function,
 };
 use pop_runtime_interface::{
     ArrayElementMap, FfiAbiLayoutId, FfiCallbackLifetime, FfiCallbackThread, ObjectMap, ObjectSlot,
@@ -31,8 +31,9 @@ use pop_target::{CAbiScalarKind, TargetSpec};
 use pop_types::{
     FfiCIntegerKind, FloatKind, IntegerKind, IntegerValue, NumericConversionKind, PrimitiveType,
     ResultProvenance, SemanticType, TypeArena, TypedBinaryOperator, TypedCompoundOperator,
-    TypedUnaryOperator, ffi_c_integer_kind, is_ffi_function_type_constructor,
-    is_ffi_integer_abi_builtin_type, is_ffi_pointer_type_constructor,
+    TypedUnaryOperator, embedded_bootstrap_schema, ffi_c_integer_kind,
+    is_ffi_function_type_constructor, is_ffi_integer_abi_builtin_type,
+    is_ffi_pointer_type_constructor,
 };
 
 use crate::ir::*;
@@ -604,6 +605,17 @@ fn bind_function_call_lifetimes(
 fn lower_nominal_reference_catalog(
     catalog: &pop_hir::HirNominalReferenceCatalog,
 ) -> MirNominalReferenceCatalog {
+    let records = catalog
+        .records()
+        .iter()
+        .map(|reference| {
+            MirRecordReference::new(
+                reference.identity(),
+                reference.symbol(),
+                reference.type_id(),
+            )
+        })
+        .collect();
     let interfaces = catalog
         .interfaces()
         .iter()
@@ -651,7 +663,7 @@ fn lower_nominal_reference_catalog(
             )
         })
         .collect();
-    MirNominalReferenceCatalog::new(interfaces, classes)
+    MirNominalReferenceCatalog::new(records, interfaces, classes)
 }
 
 fn source_ffi_layout_catalog(
@@ -1466,12 +1478,18 @@ fn specialize_reachable_functions(
         .with_classes(data_classes, data_methods)
         .with_interfaces(interface_instances);
     let mut pending = BTreeSet::new();
+    let mut pending_helpers = BTreeSet::new();
+    let mut reachable_helpers = BTreeSet::new();
     for function in local_functions
         .iter()
-        .chain(capsule_functions.iter())
         .filter(|function| function.type_parameters().is_empty())
     {
         pending.extend(hir_generic_call_instances(function));
+        pending_helpers.extend(
+            hir_direct_call_instances(function)
+                .into_iter()
+                .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+        );
     }
     let mut next_symbol = templates
         .values()
@@ -1487,7 +1505,25 @@ fn specialize_reachable_functions(
         .max()
         .unwrap_or(0)
         .saturating_add(1);
-    while let Some(key) = pending.pop_first() {
+    while !pending.is_empty() || !pending_helpers.is_empty() {
+        if let Some(helper) = pending_helpers.pop_first() {
+            if !reachable_helpers.insert(helper) {
+                continue;
+            }
+            let Some(template) = templates.get(&helper) else {
+                continue;
+            };
+            pending.extend(hir_generic_call_instances(template));
+            pending_helpers.extend(
+                hir_direct_call_instances(template)
+                    .into_iter()
+                    .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+            );
+            continue;
+        }
+        let Some(key) = pending.pop_first() else {
+            continue;
+        };
         if instances.contains_key(&key) {
             continue;
         }
@@ -1501,6 +1537,11 @@ fn specialize_reachable_functions(
             specialize_hir_function(template, symbol, &key.1, &instances, &data_instances, arena)
         {
             pending.extend(hir_generic_call_instances(&specialized));
+            pending_helpers.extend(
+                hir_direct_call_instances(&specialized)
+                    .into_iter()
+                    .filter_map(|(callee, arguments)| arguments.is_empty().then_some(callee)),
+            );
         } else {
             return Err(vec![MirVerificationError::InvalidGenericSpecialization(
                 key.0,
@@ -1515,8 +1556,12 @@ fn specialize_reachable_functions(
     let mut specialized = Vec::new();
     for function in local_functions
         .iter()
-        .chain(capsule_functions.iter())
         .filter(|function| function.type_parameters().is_empty())
+        .chain(
+            capsule_functions
+                .iter()
+                .filter(|function| reachable_helpers.contains(&function.symbol())),
+        )
     {
         specialized.push(
             specialize_hir_function(
@@ -2336,6 +2381,16 @@ fn visit_statement_closures(
                 }
             }
         }
+        HirStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => {
+            visit_expression_closures(scrutinee, parameters, locals);
+            for arm in arms {
+                for nested in arm.body() {
+                    visit_statement_closures(nested, parameters, locals);
+                }
+            }
+        }
         HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
             visit_expression_closures(scrutinee, parameters, locals);
             for arm in arms {
@@ -2443,6 +2498,9 @@ fn contains_continue_for_current_loop(statements: &[HirStatement]) -> bool {
             .iter()
             .any(|arm| contains_continue_for_current_loop(arm.body())),
         HirStatementKind::ResultMatch { arms, .. } => arms
+            .iter()
+            .any(|arm| contains_continue_for_current_loop(arm.body())),
+        HirStatementKind::IterationMatch { arms, .. } => arms
             .iter()
             .any(|arm| contains_continue_for_current_loop(arm.body())),
         HirStatementKind::CodecErrorMatch { arms, .. } => arms
@@ -2613,16 +2671,56 @@ fn visit_expression_closures(
         HirExpressionKind::ArrayLength { array } => {
             visit_expression_closures(array, parameters, locals);
         }
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 visit_expression_closures(capacity, parameters, locals);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            visit_expression_closures(capacity, parameters, locals);
+        }
         HirExpressionKind::ListLength { list } => {
             visit_expression_closures(list, parameters, locals);
         }
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            visit_expression_closures(receiver, parameters, locals);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            visit_expression_closures(endpoint, parameters, locals);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            visit_expression_closures(outcome, parameters, locals);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            visit_expression_closures(buffer, parameters, locals);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            visit_expression_closures(view, parameters, locals);
+        }
         HirExpressionKind::ListAdd { list, value } => {
             visit_expression_closures(list, parameters, locals);
+            visit_expression_closures(value, parameters, locals);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            visit_expression_closures(sender, parameters, locals);
+            visit_expression_closures(value, parameters, locals);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            visit_expression_closures(buffer, parameters, locals);
             visit_expression_closures(value, parameters, locals);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -2682,7 +2780,8 @@ fn visit_expression_closures(
             visit_expression_closures(fallback, parameters, locals);
         }
         HirExpressionKind::OptionalPropagate { optional, .. }
-        | HirExpressionKind::OptionalNarrow { optional } => {
+        | HirExpressionKind::OptionalNarrow { optional }
+        | HirExpressionKind::OptionalInject { value: optional } => {
             visit_expression_closures(optional, parameters, locals);
         }
         HirExpressionKind::Await { task } => {
@@ -2781,9 +2880,14 @@ fn visit_expression_closures(
             visit_expression_closures(start, parameters, locals);
             visit_expression_closures(length, parameters, locals);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             visit_expression_closures(view, parameters, locals);
             visit_expression_closures(index, parameters, locals);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            visit_expression_closures(value, parameters, locals);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -3275,6 +3379,13 @@ impl<'hir> FunctionBuilder<'hir> {
                     result_type,
                     arms,
                 } => self.lower_result_match(scrutinee, *result, *result_type, arms),
+                HirStatementKind::IterationMatch {
+                    scrutinee,
+                    iteration,
+                    item_type,
+                    arms,
+                    ..
+                } => self.lower_iteration_match(scrutinee, *iteration, *item_type, arms),
                 HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                     self.lower_codec_error_match(scrutinee, arms);
                 }
@@ -3962,6 +4073,73 @@ impl<'hir> FunctionBuilder<'hir> {
         self.current = join;
     }
 
+    fn lower_iteration_match(
+        &mut self,
+        scrutinee: &HirExpression,
+        iteration_definition: pop_foundation::BuiltinTypeId,
+        item_type: TypeId,
+        arms: &'hir [HirIterationMatchArm],
+    ) {
+        let protocol = embedded_bootstrap_schema()
+            .expect("verified bootstrap schema")
+            .iteration_protocol()
+            .expect("verified Iteration match requires the reserved protocol");
+        let iteration_value = self.lower_expression(scrutinee);
+        let has_item = self.emit(
+            MirInstructionKind::IterationIsItem {
+                iteration: iteration_value,
+                definition: iteration_definition,
+                item_case: protocol.item_case(),
+                end_case: protocol.end_case(),
+            },
+            self.arena.source_type("Boolean").expect("Boolean"),
+            scrutinee.span(),
+        );
+        let dispatch = self.current;
+        let join = self.new_block();
+        let outer_locals = self.locals.clone();
+        let mut item_block = None;
+        let mut end_block = None;
+        for arm in arms {
+            let block = self.new_block();
+            if arm.case() == protocol.item_case() {
+                item_block = Some(block);
+            } else {
+                end_block = Some(block);
+            }
+            self.current = block;
+            self.locals.clone_from(&outer_locals);
+            if arm.case() == protocol.item_case() {
+                let value = self.emit(
+                    MirInstructionKind::IterationGetItem {
+                        iteration: iteration_value,
+                        definition: iteration_definition,
+                        item_case: protocol.item_case(),
+                    },
+                    item_type,
+                    arm.span(),
+                );
+                if let Some(binding) = arm.bindings().first()
+                    && let Some(local) = binding.local()
+                {
+                    self.locals.insert(local, value);
+                }
+            }
+            self.lower_statements(arm.body());
+            self.branch_if_open(join);
+        }
+        self.locals = outer_locals;
+        let item_block = item_block.expect("verified Iteration match has Item arm");
+        let end_block = end_block.expect("verified Iteration match has End arm");
+        self.current = dispatch;
+        self.terminate(MirTerminator::ConditionalBranch {
+            condition: has_item,
+            when_true: item_block,
+            when_false: end_block,
+        });
+        self.current = join;
+    }
+
     fn lower_if(
         &mut self,
         condition: &HirExpression,
@@ -4586,6 +4764,10 @@ impl<'hir> FunctionBuilder<'hir> {
             HirExpressionKind::String(value) => MirInstructionKind::StringConstant(value.clone()),
             HirExpressionKind::Boolean(value) => MirInstructionKind::BooleanConstant(*value),
             HirExpressionKind::Nil => MirInstructionKind::NilConstant,
+            HirExpressionKind::OptionalInject { value } => {
+                let value = self.lower_expression(value);
+                MirInstructionKind::OptionalMake { value }
+            }
             HirExpressionKind::EnumCase {
                 definition,
                 case,
@@ -5329,6 +5511,10 @@ impl<'hir> FunctionBuilder<'hir> {
                 view: self.lower_expression(view),
                 index: self.lower_expression(index),
             },
+            HirExpressionKind::ViewGetRune { view, index } => MirInstructionKind::ViewGetRune {
+                view: self.lower_expression(view),
+                index: self.lower_expression(index),
+            },
             HirExpressionKind::ViewMaterialize {
                 kind,
                 view,
@@ -5371,6 +5557,14 @@ impl<'hir> FunctionBuilder<'hir> {
                     }
                 }
             }
+            HirExpressionKind::RuneFromCodePoint { value } => {
+                MirInstructionKind::RuneFromCodePoint {
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::RuneCodePoint { value } => MirInstructionKind::RuneCodePoint {
+                value: self.lower_expression(value),
+            },
             HirExpressionKind::Field { base, field } => MirInstructionKind::FieldGet {
                 base: self.lower_expression(base),
                 field: *field,
@@ -5421,6 +5615,139 @@ impl<'hir> FunctionBuilder<'hir> {
                 list: self.lower_expression(list),
                 value: self.lower_expression(value),
                 element_map: list_element_map(self.arena, list.type_id()),
+            },
+            HirExpressionKind::ChannelCreate { capacity, element } => {
+                MirInstructionKind::ChannelCreate {
+                    capacity: self.lower_expression(capacity),
+                    element: *element,
+                    endpoints: optional_inner_type(self.arena, expression.type_id())
+                        .expect("verified Channel creation has one endpoint tuple"),
+                    allocation_site: self.fresh_generated_allocation_site(),
+                }
+            }
+            HirExpressionKind::ChannelTrySend {
+                sender,
+                value,
+                element,
+            } => MirInstructionKind::ChannelTrySend {
+                sender: self.lower_expression(sender),
+                value: self.lower_expression(value),
+                element: *element,
+                element_map: value_element_map(self.arena, *element),
+            },
+            HirExpressionKind::ChannelTryReceive { receiver, element } => {
+                MirInstructionKind::ChannelTryReceive {
+                    receiver: self.lower_expression(receiver),
+                    element: *element,
+                    element_map: value_element_map(self.arena, *element),
+                    allocation_site: self.fresh_generated_allocation_site(),
+                }
+            }
+            HirExpressionKind::ChannelClose {
+                endpoint,
+                direction,
+            } => MirInstructionKind::ChannelClose {
+                endpoint: self.lower_expression(endpoint),
+                direction: *direction,
+            },
+            HirExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+                MirInstructionKind::ChannelSendOutcomeTest {
+                    outcome: self.lower_expression(outcome),
+                    expected: *expected,
+                }
+            }
+            HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+                MirInstructionKind::ChannelReceiveItem {
+                    outcome: self.lower_expression(outcome),
+                    element: *element,
+                }
+            }
+            HirExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+                MirInstructionKind::ChannelReceiveOutcomeTest {
+                    outcome: self.lower_expression(outcome),
+                    expected: *expected,
+                }
+            }
+            HirExpressionKind::ByteBufferCreate {
+                capacity,
+                allocation_site,
+            } => MirInstructionKind::ByteBufferCreate {
+                capacity: capacity
+                    .as_deref()
+                    .map(|value| self.lower_expression(value)),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::ByteBufferLength { buffer } => {
+                MirInstructionKind::ByteBufferLength {
+                    buffer: self.lower_expression(buffer),
+                }
+            }
+            HirExpressionKind::ByteBufferReserve {
+                buffer,
+                additional_capacity,
+            } => MirInstructionKind::ByteBufferReserve {
+                buffer: self.lower_expression(buffer),
+                additional_capacity: self.lower_expression(additional_capacity),
+            },
+            HirExpressionKind::ByteBufferClear { buffer } => MirInstructionKind::ByteBufferClear {
+                buffer: self.lower_expression(buffer),
+            },
+            HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteByte {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteBytes {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+                MirInstructionKind::ByteBufferWriteView {
+                    buffer: self.lower_expression(buffer),
+                    value: self.lower_expression(value),
+                }
+            }
+            HirExpressionKind::ByteBufferWriteInteger {
+                buffer,
+                value,
+                kind,
+                order,
+            } => MirInstructionKind::ByteBufferWriteInteger {
+                buffer: self.lower_expression(buffer),
+                value: self.lower_expression(value),
+                kind: *kind,
+                order: *order,
+            },
+            HirExpressionKind::ByteBufferMaterialize {
+                buffer,
+                allocation_site,
+            } => MirInstructionKind::ByteBufferMaterialize {
+                buffer: self.lower_expression(buffer),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::Utf8Encode {
+                view,
+                allocation_site,
+            } => MirInstructionKind::Utf8Encode {
+                view: self.lower_expression(view),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::Utf8DecodeView {
+                view,
+                allocation_site,
+            } => MirInstructionKind::Utf8DecodeView {
+                view: self.lower_expression(view),
+                allocation_site: *allocation_site,
+            },
+            HirExpressionKind::Utf8DecodeBuffer {
+                buffer,
+                allocation_site,
+            } => MirInstructionKind::Utf8DecodeBuffer {
+                buffer: self.lower_expression(buffer),
+                allocation_site: *allocation_site,
             },
             HirExpressionKind::RangeCreate { first, last, step } => {
                 MirInstructionKind::RangeCreate {
@@ -5527,10 +5854,9 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
-                object_map: fixed_object_map(
+                object_map: iteration_object_map(
                     self.arena,
                     arguments.iter().map(HirExpression::type_id),
-                    1,
                 ),
             },
             HirExpressionKind::ErrorCase {
@@ -6261,7 +6587,7 @@ impl<'hir> FunctionBuilder<'hir> {
                     .iter()
                     .map(|argument| self.lower_expression(argument))
                     .collect(),
-                declared_effects: MirEffectSummary::empty().with(MirEffect::AmbientIo),
+                declared_effects: standard_function_effects(*function),
             },
             HirCallDispatch::Direct { function } => MirInstructionKind::CallDirect {
                 function: *function,
@@ -6643,6 +6969,34 @@ impl<'hir> FunctionBuilder<'hir> {
     }
 }
 
+fn standard_function_effects(function: StandardFunctionId) -> MirEffectSummary {
+    let Some(entry) = embedded_bootstrap_schema().ok().and_then(|schema| {
+        schema
+            .standard_functions()
+            .iter()
+            .find(|entry| entry.id() == function)
+            .cloned()
+    }) else {
+        return MirEffectSummary::empty();
+    };
+    MirEffectSummary::from_effects(entry.effects().iter().filter_map(|name| match *name {
+        "Allocates" => Some(MirEffect::Allocates),
+        "WritesManagedReference" => Some(MirEffect::WritesManagedReference),
+        "Synchronizes" => Some(MirEffect::Synchronizes),
+        "MayTrap" => Some(MirEffect::MayTrap),
+        "MayUnwind" => Some(MirEffect::MayUnwind),
+        "Suspends" => Some(MirEffect::Suspends),
+        "Blocks" => Some(MirEffect::Blocks),
+        "UnsafeMemory" => Some(MirEffect::UnsafeMemory),
+        "ForeignFunction" => Some(MirEffect::ForeignFunction),
+        "AmbientIo" => Some(MirEffect::AmbientIo),
+        "CompilerQuery" => Some(MirEffect::CompilerQuery),
+        "GcSafePoint" => Some(MirEffect::GcSafePoint),
+        "Roots" => Some(MirEffect::Roots),
+        _ => None,
+    }))
+}
+
 const fn mir_view_kind(kind: pop_types::ViewKind) -> MirViewKind {
     match kind {
         pop_types::ViewKind::Bytes => MirViewKind::Bytes,
@@ -6825,6 +7179,14 @@ pub(crate) fn array_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElem
     }
 }
 
+pub(crate) fn value_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElementMap {
+    if is_managed_reference_type_id(type_id, Some(arena)) {
+        ArrayElementMap::ManagedReference
+    } else {
+        ArrayElementMap::Scalar
+    }
+}
+
 pub(crate) fn list_element_map(arena: &TypeArena, type_id: TypeId) -> ArrayElementMap {
     let list = pop_types::embedded_bootstrap_schema()
         .ok()
@@ -6902,6 +7264,24 @@ fn fixed_object_map(
     .expect("fixed managed construction has a canonical logical object map")
 }
 
+pub(crate) fn iteration_object_map(
+    arena: &TypeArena,
+    field_types: impl IntoIterator<Item = TypeId>,
+) -> ObjectMap {
+    let field_types = field_types.into_iter().collect::<Vec<_>>();
+    if let [field_type] = field_types.as_slice()
+        && let Some(inner) = optional_inner_type(arena, *field_type)
+    {
+        let references = is_managed_reference_type_id(inner, Some(arena))
+            .then(|| ObjectSlot::new(2))
+            .into_iter()
+            .collect();
+        return ObjectMap::new(3, references)
+            .expect("optional Iteration payload has tag, presence, and payload slots");
+    }
+    fixed_object_map(arena, field_types, 1)
+}
+
 fn closure_environment_object_map(arena: &TypeArena, captures: &[MirClosureCapture]) -> ObjectMap {
     let references = captures
         .iter()
@@ -6933,6 +7313,9 @@ pub fn is_managed_reference_type_id(type_id: TypeId, arena: Option<&TypeArena>) 
                 && *definition != pop_types::TEXT_VIEW_TYPE_ID
                 && *definition != pop_types::FFI_NULL_POINTER_ERROR_TYPE_ID
                 && *definition != pop_types::FFI_ALLOCATION_ERROR_TYPE_ID
+                && *definition != pop_types::CHANNEL_SENDER_TYPE_ID
+                && *definition != pop_types::CHANNEL_RECEIVER_TYPE_ID
+                && *definition != pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID
         }
         Some(
             SemanticType::Primitive(PrimitiveType::String)
@@ -6944,6 +7327,18 @@ pub fn is_managed_reference_type_id(type_id: TypeId, arena: Option<&TypeArena>) 
             | SemanticType::Function { .. }
             | SemanticType::ErrorUnion { .. },
         ) => true,
+        Some(SemanticType::Union(members)) => {
+            let Some(nil) = arena.source_type("nil") else {
+                return false;
+            };
+            let mut present = members.iter().copied().filter(|member| *member != nil);
+            let Some(inner) = present.next() else {
+                return false;
+            };
+            members.contains(&nil)
+                && present.next().is_none()
+                && is_managed_reference_type_id(inner, Some(arena))
+        }
         _ => false,
     }
 }
@@ -7109,13 +7504,33 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
             MirEffect::MayUnwind,
             MirEffect::GcSafePoint,
         ]),
-        MirInstructionKind::ListCreate { .. } | MirInstructionKind::RangeCreate { .. } => {
+        MirInstructionKind::ListCreate { .. }
+        | MirInstructionKind::ByteBufferCreate { .. }
+        | MirInstructionKind::RangeCreate { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
+        MirInstructionKind::ChannelCreate { .. } | MirInstructionKind::ChannelTryReceive { .. } => {
             MirEffectSummary::from_effects([
                 MirEffect::Allocates,
-                MirEffect::MayTrap,
+                MirEffect::Synchronizes,
                 MirEffect::MayUnwind,
                 MirEffect::GcSafePoint,
             ])
+        }
+        MirInstructionKind::ChannelTrySend { element_map, .. } => {
+            let effects =
+                MirEffectSummary::from_effects([MirEffect::Synchronizes, MirEffect::MayUnwind]);
+            if *element_map == ArrayElementMap::ManagedReference {
+                effects.with(MirEffect::WritesManagedReference)
+            } else {
+                effects
+            }
+        }
+        MirInstructionKind::ChannelClose { .. } => {
+            MirEffectSummary::from_effects([MirEffect::Synchronizes, MirEffect::MayUnwind])
         }
         MirInstructionKind::ListAdd { element_map, .. } => {
             let effects = MirEffectSummary::from_effects([
@@ -7129,6 +7544,28 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
                 effects
             }
         }
+        MirInstructionKind::ByteBufferReserve { .. }
+        | MirInstructionKind::ByteBufferWriteByte { .. }
+        | MirInstructionKind::ByteBufferWriteBytes { .. }
+        | MirInstructionKind::ByteBufferWriteView { .. }
+        | MirInstructionKind::ByteBufferWriteInteger { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+        ]),
+        MirInstructionKind::ByteBufferMaterialize { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
+        MirInstructionKind::Utf8Encode { .. }
+        | MirInstructionKind::Utf8DecodeView { .. }
+        | MirInstructionKind::Utf8DecodeBuffer { .. } => MirEffectSummary::from_effects([
+            MirEffect::Allocates,
+            MirEffect::MayTrap,
+            MirEffect::MayUnwind,
+            MirEffect::GcSafePoint,
+        ]),
         MirInstructionKind::GcSafePoint { .. } => {
             MirEffectSummary::empty().with(MirEffect::GcSafePoint)
         }
@@ -7227,6 +7664,7 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::StringConstant(_)
         | MirInstructionKind::BooleanConstant(_)
         | MirInstructionKind::NilConstant
+        | MirInstructionKind::OptionalMake { .. }
         | MirInstructionKind::FfiPointerNone
         | MirInstructionKind::FfiPointerToOptional { .. }
         | MirInstructionKind::FfiPointerReadOnly { .. }
@@ -7247,6 +7685,11 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ArrayLength { .. }
         | MirInstructionKind::ListGet { .. }
         | MirInstructionKind::ListLength { .. }
+        | MirInstructionKind::ChannelSendOutcomeTest { .. }
+        | MirInstructionKind::ChannelReceiveItem { .. }
+        | MirInstructionKind::ChannelReceiveOutcomeTest { .. }
+        | MirInstructionKind::ByteBufferLength { .. }
+        | MirInstructionKind::ByteBufferClear { .. }
         | MirInstructionKind::FloatAdd { .. }
         | MirInstructionKind::FloatSubtract { .. }
         | MirInstructionKind::FloatMultiply { .. }
@@ -7282,6 +7725,9 @@ pub(crate) fn local_instruction_effects(kind: &MirInstructionKind) -> MirEffectS
         | MirInstructionKind::ViewCreate { .. }
         | MirInstructionKind::ViewLength { .. }
         | MirInstructionKind::ViewGetByte { .. }
+        | MirInstructionKind::ViewGetRune { .. }
+        | MirInstructionKind::RuneFromCodePoint { .. }
+        | MirInstructionKind::RuneCodePoint { .. }
         | MirInstructionKind::ViewEnd { .. }
         | MirInstructionKind::CaptureCellLoad { .. }
         | MirInstructionKind::CaptureLoad { .. }
@@ -7696,6 +8142,7 @@ pub(crate) fn expected_safe_point_roots(
 ) -> BTreeMap<ValueId, Vec<ValueId>> {
     let (value_types, live_in, live_out) = live_value_facts(function);
     let view_lenders = view_lender_roots(function, arena, &value_types);
+    let active_view_lenders = active_view_lenders_at_safe_points(function, &view_lenders);
 
     let mut maps = BTreeMap::new();
     for block in &function.blocks {
@@ -7703,7 +8150,7 @@ pub(crate) fn expected_safe_point_roots(
         live.extend(terminator_operands(&block.terminator));
         for instruction in block.instructions.iter().rev() {
             if let MirInstructionKind::GcSafePoint { .. } = instruction.kind {
-                let roots = live
+                let mut roots = live
                     .iter()
                     .filter_map(|value| {
                         value_types.get(value).and_then(|type_id| {
@@ -7714,9 +8161,15 @@ pub(crate) fn expected_safe_point_roots(
                             }
                         })
                     })
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect();
+                    .collect::<BTreeSet<_>>();
+                roots.extend(
+                    active_view_lenders
+                        .get(&instruction.result)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+                let roots = roots.into_iter().collect();
                 maps.insert(instruction.result, roots);
             }
             if instruction.has_result() {
@@ -7733,6 +8186,91 @@ pub(crate) fn expected_safe_point_roots(
         }
     }
     maps
+}
+
+fn active_view_lenders_at_safe_points(
+    function: &MirFunction,
+    view_lenders: &BTreeMap<ValueId, ValueId>,
+) -> BTreeMap<ValueId, BTreeSet<ValueId>> {
+    let Some(entry) = function.blocks().first() else {
+        return BTreeMap::new();
+    };
+    let initial = entry
+        .arguments()
+        .iter()
+        .zip(function.parameter_view_borrows())
+        .filter_map(|(argument, borrow)| {
+            borrow
+                .as_ref()
+                .map(|borrow| (borrow.borrow_lifetime(), argument.value()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut incoming = BTreeMap::from([(entry.block(), initial)]);
+    let mut pending = vec![entry.block()];
+    while let Some(block_id) = pending.pop() {
+        let Some(block) = function
+            .blocks()
+            .iter()
+            .find(|block| block.block() == block_id)
+        else {
+            continue;
+        };
+        let mut active = incoming.get(&block_id).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            update_active_view_lenders(instruction, view_lenders, &mut active);
+            if let Some(target) = instruction_unwind_target(instruction) {
+                merge_active_view_lenders(target, &active, &mut incoming, &mut pending);
+            }
+        }
+        for target in terminator_targets(block.terminator()) {
+            merge_active_view_lenders(target, &active, &mut incoming, &mut pending);
+        }
+    }
+
+    let mut safe_points = BTreeMap::new();
+    for block in function.blocks() {
+        let mut active = incoming.get(&block.block()).cloned().unwrap_or_default();
+        for instruction in block.instructions() {
+            if matches!(instruction.kind(), MirInstructionKind::GcSafePoint { .. }) {
+                safe_points.insert(
+                    instruction.result(),
+                    active.values().copied().collect::<BTreeSet<_>>(),
+                );
+            }
+            update_active_view_lenders(instruction, view_lenders, &mut active);
+        }
+    }
+    safe_points
+}
+
+fn update_active_view_lenders(
+    instruction: &MirInstruction,
+    view_lenders: &BTreeMap<ValueId, ValueId>,
+    active: &mut BTreeMap<LifetimeId, ValueId>,
+) {
+    if let Some(lifetime) = created_view_lifetime(instruction.kind()) {
+        if let Some(lender) = view_lenders.get(&instruction.result()).copied() {
+            active.insert(lifetime, lender);
+        }
+    } else if let MirInstructionKind::ViewEnd { borrow_lifetime } = instruction.kind() {
+        active.remove(borrow_lifetime);
+    }
+}
+
+fn merge_active_view_lenders(
+    target: BlockId,
+    active: &BTreeMap<LifetimeId, ValueId>,
+    incoming: &mut BTreeMap<BlockId, BTreeMap<LifetimeId, ValueId>>,
+    pending: &mut Vec<BlockId>,
+) {
+    let target_state = incoming.entry(target).or_default();
+    let previous = target_state.len();
+    for (lifetime, lender) in active {
+        target_state.entry(*lifetime).or_insert(*lender);
+    }
+    if target_state.len() != previous {
+        pending.push(target);
+    }
 }
 
 fn view_lender_roots(

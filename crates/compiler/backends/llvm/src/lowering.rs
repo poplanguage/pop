@@ -23,7 +23,7 @@ use crate::api::{LlvmLoweringError, LlvmLoweringOptions, LlvmModule};
 use crate::async_lowering::{lower_async_function, lower_async_nested};
 use crate::ffi_buffer::marshalling;
 use crate::instruction_lowering::{
-    allocation_site_symbol, is_managed_type, llvm_results, llvm_type,
+    allocation_site_symbol, is_managed_type, is_optional_managed_type, llvm_results, llvm_type,
     lower_adjacent_array_field_get, lower_adjacent_class_array_store, lower_instruction,
     lower_runtime_slot_load, lower_terminator,
 };
@@ -537,6 +537,23 @@ pub fn lower_mir_to_llvm_ir(
     declarations.extend(foreign_declarations);
     declarations.push("declare void @pop_std_print_int(i64)".to_owned());
     declarations.push("declare void @pop_std_print_string(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_process_id()".to_owned());
+    declarations.push("declare i64 @pop_std_rust_available_parallelism()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_stdout_is_terminal()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_stderr_is_terminal()".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_link_local(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_multicast(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_broadcast(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_net_ipv4_is_documentation(i64)".to_owned());
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_multicast(i64, i64, i64, i64)".to_owned());
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_unique_local(i64, i64, i64, i64)".to_owned());
+    declarations.push(
+        "declare i1 @pop_std_rust_net_ipv6_is_unicast_link_local(i64, i64, i64, i64)".to_owned(),
+    );
+    declarations
+        .push("declare i1 @pop_std_rust_net_ipv6_is_documentation(i64, i64, i64, i64)".to_owned());
     if matches!(
         options.runtime_profile,
         pop_backend_api::RuntimeProfile::ProductionGenerational
@@ -1557,6 +1574,8 @@ pub(crate) fn lower_function_parts(
                     .copied()
                     .chain(relocated_roots),
                 &writable_root_values,
+                &value_types,
+                types,
                 &format!("v{}", instruction.result().raw()),
                 &mut instructions,
             );
@@ -1700,6 +1719,20 @@ pub(crate) fn lower_function_parts(
                         instruction.result().raw(),
                         instruction.result().raw()
                     ));
+                } else if is_optional_managed_type(instruction.result_type(), types) {
+                    let value = instruction.result().raw();
+                    instructions.extend([
+                        format!(
+                            "%v{value}_gc_present = extractvalue {{ i1, i64 }} %v{value}, 0"
+                        ),
+                        format!(
+                            "%v{value}_gc_payload = extractvalue {{ i1, i64 }} %v{value}, 1"
+                        ),
+                        format!(
+                            "%v{value}_gc_value = select i1 %v{value}_gc_present, i64 %v{value}_gc_payload, i64 0"
+                        ),
+                        format!("store i64 %v{value}_gc_value, ptr %v{value}_gc_root"),
+                    ]);
                 } else {
                     instructions.push(format!(
                         "store i64 %v{}, ptr %v{}_gc_root",
@@ -1724,6 +1757,8 @@ pub(crate) fn lower_function_parts(
         let root_aliases = load_root_cell_uses(
             terminator_values.iter().copied().chain(relocated_roots),
             &writable_root_values,
+            &value_types,
+            types,
             &format!("b{}_exit", block.block().raw()),
             &mut terminator_prefix,
         );
@@ -1839,6 +1874,30 @@ fn initialize_block_root_cells(
                         value.raw()
                     ),
                 ]
+            } else if is_optional_managed_type(argument.type_id(), types) {
+                vec![
+                    format!(
+                        "%v{}_initial_present = extractvalue {{ i1, i64 }} %v{}, 0",
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "%v{}_initial_payload = extractvalue {{ i1, i64 }} %v{}, 1",
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "%v{}_initial_value = select i1 %v{}_initial_present, i64 %v{}_initial_payload, i64 0",
+                        value.raw(),
+                        value.raw(),
+                        value.raw()
+                    ),
+                    format!(
+                        "store i64 %v{}_initial_value, ptr %v{}_gc_root",
+                        value.raw(),
+                        value.raw()
+                    ),
+                ]
             } else {
                 vec![format!(
                     "store i64 %v{}, ptr %v{}_gc_root",
@@ -1853,6 +1912,8 @@ fn initialize_block_root_cells(
 fn load_root_cell_uses(
     values: impl IntoIterator<Item = ValueId>,
     writable_root_values: &BTreeSet<ValueId>,
+    value_types: &BTreeMap<ValueId, TypeId>,
+    types: &TypeArena,
     location: &str,
     instructions: &mut Vec<String>,
 ) -> BTreeMap<ValueId, String> {
@@ -1863,7 +1924,29 @@ fn load_root_cell_uses(
         .into_iter()
         .map(|value| {
             let alias = format!("%v{}_before_{location}", value.raw());
-            instructions.push(format!("{alias} = load i64, ptr %v{}_gc_root", value.raw()));
+            let optional_managed = value_types
+                .get(&value)
+                .is_some_and(|type_id| is_optional_managed_type(*type_id, types));
+            if optional_managed {
+                let payload = format!("{alias}_payload");
+                let present = format!("{alias}_present");
+                let with_presence = format!("{alias}_with_presence");
+                instructions.extend([
+                    format!("{payload} = load i64, ptr %v{}_gc_root", value.raw()),
+                    format!("{present} = icmp ne i64 {payload}, 0"),
+                    format!(
+                        "{with_presence} = insertvalue {{ i1, i64 }} zeroinitializer, i1 {present}, 0"
+                    ),
+                    format!(
+                        "{alias} = insertvalue {{ i1, i64 }} {with_presence}, i64 {payload}, 1"
+                    ),
+                ]);
+            } else {
+                instructions.push(format!(
+                    "{alias} = load i64, ptr %v{}_gc_root",
+                    value.raw()
+                ));
+            }
             (value, alias)
         })
         .collect()
@@ -2293,12 +2376,14 @@ pub(crate) fn initialize_array_outputs(
                     | MirInstructionKind::ListGet { .. }
                     | MirInstructionKind::ListLength { .. }
                     | MirInstructionKind::ListGetChecked { .. }
+                    | MirInstructionKind::ByteBufferLength { .. }
             ) && match instruction.kind() {
                 MirInstructionKind::ArrayGet { .. } => true,
                 MirInstructionKind::TableGet { .. } => true,
                 MirInstructionKind::ListGet { .. } => true,
                 MirInstructionKind::ListLength { .. }
-                | MirInstructionKind::ListGetChecked { .. } => true,
+                | MirInstructionKind::ListGetChecked { .. }
+                | MirInstructionKind::ByteBufferLength { .. } => true,
                 MirInstructionKind::ArrayLength { array }
                 | MirInstructionKind::ArrayGetChecked { array, .. } => {
                     direct_scalar_arrays.origin(*array).is_none()
@@ -2363,9 +2448,20 @@ pub(crate) fn llvm_block_exit_label(
                 MirInstructionKind::ListSet { .. } | MirInstructionKind::ListAdd { .. } => {
                     "continue"
                 }
+                MirInstructionKind::ByteBufferReserve { .. }
+                | MirInstructionKind::ByteBufferClear { .. }
+                | MirInstructionKind::ByteBufferWriteByte { .. }
+                | MirInstructionKind::ByteBufferWriteBytes { .. }
+                | MirInstructionKind::ByteBufferWriteView { .. }
+                | MirInstructionKind::ByteBufferWriteInteger { .. }
+                | MirInstructionKind::ByteBufferMaterialize { .. }
+                | MirInstructionKind::Utf8Encode { .. }
+                | MirInstructionKind::Utf8DecodeView { .. }
+                | MirInstructionKind::Utf8DecodeBuffer { .. } => "continue",
                 MirInstructionKind::GcSafePoint { .. } => "poll_continue",
                 MirInstructionKind::ArrayCreate { .. } => "create",
                 MirInstructionKind::ListCreate { .. } => "create",
+                MirInstructionKind::ByteBufferCreate { .. } => "continue",
                 MirInstructionKind::RangeCreate { .. } => "create",
                 MirInstructionKind::ArrayLength { array }
                 | MirInstructionKind::ArrayGetChecked { array, .. } => {
@@ -2373,7 +2469,84 @@ pub(crate) fn llvm_block_exit_label(
                     "load"
                 }
                 MirInstructionKind::ListLength { .. }
-                | MirInstructionKind::ListGetChecked { .. } => "load",
+                | MirInstructionKind::ListGetChecked { .. }
+                | MirInstructionKind::ByteBufferLength { .. } => "load",
+                MirInstructionKind::CallStandard { function, .. }
+                    if matches!(
+                        function.raw(),
+                        35 | 36
+                            | 37
+                            | 38
+                            | 40
+                            | 41
+                            | 51
+                            | 52
+                            | 53
+                            | 54
+                            | 64
+                            | 65
+                            | 70
+                            | 71
+                            | 75
+                            | 76
+                            | 77
+                            | 78
+                            | 79
+                            | 80
+                            | 81
+                            | 82
+                            | 83
+                            | 84
+                            | 85
+                            | 87
+                            | 88
+                            | 95
+                            | 97
+                            | 98
+                            | 99
+                            | 102
+                            | 103
+                            | 104
+                            | 105
+                            | 107
+                            | 109
+                            | 111
+                            | 114
+                            | 115
+                            | 117
+                            | 118
+                            | 123
+                            | 124
+                            | 125
+                            | 133
+                            | 134
+                            | 135
+                            | 136
+                            | 143
+                            | 144
+                            | 145
+                            | 147
+                            | 148
+                            | 149
+                            | 150
+                            | 151
+                            | 152
+                            | 153
+                            | 154
+                            | 155
+                            | 156
+                            | 158
+                            | 159
+                            | 160
+                            | 161
+                            | 162
+                            | 163
+                            | 164
+                            | 165
+                    ) =>
+                {
+                    "continue"
+                }
                 _ => return None,
             };
             Some(format!("v{}_{suffix}", instruction.result().raw()))

@@ -371,6 +371,22 @@ fn accepted_adrs_have_unique_numeric_identities() {
 }
 
 #[test]
+fn accepted_toolchain_distribution_adr_is_not_conditionally_proposed() {
+    let adr = read_required(
+        repository_root()
+            .join("architecture/decisions/0028-toolchain-distribution-and-popup-management.md"),
+    );
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(
+        !adr.contains("Because this ADR remains proposed")
+            && !adr.contains("If this ADR is accepted")
+            && !adr.contains("- Amends on acceptance:"),
+        "accepted ADR 0028 must state its decision as the active architecture"
+    );
+}
+
+#[test]
 fn private_language_server_uses_compiler_queries_without_cli_scraping() {
     let root = repository_root();
     let manifest = read_required(root.join("crates/tools/language-server/Cargo.toml"));
@@ -642,11 +658,20 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                 | "sha2 = \"0.11.0\""
                 | "toml = \"0.9.8\""
         );
+        let approved_platform_dependency = line == "libc = \"0.2.186\"";
+        let approved_security_dependency = matches!(
+            line,
+            "rustls = { version = \"=0.23.43\", default-features = false, features = [\"ring\", \"std\", \"tls12\"] }"
+                | "rustls-platform-verifier = { version = \"=0.7.0\", default-features = false }"
+                | "rcgen = { version = \"=0.14.8\", default-features = false, features = [\"crypto\", \"ring\"] }"
+        );
         assert!(
             local
                 || approved_inkwell
                 || approved_terminal_dependency
-                || approved_artifact_dependency,
+                || approved_artifact_dependency
+                || approved_platform_dependency
+                || approved_security_dependency,
             "unapproved workspace dependency: {line}"
         );
     }
@@ -698,6 +723,28 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                         line,
                         "serde.workspace = true" | "serde_json.workspace = true"
                     );
+                let native_platform_dependency =
+                    *member == "crates/runtime/native" && line == "libc.workspace = true";
+                let native_security_dependency = *member == "crates/runtime/native"
+                    && matches!(
+                        line,
+                        "rustls.workspace = true"
+                            | "rustls-platform-verifier.workspace = true"
+                            | "rcgen.workspace = true"
+                    );
+                let interpreter_security_dependency = *member
+                    == "crates/compiler/backends/mir-interp"
+                    && matches!(
+                        line,
+                        "rustls.workspace = true"
+                            | "rustls-platform-verifier.workspace = true"
+                            | "rcgen.workspace = true"
+                    );
+                let llvm_test_security_dependency = *member == "crates/compiler/backends/llvm"
+                    && matches!(line, "rcgen.workspace = true" | "rustls.workspace = true");
+                let interpreter_platform_dependency = *member
+                    == "crates/compiler/backends/mir-interp"
+                    && line == "libc.workspace = true";
                 assert!(
                     inherited_local
                         || inherited_inkwell
@@ -706,7 +753,12 @@ fn dependencies_are_centralized_and_external_dependencies_are_approved() {
                         || driver_artifact_dependency
                         || driver_terminal_dependency
                         || localization_dependency
-                        || language_server_transport_dependency,
+                        || language_server_transport_dependency
+                        || native_platform_dependency
+                        || native_security_dependency
+                        || interpreter_security_dependency
+                        || llvm_test_security_dependency
+                        || interpreter_platform_dependency,
                     "{} {table} entry is not inherited from the workspace: {line}",
                     manifest_path.display(),
                 );
@@ -919,7 +971,8 @@ fn static_allocation_sites_follow_adr_0100() {
         read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
     for (source, required) in [
         (&plri, "pub struct AllocationSiteDescriptor"),
-        (&native_abi, "NativeAbiVersion::new(1, 22)"),
+        (&native_abi, "NativeAbiVersion::new(1, 47)"),
+        (&native_abi, "NativeAbiVersion::new(2, 5)"),
         (&native_abi, "pub struct AllocationSiteDescriptorAbi"),
         (
             &native_symbols,
@@ -1316,7 +1369,13 @@ fn foundation_libraries_are_partitioned_by_contributor_ownership() {
         "standard/pop/bubble.toml",
         "standard/pop/src/lib.pop",
         "standard/pop/src/math.pop",
+        "standard/pop/src/bytes.pop",
+        "standard/pop/src/unicode.pop",
+        "standard/pop/src/text.pop",
         "standard/pop/src/sequence.pop",
+        "standard/pop/src/random.pop",
+        "standard/tests/bytes.rs",
+        "standard/tests/unicode.rs",
         "internal/src/runtime.rs",
         "internal/tests/runtime.rs",
         "internal/pop/bubble.toml",
@@ -1520,6 +1579,12 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
         .expect("read Pop.Standard Rust module inventory");
     let sequence = fs::read_to_string(root.join("crates/libraries/standard/pop/src/sequence.pop"))
         .expect("read Pop.Sequence source");
+    let baseline = fs::read_to_string(root.join("libraries/standard/bootstrap/api-baseline.tsv"))
+        .expect("read Pop.Standard API baseline");
+    let decision = fs::read_to_string(
+        root.join("architecture/decisions/0130-sequence-no-fallback-inspection.md"),
+    )
+    .expect("read ADR 0130");
 
     assert!(!standard.contains("pub mod sequence;"));
     assert!(
@@ -1536,6 +1601,8 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
         "all",
         "count",
         "isEmpty",
+        "first",
+        "last",
         "firstOr",
         "lastOr",
         "each",
@@ -1569,6 +1636,16 @@ fn portable_sequence_algorithms_have_one_pop_implementation() {
             "Pop.Sequence must own `{function}` as ordinary Pop source"
         );
     }
+    for function in ["first", "last"] {
+        assert!(
+            baseline.contains(&format!("\tPop.Sequence\t{function}\t")),
+            "ADR 0130 `{function}` must have an append-only API identity"
+        );
+        assert!(
+            decision.contains(&format!("public function {function}<")),
+            "ADR 0130 must authorize exact `{function}` source syntax"
+        );
+    }
 }
 
 #[test]
@@ -1581,12 +1658,1804 @@ fn portable_integer_math_has_one_pop_implementation() {
     assert!(!standard.contains("pub mod math;"));
     assert!(!root.join("crates/libraries/standard/src/math.rs").exists());
     let math = fs::read_to_string(&math_path).expect("read Pop.Math source");
-    for function in ["min", "max", "abs", "gcd", "sign", "lcm", "coprime"] {
+    for function in [
+        "min",
+        "max",
+        "abs",
+        "gcd",
+        "sign",
+        "lcm",
+        "coprime",
+        "clamp",
+        "power",
+        "floorDivide",
+        "floorRemainder",
+    ] {
         assert!(
             math.contains(&format!("public function {function}(")),
             "Pop.Math must own `{function}` as ordinary Pop source"
         );
     }
+}
+
+#[test]
+fn portable_bytes_inspection_has_one_pop_implementation() {
+    let root = repository_root();
+    let standard = fs::read_to_string(root.join("crates/libraries/standard/src/lib.rs"))
+        .expect("read Pop.Standard Rust module inventory");
+    let bytes_path = root.join("crates/libraries/standard/pop/src/bytes.pop");
+
+    assert!(!standard.contains("pub mod bytes;"));
+    assert!(!root.join("crates/libraries/standard/src/bytes.rs").exists());
+    let bytes = fs::read_to_string(&bytes_path).expect("read Pop.Bytes source");
+    for function in [
+        "equals",
+        "compare",
+        "startsWith",
+        "endsWith",
+        "contains",
+        "indexOf",
+        "readUInt16BigEndian",
+        "readUInt16LittleEndian",
+        "readUInt32BigEndian",
+        "readUInt32LittleEndian",
+        "readUInt64BigEndian",
+        "readUInt64LittleEndian",
+    ] {
+        assert!(
+            bytes.contains(&format!("public function {function}(")),
+            "Pop.Bytes must own `{function}` as ordinary Pop source"
+        );
+    }
+    for forbidden in ["Dynamic", "Any", "@Ffi.", "extern ", "unsafe"] {
+        assert!(
+            !bytes.contains(forbidden),
+            "portable Pop.Bytes source contains forbidden `{forbidden}`"
+        );
+    }
+    let inspection = bytes
+        .split_once("public function equals")
+        .expect("inspection family follows construction codecs")
+        .1;
+    assert!(
+        !inspection.contains("Bytes.toBytes("),
+        "allocation-free Pop.Bytes inspection must not materialize owned Bytes"
+    );
+
+    let tooling = fs::read_to_string(root.join("crates/compiler/driver/src/tooling.rs"))
+        .expect("read tooling Standard source inventory");
+    assert!(
+        tooling.contains("libraries/standard/pop/src/bytes.pop"),
+        "editor tooling must analyze the public Bytes Module"
+    );
+}
+
+#[test]
+fn portable_unicode_ascii_helpers_have_one_pop_implementation() {
+    let root = repository_root();
+    let standard = fs::read_to_string(root.join("crates/libraries/standard/src/lib.rs"))
+        .expect("read Pop.Standard Rust module inventory");
+    let unicode_path = root.join("crates/libraries/standard/pop/src/unicode.pop");
+    let functions = [
+        "isAscii",
+        "isAsciiLetter",
+        "isAsciiDigit",
+        "isAsciiAlphanumeric",
+        "isAsciiWhitespace",
+        "toAsciiLower",
+        "toAsciiUpper",
+    ];
+
+    assert!(!standard.contains("pub mod unicode;"));
+    assert!(
+        !root
+            .join("crates/libraries/standard/src/unicode.rs")
+            .exists()
+    );
+    let unicode = fs::read_to_string(&unicode_path).expect("read Pop.Unicode source");
+    for function in functions {
+        assert_eq!(
+            unicode
+                .matches(&format!("public function {function}("))
+                .count(),
+            1,
+            "Pop.Unicode must own exactly one ordinary Pop implementation of `{function}`"
+        );
+    }
+    for forbidden in ["Dynamic", "Any", "@Ffi.", "extern ", "unsafe"] {
+        assert!(
+            !unicode.contains(forbidden),
+            "portable Pop.Unicode source contains forbidden `{forbidden}`"
+        );
+    }
+
+    for source in rust_sources_below(&root.join("crates/compiler"))
+        .into_iter()
+        .chain(rust_sources_below(&root.join("crates/runtime")))
+        .filter(|path| {
+            path.components()
+                .any(|component| component.as_os_str() == "src")
+        })
+    {
+        let text = fs::read_to_string(&source)
+            .unwrap_or_else(|error| panic!("read {}: {error}", source.display()));
+        for function in functions {
+            assert!(
+                !text.contains(&format!("\"{function}\"")),
+                "ordinary Pop.Unicode helper `{function}` is recognized in Rust source {}",
+                source.display()
+            );
+        }
+    }
+
+    let tooling = fs::read_to_string(root.join("crates/compiler/driver/src/tooling.rs"))
+        .expect("read tooling Standard source inventory");
+    assert!(
+        tooling.contains("libraries/standard/pop/src/unicode.pop"),
+        "editor tooling must analyze the public Unicode Module"
+    );
+}
+
+#[test]
+fn linear_string_iteration_follows_adr_0116_without_materialization() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0116-linear-string-rune-iteration.md"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native_iteration = read_required(root.join("crates/runtime/native/src/iteration.rs"));
+    let native_string_step =
+        read_required(root.join("crates/runtime/native/src/iteration/string.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(typed.contains("String,"));
+    assert!(hir.contains("HirIterationSource::String"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 47)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
+    assert!(native_abi.contains("String = 4"));
+    assert!(native_iteration.contains("scalar_array_values"));
+    assert!(!native_iteration.contains("utf8_string_bytes"));
+    assert!(native_string_step.contains("[0_u8; 4]"));
+    assert!(!native_string_step.contains("Vec<"));
+    assert!(llvm.contains("IterationCollectionKind::String"));
+    assert!(c.contains("is_iteration_instruction"));
+}
+
+#[test]
+fn reusable_byte_buffer_follows_adr_0117_without_list_or_ffi_reuse() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md"),
+    );
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter = read_required(root.join("crates/compiler/backends/mir-interp/src/values.rs"));
+    let native_state = read_required(root.join("crates/runtime/native/src/state.rs"));
+    let native_buffer = read_required(root.join("crates/runtime/native/src/byte_buffer.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(typed.contains("ByteBufferWriteInteger"));
+    assert!(mir.contains("ByteBufferMaterialize"));
+    assert!(interpreter.contains("ByteBuffer(ManagedReference)"));
+    assert!(native_state.contains("ABI_BYTE_BUFFERS"));
+    assert!(!native_buffer.contains("abi_lists"));
+    assert!(!native_buffer.contains("FfiBuffer"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 47)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
+    assert!(llvm.contains("RuntimeOperation::ByteBufferWriteView"));
+    assert!(c.contains("is_byte_buffer_instruction"));
+}
+
+#[test]
+fn checked_utf8_transcoding_follows_adr_0118_without_dynamic_fallback() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0118-checked-utf8-transcoding.md"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter =
+        read_required(root.join("crates/compiler/backends/mir-interp/src/interpreter.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/utf8.rs"));
+    let native_abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("Malformed UTF-8 is expected data"));
+    assert!(typed.contains("Utf8DecodeBuffer"));
+    assert!(hir.contains("Utf8DecodeBuffer"));
+    assert!(mir.contains("Utf8DecodeBuffer"));
+    assert!(interpreter.contains("String::from_utf8"));
+    assert!(llvm.contains("RuntimeOperation::Utf8DecodeBuffer"));
+    assert!(native.contains("pop_rt_byte_buffer_decode_utf8"));
+    assert!(native_abi.contains("NativeAbiVersion::new(1, 47)"));
+    assert!(native_abi.contains("NativeAbiVersion::new(2, 5)"));
+    assert!(c.contains("MirInstructionKind::Utf8DecodeBuffer"));
+    for forbidden in ["Any", "Dynamic", "from_utf8_lossy", "runtime name"] {
+        assert!(!adr.contains(forbidden), "ADR 0118 contains {forbidden}");
+    }
+}
+
+#[test]
+fn portable_hexadecimal_codec_follows_adr_0119_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0119-portable-hexadecimal-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(bytes.matches("public function hexEncode").count(), 1);
+    assert_eq!(bytes.matches("public function hexDecode").count(), 1);
+    assert!(bytes.contains("Text.decodeUtf8(buffer)"));
+    assert!(bytes.contains("for rune in value do"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("hexEncode"));
+        assert!(!implementation.contains("hexDecode"));
+    }
+}
+
+#[test]
+fn portable_base64_codec_follows_adr_0120_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0120-portable-base64-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("unused-bit form"));
+    assert_eq!(bytes.matches("public function base64Encode").count(), 1);
+    assert_eq!(bytes.matches("public function base64Decode").count(), 1);
+    assert!(bytes.contains("second % 16 ~= 0"));
+    assert!(bytes.contains("third % 4 ~= 0"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("base64Encode"));
+        assert!(!implementation.contains("base64Decode"));
+    }
+}
+
+#[test]
+fn portable_base32_codec_follows_adr_0121_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0121-portable-base32-codec.md"));
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(adr.contains("unused-bit form"));
+    assert_eq!(bytes.matches("public function base32Encode").count(), 1);
+    assert_eq!(bytes.matches("public function base32Decode").count(), 1);
+    assert!(bytes.contains("second % 4 ~= 0"));
+    assert!(bytes.contains("fourth % 16 ~= 0"));
+    assert!(bytes.contains("fifth % 2 ~= 0"));
+    assert!(bytes.contains("seventh % 8 ~= 0"));
+    for implementation in [call_checking, hir, mir, native, native_symbols] {
+        assert!(!implementation.contains("base32Encode"));
+        assert!(!implementation.contains("base32Decode"));
+    }
+}
+
+#[test]
+fn portable_bytes_bitwise_transforms_follow_adr_0122_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0122-portable-bytes-bitwise-transforms.md"),
+    );
+    let bytes = read_required(root.join("crates/libraries/standard/pop/src/bytes.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let implementations = [
+        call_checking.as_str(),
+        hir.as_str(),
+        mir.as_str(),
+        native.as_str(),
+        native_symbols.as_str(),
+    ];
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["bitwiseAnd", "bitwiseOr", "bitwiseXor", "bitwiseNot"] {
+        assert_eq!(
+            bytes
+                .matches(&format!("public function {function}"))
+                .count(),
+            1
+        );
+        for implementation in implementations {
+            assert!(!implementation.contains(function));
+        }
+    }
+    assert!(bytes.contains("if length ~= Bytes.length(right) then"));
+    assert!(bytes.contains("Byte(255 - byte)"));
+    let public_roots = read_required(root.join("libraries/catalog/public-roots.tsv"));
+    let essential = read_required(root.join("libraries/catalog/essential-libraries.tsv"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    assert!(public_roots.contains("Bytes\tstandard\tcore/portable\timplemented"));
+    assert!(essential.contains("Bytes\tPop.Standard\tcore\timplemented\t"));
+    assert!(
+        baseline
+            .lines()
+            .filter(|line| line.contains("\tPop.Bytes\t"))
+            .all(|line| line.contains("\timplemented\t"))
+    );
+}
+
+#[test]
+fn essential_text_algorithms_follow_adr_0123_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0123-essential-text-algorithms-and-integer-parsing.md"),
+    );
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let unicode = read_required(root.join("crates/libraries/standard/pop/src/unicode.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(unicode.matches("public function isWhitespace").count(), 1);
+    for (function, declaration) in [
+        ("trimStart", "public function trimStart("),
+        ("trimEnd", "public function trimEnd("),
+        ("trim", "public function trim("),
+        ("replace", "public function replace("),
+        ("split", "public function split("),
+        ("join", "public function join<"),
+        ("parseInt", "public function parseInt("),
+    ] {
+        assert_eq!(text.matches(declaration).count(), 1);
+        for implementation in [
+            call_checking.as_str(),
+            hir.as_str(),
+            mir.as_str(),
+            native.as_str(),
+            native_symbols.as_str(),
+        ] {
+            assert!(!implementation.contains(&format!("\"{function}\"")));
+        }
+    }
+    assert!(text.contains("Bytes.withCapacity(valueLength)"));
+    assert!(!text.contains("result = result .."));
+}
+
+#[test]
+fn essential_text_search_follows_adr_0124_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0124-essential-text-search.md"));
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let call_checking = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let native_symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["startsWith", "endsWith", "contains", "indexOf"] {
+        assert_eq!(
+            text.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        for implementation in [
+            call_checking.as_str(),
+            hir.as_str(),
+            mir.as_str(),
+            native.as_str(),
+            native_symbols.as_str(),
+        ] {
+            assert!(!implementation.contains(&format!("\"{function}\"")));
+        }
+    }
+    assert!(text.contains("local remainderView = Text.slice("));
+    assert!(text.contains("local prefixLength = 0"));
+}
+
+#[test]
+fn essential_text_ascii_casing_follows_adr_0125_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0125-essential-text-ascii-casing.md"));
+    let text = read_required(root.join("crates/libraries/standard/pop/src/text.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["toAsciiLower", "toAsciiUpper", "equalsAsciiIgnoreCase"] {
+        assert_eq!(
+            text.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(!compiler.contains(&format!("\"{function}\"")));
+        assert!(!native.contains(&format!("\"{function}\"")));
+    }
+    assert!(text.contains("byte >= 65 and byte <= 90"));
+    assert!(text.contains("byte >= 97 and byte <= 122"));
+}
+
+#[test]
+fn deterministic_random_state_follows_adr_0126_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0126-deterministic-random-state.md"));
+    let random = read_required(root.join("crates/libraries/standard/pop/src/random.pop"));
+    let tooling = read_required(root.join("crates/compiler/driver/src/tooling.rs"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(random.matches("public class State").count(), 1);
+    for function in ["seed", "next", "fill"] {
+        assert_eq!(
+            random
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+    }
+    assert_eq!(random.matches("public function shuffle<T>(").count(), 1);
+    assert!(!compiler.contains("Pop.Random"));
+    assert!(!native.contains("Pop.Random"));
+    assert!(!compiler.contains("\"shuffle\""));
+    assert!(!native.contains("\"shuffle\""));
+    for constant in ["2147483647", "2147483646", "127773", "2836", "16807"] {
+        assert!(random.contains(constant));
+    }
+    assert!(!random.contains("public function State.new"));
+    assert!(tooling.contains("libraries/standard/pop/src/random.pop"));
+}
+
+#[test]
+fn deterministic_random_distributions_follow_adr_0127_without_modulo_bias() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0127-deterministic-random-distributions.md"),
+    );
+    let random = read_required(root.join("crates/libraries/standard/pop/src/random.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["nextInt", "nextFloat", "chance"] {
+        assert_eq!(
+            random
+                .matches(&format!("public function {function}"))
+                .count(),
+            1
+        );
+    }
+    assert!(random.contains("local limit = range - range % upper"));
+    assert!(random.contains("while candidate >= limit do"));
+    assert!(random.contains("lowerInclusive < 0 and upperExclusive >= 0"));
+    assert!(!compiler.contains("Pop.Random"));
+    assert!(!native.contains("Pop.Random"));
+}
+
+#[test]
+fn materializing_sequence_order_and_equality_follow_adr_0128() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0128-materializing-sequence-order-and-equality.md"),
+    );
+    let sequence = read_required(root.join("crates/libraries/standard/pop/src/sequence.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["reverse", "sort", "sortBy", "containsBy", "equalsBy"] {
+        assert_eq!(
+            sequence
+                .matches(&format!("public function {function}<"))
+                .count(),
+            1
+        );
+    }
+    assert!(sequence.contains("while position > 1 and"));
+    assert!(sequence.contains("List.add(keys, select(value))"));
+    assert!(sequence.contains("if length ~= List.length(rightValues) then"));
+    assert!(!compiler.contains("Pop.Sequence.sort"));
+    assert!(!native.contains("Pop.Sequence.sort"));
+}
+
+#[test]
+fn ordinary_public_record_metadata_follows_adr_0129() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0129-ordinary-public-record-reference-metadata.md"),
+    );
+    let api = read_required(root.join("crates/compiler/driver/src/api.rs"));
+    let reference = read_required(root.join("crates/compiler/driver/src/reference.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(api.contains("pub struct ReferenceRecord"));
+    assert!(reference.contains("let public_records = hir"));
+    assert!(reference.contains("hir_reference_record_declarations"));
+    assert!(hir.contains("pub struct HirRecordReference"));
+    assert!(mir.contains("pub struct MirRecordReference"));
+    assert!(!native.contains("ReferenceRecord"));
+}
+
+#[test]
+fn bounded_semantic_versions_follow_adr_0131_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0131-bounded-semantic-version-values.md"));
+    let version = read_required(root.join("crates/libraries/standard/pop/src/version.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(version.matches("public record Value").count(), 1);
+    for function in ["parse", "format", "compare", "matches"] {
+        assert_eq!(
+            version
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Version\t{function}\t")),
+            "Version.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(version.contains("MAX_VERSION_TEXT_LENGTH = 1024"));
+    assert!(version.contains("MAX_VERSION_COMPONENT = 2147483646"));
+    assert!(!compiler.contains("Pop.Version"));
+    assert!(!native.contains("Pop.Version"));
+}
+
+#[test]
+fn bounded_media_types_follow_adr_0132_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0132-bounded-media-type-values.md"));
+    let mime = read_required(root.join("crates/libraries/standard/pop/src/mime.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(mime.matches("public record Parameter").count(), 1);
+    assert_eq!(mime.matches("public record Value").count(), 1);
+    for function in ["parse", "format", "parameter", "matches"] {
+        assert_eq!(
+            mime.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Mime\t{function}\t")),
+            "Mime.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(mime.contains("MAX_MEDIA_TYPE_LENGTH = 1024"));
+    assert!(mime.contains("MAX_PARAMETER_COUNT = 32"));
+    assert!(!compiler.contains("Pop.Mime"));
+    assert!(!native.contains("Pop.Mime"));
+}
+
+#[test]
+fn bounded_uri_references_follow_adr_0133_without_a_native_duplicate() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0133-bounded-uri-reference-values.md"));
+    let uri = read_required(root.join("crates/libraries/standard/pop/src/uri.pop"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(uri.matches("public record Value").count(), 1);
+    for function in [
+        "parse",
+        "format",
+        "percentEncode",
+        "percentDecode",
+        "resolve",
+    ] {
+        assert_eq!(
+            uri.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Uri\t{function}\t")),
+            "Uri.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(uri.contains("MAX_URI_LENGTH = 4096"));
+    assert!(!compiler.contains("Pop.Uri"));
+    assert!(!native.contains("Pop.Uri"));
+}
+
+#[test]
+fn bounded_guid_values_follow_adr_0134_without_a_prelude_or_native_duplicate() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0134-bounded-guid-values.md"));
+    let guid = read_required(root.join("crates/libraries/standard/pop/src/guid.pop"));
+    let prelude = read_required(root.join("libraries/standard/bootstrap/prelude-types.tsv"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(!prelude.contains("\tGuid\t"));
+    assert!(!baseline.contains("type:105\tType\tPop.Standard\tPop\tGuid\t"));
+    assert_eq!(guid.matches("public record Value").count(), 1);
+    for function in [
+        "newVersion4",
+        "parse",
+        "format",
+        "fromBytes",
+        "toBytes",
+        "isNil",
+        "isVersion4",
+    ] {
+        assert_eq!(
+            guid.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Guid\t{function}\t")),
+            "Guid.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(!compiler.contains("Pop.Guid"));
+    assert!(!native.contains("Pop.Guid"));
+}
+
+#[test]
+fn bounded_portable_paths_follow_adr_0135_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0135-bounded-portable-lexical-paths.md"));
+    let path = read_required(root.join("crates/libraries/standard/pop/src/path.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(path.matches("public record Value").count(), 1);
+    for function in [
+        "normalize",
+        "format",
+        "isAbsolute",
+        "join",
+        "parent",
+        "name",
+        "extension",
+    ] {
+        assert_eq!(
+            path.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Path\t{function}\t")),
+            "Path.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(path.contains("MAX_PATH_LENGTH = 4096"));
+    assert!(!compiler.contains("Pop.Path"));
+    assert!(!native.contains("Pop.Path"));
+}
+
+#[test]
+fn canonical_durations_follow_adr_0136_without_clock_or_native_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0136-canonical-duration-values.md"));
+    let time = read_required(root.join("crates/libraries/standard/pop/src/time.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(time.matches("public record Duration").count(), 1);
+    for function in [
+        "fromSeconds",
+        "fromMilliseconds",
+        "fromNanoseconds",
+        "compare",
+        "isZero",
+        "isNegative",
+        "secondsPart",
+        "nanosecondsPart",
+    ] {
+        assert_eq!(
+            time.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(!compiler.contains("Pop.Time"));
+    assert!(!native.contains("Pop.Time"));
+}
+
+#[test]
+fn deterministic_test_clocks_follow_adr_0137_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0137-deterministic-test-clock-values.md"));
+    let clock = read_required(root.join("crates/libraries/standard/pop/src/timeClock.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Instant",
+        "public record Deadline",
+        "public class TestClock",
+    ] {
+        assert_eq!(clock.matches(declaration).count(), 1);
+    }
+    for function in [
+        "instant",
+        "testClock",
+        "now",
+        "advance",
+        "deadlineAfter",
+        "isExpired",
+    ] {
+        assert_eq!(
+            clock
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(clock.contains("MAX_TEST_CLOCK_SECONDS = 2147483646"));
+    assert!(!compiler.contains("Time.TestClock"));
+    assert!(!native.contains("Time.TestClock"));
+}
+
+#[test]
+fn bounded_gregorian_dates_follow_adr_0138_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0138-bounded-gregorian-date-values.md"));
+    let date = read_required(root.join("crates/libraries/standard/pop/src/timeDate.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(date.matches("public record Date").count(), 1);
+    for function in ["date", "isLeapYear", "daysInMonth", "compareDates"] {
+        assert_eq!(
+            date.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(date.contains("MAX_DATE_YEAR = 9999"));
+    assert!(!compiler.contains("Time.Date"));
+    assert!(!native.contains("Time.Date"));
+}
+
+#[test]
+fn bounded_civil_times_follow_adr_0139_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0139-bounded-civil-time-values.md"));
+    let time = read_required(root.join("crates/libraries/standard/pop/src/timeDateTime.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record TimeOfDay",
+        "public record LocalDateTime",
+        "public record UtcOffset",
+        "public record OffsetDateTime",
+    ] {
+        assert_eq!(time.matches(declaration).count(), 1);
+    }
+    for function in [
+        "timeOfDay",
+        "localDateTime",
+        "utcOffset",
+        "offsetDateTime",
+        "isUtc",
+    ] {
+        assert_eq!(
+            time.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(
+            baseline.contains(&format!("\tPop.Time\t{function}\t")),
+            "Time.{function} must be in the frozen API baseline"
+        );
+    }
+    assert!(time.contains("MAX_UTC_OFFSET_SECONDS = 64800"));
+    assert!(!compiler.contains("Time.OffsetDateTime"));
+    assert!(!native.contains("Time.OffsetDateTime"));
+}
+
+#[test]
+fn bounded_locale_tags_follow_adr_0140_without_ambient_or_native_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0140-bounded-locale-tags.md"));
+    let locale = read_required(root.join("crates/libraries/standard/pop/src/locale.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(locale.matches("public record Tag").count(), 1);
+    for function in ["parse", "format", "sameLanguage"] {
+        assert_eq!(
+            locale
+                .matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Locale\t{function}\t")));
+    }
+    assert!(locale.contains("MAX_LOCALE_TAG_LENGTH = 63"));
+    assert!(!compiler.contains("Pop.Locale"));
+    assert!(!native.contains("Pop.Locale"));
+}
+
+#[test]
+fn bounded_text_globs_follow_adr_0141_without_regex_or_host_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0141-bounded-text-glob-patterns.md"));
+    let glob = read_required(root.join("crates/libraries/standard/pop/src/glob.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(glob.matches("public class Pattern").count(), 1);
+    for function in ["compile", "matches"] {
+        assert_eq!(
+            glob.matches(&format!("public function {function}("))
+                .count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Glob\t{function}\t")));
+    }
+    assert!(glob.contains("MAX_GLOB_PATTERN_BYTES = 1024"));
+    assert!(glob.contains("MAX_GLOB_TEXT_BYTES = 4096"));
+    assert!(!compiler.contains("Pop.Glob"));
+    assert!(!native.contains("Pop.Glob"));
+}
+
+#[test]
+fn bounded_csv_rows_follow_adr_0142_without_dynamic_or_host_duplicates() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0142-bounded-csv-text-rows.md"));
+    let csv = read_required(root.join("crates/libraries/standard/pop/src/csv.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for function in ["parse", "format"] {
+        assert_eq!(
+            csv.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Csv\t{function}\t")));
+    }
+    for limit in [
+        "MAX_CSV_BYTES = 1048576",
+        "MAX_CSV_ROWS = 4096",
+        "MAX_CSV_FIELDS = 4096",
+        "MAX_CSV_FIELD_BYTES = 65536",
+    ] {
+        assert!(csv.contains(limit));
+    }
+    assert!(!compiler.contains("Pop.Csv"));
+    assert!(!native.contains("Pop.Csv"));
+}
+
+#[test]
+fn canonical_ipv4_values_follow_adr_0143_without_socket_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0143-bounded-ipv4-address-values.md"));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/net.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public record Ipv4Address").count(), 1);
+    for function in [
+        "ipv4",
+        "parseIpv4",
+        "formatIpv4",
+        "ipv4Octet",
+        "isIpv4Loopback",
+        "isIpv4Private",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(!compiler.contains("Pop.Net"));
+    assert!(!native.contains("Pop.Net"));
+}
+
+#[test]
+fn ipv4_prefixes_and_endpoints_follow_adr_0144_without_transport_operations() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0144-ipv4-prefix-and-socket-address-values.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netIpv4Endpoint.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Ipv4Prefix",
+        "public record Ipv4SocketAddress",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "ipv4Prefix",
+        "networkIpv4",
+        "containsIpv4",
+        "ipv4Socket",
+        "parseIpv4Socket",
+        "formatIpv4Socket",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(!net.contains("public function connect("));
+    assert!(!net.contains("public function bind("));
+}
+
+#[test]
+fn canonical_ipv6_values_follow_adr_0150_without_host_or_native_duplicates() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0150-canonical-ipv6-address-values.md"));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netIpv6.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public record Ipv6Address").count(), 1);
+    for function in [
+        "ipv6",
+        "parseIpv6",
+        "formatIpv6",
+        "ipv6Segment",
+        "isIpv6Loopback",
+        "isIpv6Unspecified",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in [
+        "Pop.Internal",
+        "Dynamic",
+        "Any",
+        "Dns.",
+        "Socket.",
+        "connect(",
+        "reflect",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!compiler.contains("Pop.Net.Ipv6"));
+    assert!(!native.contains("Ipv6"));
+}
+
+#[test]
+fn ipv6_prefixes_and_endpoints_follow_adr_0151_without_transport_operations() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0151-ipv6-prefix-and-socket-address-values.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netIpv6Endpoint.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let compiler = read_required(root.join("crates/compiler/types/src/call_checking.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record Ipv6Prefix",
+        "public record Ipv6SocketAddress",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "ipv6Prefix",
+        "networkIpv6",
+        "containsIpv6",
+        "ipv6Socket",
+        "parseIpv6Socket",
+        "formatIpv6Socket",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert!(net.contains("\"[\" .. formatIpv6(value.address) .. \"]:\""));
+    for forbidden in [
+        "Pop.Internal",
+        "Dynamic",
+        "Any",
+        "Dns.",
+        "Socket.",
+        "bind(",
+        "connect(",
+        "reflect",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!compiler.contains("Pop.Net.Ipv6Prefix"));
+    assert!(!native.contains("Ipv6Prefix"));
+}
+
+#[test]
+fn closed_ip_address_union_follows_adr_0152_without_erasure_or_host_behavior() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0152-closed-ip-address-union.md"));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netAddress.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public union Address").count(), 1);
+    assert_eq!(net.matches("Ipv4(value: Ipv4Address)").count(), 1);
+    assert_eq!(net.matches("Ipv6(value: Ipv6Address)").count(), 1);
+    for function in [
+        "parseAddress",
+        "formatAddress",
+        "isAddressLoopback",
+        "isAddressUnspecified",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    assert_eq!(net.matches("match address").count(), 3);
+    for forbidden in [
+        "Dynamic", "Any", "Table", "reflect", "Dns.", "Socket.", "connect(", "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!native.contains("Address.Ipv4"));
+    assert!(!native.contains("Address.Ipv6"));
+}
+
+#[test]
+fn closed_prefix_and_socket_unions_follow_adr_0153_without_family_erasure() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0153-closed-ip-prefix-and-socket-address-unions.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netFamilyValues.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public union Prefix").count(), 1);
+    assert_eq!(net.matches("public union SocketAddress").count(), 1);
+    for function in [
+        "networkAddress",
+        "containsAddress",
+        "parseSocketAddress",
+        "formatSocketAddress",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in ["Dynamic", "Any", "Table", "Dns.", "connect(", "runtime"] {
+        assert!(!net.contains(forbidden));
+    }
+}
+
+#[test]
+fn numeric_interface_scope_follows_adr_0154_without_ambient_host_lookup() {
+    let root = repository_root();
+    let adr = read_required(root.join(
+        "architecture/decisions/0154-numeric-interface-identities-and-scoped-ipv6-values.md",
+    ));
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netScope.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let native = read_required(root.join("crates/runtime/native/src/lib.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert_eq!(net.matches("public record InterfaceId").count(), 1);
+    assert_eq!(net.matches("public record ScopedIpv6Address").count(), 1);
+    for function in [
+        "interfaceId",
+        "scopedIpv6",
+        "parseScopedIpv6",
+        "formatScopedIpv6",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in [
+        "Dynamic",
+        "Any",
+        "lookup",
+        "interfaces(",
+        "Dns.",
+        "Socket.",
+        "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+    assert!(!native.contains("ScopedIpv6Address"));
+}
+
+#[test]
+fn immutable_network_facts_follow_adr_0155_without_host_query_authority() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0155-immutable-network-interface-and-route-facts.md"),
+    );
+    let net = read_required(root.join("crates/libraries/standard/pop/src/netFacts.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record NetworkInterface",
+        "public record InterfaceAddress",
+        "public union Route",
+    ] {
+        assert_eq!(net.matches(declaration).count(), 1);
+    }
+    for function in [
+        "networkInterface",
+        "interfaceAddress",
+        "ipv4OnLinkRoute",
+        "ipv4ViaRoute",
+        "ipv6OnLinkRoute",
+        "ipv6ViaRoute",
+        "routeDestination",
+        "routeNextHop",
+        "routeInterfaceId",
+        "routeMetric",
+    ] {
+        assert_eq!(
+            net.matches(&format!("public function {function}(")).count(),
+            1
+        );
+        assert!(baseline.contains(&format!("\tPop.Net\t{function}\t")));
+    }
+    for forbidden in [
+        "Dynamic",
+        "Any",
+        "Table",
+        "interfaces(",
+        "routes(",
+        "Dns.",
+        "Socket.",
+        "runtime",
+    ] {
+        assert!(!net.contains(forbidden));
+    }
+}
+
+#[test]
+fn bounded_dns_names_follow_adr_0159_without_resolver_authority() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0159-bounded-dns-name-values.md"));
+    let dns = read_required(root.join("crates/libraries/standard/pop/src/netDns.pop"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "public record DnsName",
+        "public function parseDnsName",
+        "public function formatDnsName",
+        "public function dnsNameLabelCount",
+    ] {
+        assert_eq!(dns.matches(declaration).count(), 1);
+    }
+    for forbidden in [
+        "Dns.lookup",
+        "resolve",
+        "Environment",
+        "Socket.",
+        "Dynamic",
+        "Any",
+    ] {
+        assert!(!dns.contains(forbidden));
+    }
+    for name in [
+        "DnsName",
+        "parseDnsName",
+        "formatDnsName",
+        "dnsNameLabelCount",
+    ] {
+        assert!(baseline.contains(&format!("\tPop.Net\t{name}\t")));
+    }
+}
+
+#[test]
+fn typed_atomic_state_follows_adr_0156_without_backend_or_pointer_leakage() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0156-typed-atomic-order-and-state-contract.md"),
+    );
+    let atomic = read_required(root.join("crates/runtime/interface/src/atomic.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/atomic_contracts.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "pub enum AtomicLoadOrder",
+        "pub enum AtomicStoreOrder",
+        "pub enum AtomicReadModifyWriteOrder",
+        "pub struct AtomicCompareExchangeOrder",
+        "pub struct AtomicInt",
+        "pub struct AtomicBoolean",
+    ] {
+        assert_eq!(atomic.matches(declaration).count(), 1);
+    }
+    assert!(tests.contains("typed_orders_reject_invalid_compare_exchange_failures"));
+    assert!(tests.contains("release_acquire_publication_is_visible_after_join"));
+    for forbidden in [
+        "llvm",
+        "inkwell",
+        "ManagedReference",
+        "*mut",
+        "Dynamic",
+        "Any",
+    ] {
+        assert!(!atomic.contains(forbidden));
+    }
+}
+
+#[test]
+fn atomic_native_handles_follow_adr_0157_without_dynamic_dispatch() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0157-atomic-native-abi-handles.md"));
+    let abi = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/atomic.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for symbol in [
+        "ATOMIC_INT_CREATE_SYMBOL",
+        "ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL",
+        "ATOMIC_BOOL_CREATE_SYMBOL",
+        "ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL",
+        "ATOMIC_RELEASE_SYMBOL",
+    ] {
+        assert_eq!(
+            abi.matches(symbol).count(),
+            2,
+            "Atomic symbol must have one declaration and one closed operation mapping"
+        );
+    }
+    for function in [
+        "pop_rt_atomic_int_create",
+        "pop_rt_atomic_int_load",
+        "pop_rt_atomic_int_store",
+        "pop_rt_atomic_int_swap",
+        "pop_rt_atomic_int_compare_exchange",
+        "pop_rt_atomic_bool_create",
+        "pop_rt_atomic_bool_load",
+        "pop_rt_atomic_bool_store",
+        "pop_rt_atomic_bool_swap",
+        "pop_rt_atomic_bool_compare_exchange",
+        "pop_rt_atomic_release",
+    ] {
+        assert_eq!(native.matches(function).count(), 1);
+    }
+    assert!(tests.contains("native_atomics_keep_typed_state_and_fail_closed"));
+    for forbidden in ["Any", "Dynamic", "*mut Managed", "llvm", "inkwell"] {
+        assert!(!native.contains(forbidden));
+    }
+}
+
+#[test]
+fn atomic_runtime_operation_vocabulary_follows_adr_0160() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0160-atomic-operation-vocabulary.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let types = read_required(root.join("libraries/standard/bootstrap/prelude-types.tsv"));
+    assert!(adr.contains("- Status: accepted"));
+    assert!(types.contains("132\tAtomic.Int\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("133\tAtomic.Boolean\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("134\tAtomic.LoadOrder\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse"));
+    assert!(types.contains("136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse"));
+    for name in [
+        "AtomicIntCreate",
+        "AtomicIntLoad",
+        "AtomicIntStore",
+        "AtomicIntSwap",
+        "AtomicIntCompareExchange",
+        "AtomicBoolCreate",
+        "AtomicBoolLoad",
+        "AtomicBoolStore",
+        "AtomicBoolSwap",
+        "AtomicBoolCompareExchange",
+        "AtomicRelease",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+    }
+    for name in [
+        "RuntimeOperation::AtomicIntCreate",
+        "RuntimeOperation::AtomicIntLoad",
+        "RuntimeOperation::AtomicIntStore",
+        "RuntimeOperation::AtomicIntSwap",
+        "RuntimeOperation::AtomicIntCompareExchange",
+        "RuntimeOperation::AtomicBoolCreate",
+        "RuntimeOperation::AtomicBoolLoad",
+        "RuntimeOperation::AtomicBoolStore",
+        "RuntimeOperation::AtomicBoolSwap",
+        "RuntimeOperation::AtomicBoolCompareExchange",
+        "RuntimeOperation::AtomicRelease",
+    ] {
+        assert_eq!(symbols.matches(name).count(), 1);
+    }
+}
+
+#[test]
+fn actor_runtime_operation_vocabulary_follows_adr_0161() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0161-actor-operation-vocabulary.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for name in [
+        "ActorCreate",
+        "ActorActivate",
+        "ActorTrySend",
+        "ActorTrySendHandle",
+        "ActorTryReceive",
+        "ActorBeginExit",
+        "ActorCompleteExit",
+        "ActorRelease",
+    ] {
+        assert_eq!(operation.matches(&format!("    {name},")).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name} =>"))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn bounded_tcp_native_bridge_follows_adr_0162_without_ambient_lookup() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0162-bounded-tcp-native-handles.md"));
+    let tcp = read_required(root.join("crates/runtime/native/src/tcp.rs"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for function in [
+        "pop_rt_tcp_listen",
+        "pop_rt_tcp_local_port",
+        "pop_rt_tcp_connect",
+        "pop_rt_tcp_accept",
+        "pop_rt_tcp_send",
+        "pop_rt_tcp_receive",
+        "pop_rt_tcp_close",
+    ] {
+        assert_eq!(tcp.matches(&format!("fn {function}(")).count(), 1);
+    }
+    for name in [
+        "TcpListen",
+        "TcpLocalPort",
+        "TcpConnect",
+        "TcpAccept",
+        "TcpSend",
+        "TcpReceive",
+        "TcpClose",
+    ] {
+        assert_eq!(operation.matches(&format!("    {name},")).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name} =>"))
+                .count(),
+            1
+        );
+    }
+    assert!(tests.contains("native_tcp_handles_fail_closed_without_a_capability"));
+    for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {
+        assert!(!tcp.contains(forbidden));
+    }
+}
+
+#[test]
+fn bounded_tcp_native_streams_are_always_nonblocking() {
+    let source = read_required(repository_root().join("crates/runtime/native/src/tcp.rs"));
+    assert_eq!(
+        source.matches("set_nonblocking(true)").count(),
+        3,
+        "listener, connected streams, and accepted streams must all be nonblocking"
+    );
+    assert!(!source.contains("set_nonblocking(false)"));
+}
+
+#[test]
+fn bounded_udp_native_bridge_follows_adr_0163_without_resolver_authority() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0163-bounded-udp-native-handles.md"));
+    let udp = read_required(root.join("crates/runtime/native/src/udp.rs"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+    assert!(adr.contains("- Status: accepted"));
+    for function in [
+        "pop_rt_udp_bind",
+        "pop_rt_udp_local_port",
+        "pop_rt_udp_send_to",
+        "pop_rt_udp_receive",
+        "pop_rt_udp_close",
+    ] {
+        assert_eq!(udp.matches(&format!("fn {function}(")).count(), 1);
+    }
+    for name in [
+        "UdpBind",
+        "UdpLocalPort",
+        "UdpSendTo",
+        "UdpReceive",
+        "UdpClose",
+    ] {
+        assert_eq!(operation.matches(&format!("    {name},")).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name} =>"))
+                .count(),
+            1
+        );
+    }
+    assert!(tests.contains("native_udp_handles_fail_closed_without_a_capability"));
+    for forbidden in ["Dns", "Environment", "getaddrinfo", "symbolic"] {
+        assert!(!udp.contains(forbidden));
+    }
+}
+
+#[test]
+fn local_actor_native_mailboxes_follow_adr_0158_without_symbolic_lookup() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0158-local-actor-native-mailboxes.md"));
+    let abi = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/actor.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for declaration in [
+        "pub enum ActorSendStatus",
+        "pub enum ActorReceiveStatus",
+        "pub enum ActorLifecycleStatus",
+    ] {
+        assert_eq!(abi.matches(declaration).count(), 1);
+    }
+    for function in [
+        "pop_rt_actor_create",
+        "pop_rt_actor_activate",
+        "pop_rt_actor_try_send",
+        "pop_rt_actor_try_receive",
+        "pop_rt_actor_begin_exit",
+        "pop_rt_actor_complete_exit",
+        "pop_rt_actor_release",
+    ] {
+        assert_eq!(native.matches(&format!("fn {function}(")).count(), 1);
+    }
+    assert!(tests.contains("native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle"));
+    assert!(tests.contains("native_actor_managed_messages_transfer_one_precise_root"));
+    for forbidden in [
+        "Any",
+        "Dynamic",
+        "symbolic",
+        "*mut Managed",
+        "llvm",
+        "inkwell",
+    ] {
+        assert!(!native.contains(forbidden));
+    }
+}
+
+#[test]
+fn bounded_channel_lifecycle_follows_adr_0145_without_erased_payloads() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0145-bounded-channel-runtime-lifecycle.md"),
+    );
+    let channel = read_required(root.join("crates/runtime/interface/src/channel.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/channel_contracts.rs"));
+    let integrated =
+        read_required(root.join("architecture/23-concurrency-actors-and-distribution.md"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(integrated.contains("ADR 0145"));
+    for declaration in [
+        "pub struct ChannelId",
+        "pub enum ChannelState",
+        "pub enum ChannelSendError<T>",
+        "pub enum ChannelReceive<T>",
+        "pub struct ChannelLifecycle<T>",
+    ] {
+        assert_eq!(channel.matches(declaration).count(), 1);
+    }
+    for behavior in [
+        "bounded_channel_preserves_fifo",
+        "sender_close_drains_buffer",
+        "endpoint_lifetimes_close",
+        "last_receiver_release_returns_buffered_values",
+        "zero_capacity_is_an_explicit_rendezvous",
+        "logical_capacity_does_not_eagerly_allocate",
+    ] {
+        assert!(tests.contains(behavior));
+    }
+    assert!(!channel.contains("Box<dyn"));
+    assert!(!channel.contains("std::any::Any"));
+    assert!(!channel.contains("HashMap"));
+    assert!(channel.contains("capacity: u64"));
+}
+
+#[test]
+fn native_bounded_channel_abi_follows_adr_0146_with_precise_roots() {
+    let root = repository_root();
+    let adr = read_required(root.join("architecture/decisions/0146-native-bounded-channel-abi.md"));
+    let operation = read_required(root.join("crates/runtime/interface/src/operation.rs"));
+    let symbols = read_required(root.join("crates/runtime/native-abi/src/symbol.rs"));
+    let version = read_required(root.join("crates/runtime/native-abi/src/version.rs"));
+    let native = read_required(root.join("crates/runtime/native/src/channel.rs"));
+    let tests = read_required(root.join("crates/runtime/native/tests/abi.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(version.contains("NativeAbiVersion::new(1, 47)"));
+    assert!(version.contains("NativeAbiVersion::new(2, 5)"));
+    for name in [
+        "ChannelCreate",
+        "ChannelRetainSender",
+        "ChannelReleaseSender",
+        "ChannelRetainReceiver",
+        "ChannelReleaseReceiver",
+        "ChannelClose",
+        "ChannelTrySend",
+        "ChannelTryReceive",
+    ] {
+        assert_eq!(operation.matches(name).count(), 1);
+        assert_eq!(
+            symbols
+                .matches(&format!("RuntimeOperation::{name}"))
+                .count(),
+            1
+        );
+    }
+    assert!(native.contains("runtime.retain_root"));
+    assert!(native.contains("runtime.resolve_root"));
+    assert!(native.contains("runtime.release_root"));
+    assert!(tests.contains("remain_precisely_rooted_until_receive"));
+    assert!(tests.contains("last_receiver_releases_queued_managed_payloads"));
+    assert!(tests.contains("rejects_unknown_payload_maps_without_mutation"));
+    assert!(!native.contains("Box<dyn"));
+    assert!(!native.contains("std::any::Any"));
+}
+
+#[test]
+fn directional_channel_api_follows_adr_0147_across_verified_ir_and_backends() {
+    let root = repository_root();
+    let adr =
+        read_required(root.join("architecture/decisions/0147-directional-bounded-channel-api.md"));
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+    let interpreter =
+        read_required(root.join("crates/compiler/backends/mir-interp/src/interpreter.rs"));
+    let llvm =
+        read_required(root.join("crates/compiler/backends/llvm/src/instruction_lowering.rs"));
+    let c = read_required(root.join("crates/compiler/backends/c/src/validation.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for identity in [
+        "Channel.Sender",
+        "Channel.Receiver",
+        "Channel.SendOutcome",
+        "Channel.ReceiveOutcome",
+    ] {
+        assert!(baseline.contains(identity), "missing {identity}");
+    }
+    for operation in [
+        "ChannelCreate",
+        "ChannelTrySend",
+        "ChannelTryReceive",
+        "ChannelClose",
+        "ChannelSendOutcomeTest",
+        "ChannelReceiveItem",
+        "ChannelReceiveOutcomeTest",
+    ] {
+        assert!(typed.contains(operation));
+        assert!(hir.contains(operation));
+        assert!(mir.contains(operation));
+        assert!(interpreter.contains(operation));
+        assert!(llvm.contains(operation));
+        assert!(c.contains(operation));
+    }
+    for source_name in [
+        "bounded",
+        "trySend",
+        "tryReceive",
+        "close",
+        "closeReceiver",
+        "sendAccepted",
+        "sendFull",
+        "sendClosed",
+        "received",
+        "receiveEmpty",
+        "receiveClosed",
+    ] {
+        assert!(
+            baseline.contains(&format!("\tPop.Channel\t{source_name}\t")),
+            "missing Channel.{source_name}"
+        );
+    }
+    for forbidden in ["Box<dyn", "std::any::Any", "Dynamic"] {
+        assert!(!typed.contains(forbidden));
+        assert!(!mir.contains(forbidden));
+    }
+}
+
+#[test]
+fn local_actor_lifecycle_follows_adr_0148_without_channel_or_dynamic_erasure() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0148-local-actor-incarnation-lifecycle.md"),
+    );
+    let actor = read_required(root.join("crates/runtime/interface/src/actor.rs"));
+    let tests = read_required(root.join("crates/runtime/interface/tests/actor_contracts.rs"));
+    let integrated =
+        read_required(root.join("architecture/23-concurrency-actors-and-distribution.md"));
+
+    assert!(adr.contains("- Status: accepted"));
+    assert!(integrated.contains("ADR 0148"));
+    for declaration in [
+        "pub struct ActorId",
+        "pub struct ActorIncarnation",
+        "pub struct ActorReference",
+        "pub enum ActorExit",
+        "pub enum ActorState",
+        "pub enum ActorSendError<T>",
+        "pub enum ActorReceive<T>",
+        "pub struct ActorLifecycle<T>",
+    ] {
+        assert_eq!(actor.matches(declaration).count(), 1);
+    }
+    for behavior in [
+        "active_actor_mailbox_preserves_fifo",
+        "old_actor_reference_is_stale_after_restart",
+        "actor_exit_closes_admission",
+        "actor_start_and_exit_transitions_are_single_use",
+    ] {
+        assert!(tests.contains(behavior));
+    }
+    assert!(actor.contains("copied_message: T"));
+    assert!(actor.contains("mailbox: VecDeque<T>"));
+    assert!(!actor.contains("ChannelLifecycle"));
+    assert!(!actor.contains("Box<dyn"));
+    assert!(!actor.contains("std::any::Any"));
+    assert!(!actor.contains("HashMap"));
+}
+
+#[test]
+fn actor_message_safety_follows_adr_0149_and_fails_closed() {
+    let root = repository_root();
+    let adr = read_required(
+        root.join("architecture/decisions/0149-compiler-proven-actor-message-safety.md"),
+    );
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let safety = read_required(root.join("crates/compiler/types/src/actor_safety.rs"));
+    let tests = read_required(root.join("crates/compiler/types/tests/actor_message_safety.rs"));
+
+    assert!(adr.contains("- Status: accepted"));
+    for identity in ["Actor.Ref", "Actor.Inbox", "Actor.Reply"] {
+        assert!(baseline.contains(identity), "missing {identity}");
+    }
+    for rejected in [
+        "MutableCollection",
+        "Callable",
+        "Class",
+        "Interface",
+        "Builtin",
+        "TypeParameter",
+        "Opaque",
+    ] {
+        assert!(safety.contains(rejected), "missing rejection {rejected}");
+    }
+    assert!(safety.contains("ACTOR_REF_TYPE_ID | ACTOR_REPLY_TYPE_ID"));
+    assert!(tests.contains("actor_message_safety_is_recursive"));
+    assert!(!safety.contains("Box<dyn"));
+    assert!(!safety.contains("std::any::Any"));
+    assert!(!safety.contains("Dynamic"));
+    assert!(!safety.contains("marker"));
+}
+
+#[test]
+fn reserved_iteration_matching_follows_adrs_0053_and_0064() {
+    let root = repository_root();
+    let iteration = read_required(
+        root.join("architecture/decisions/0053-nominal-iteration-sequences-and-growable-lists.md"),
+    );
+    let inspection = read_required(
+        root.join("architecture/decisions/0064-sequence-inspection-and-visitation.md"),
+    );
+    let typed = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let checking = read_required(root.join("crates/compiler/types/src/statement_checking.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/lowering.rs"));
+    let roadmap = read_required(root.join("ROADMAP.md"));
+
+    assert!(iteration.contains("- Status: accepted"));
+    assert!(inspection.contains("- Status: accepted"));
+    assert!(typed.contains("IterationMatch {"));
+    assert!(checking.contains("fn check_iteration_match("));
+    assert!(hir.contains("IterationMatch {"));
+    assert!(mir.contains("fn lower_iteration_match("));
+    assert!(mir.contains("MirInstructionKind::IterationIsItem"));
+    assert!(mir.contains("MirInstructionKind::IterationGetItem"));
+    assert!(roadmap.contains("- [x] Make reserved `Iteration<T>` exhaustively matchable"));
 }
 
 #[test]
@@ -1607,7 +3476,6 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "102\tSet\tPop.Standard\t1\tNominal\ttrue",
             "103\tRange\tPop.Standard\t1\tNominal\ttrue",
             "104\tTask\tPop.Standard\t1\tNominal\ttrue",
-            "105\tGuid\tPop.Standard\t0\tNominal\ttrue",
             "106\tIterable\tPop.Standard\t1\tInterface\ttrue",
             "107\tIterator\tPop.Standard\t1\tInterface\ttrue",
             "108\tEqual\tPop.Standard\t1\tInterface\ttrue",
@@ -1620,7 +3488,8 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "115\tTask.Group\tPop.Standard\t0\tNominal\tfalse",
             "116\tTask.CancelSource\tPop.Standard\t0\tNominal\tfalse",
             // ADR 0092 appends the closed retained-codec contract; ADR 0093
-            // appends the two compiler-proven borrowed-view identities.
+            // appends the two compiler-proven borrowed-view identities. ADR
+            // 0117 appends the non-prelude reusable byte-buffer identity.
             "117\tMetadata.Use\tPop.Standard\t0\tNominal\tfalse",
             "118\tCodec.Schema\tPop.Standard\t1\tNominal\tfalse",
             "119\tCodec.Writer\tPop.Standard\t0\tNominal\tfalse",
@@ -1628,6 +3497,46 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "121\tCodec.Error\tPop.Standard\t0\tNominal\tfalse",
             "122\tBytes.View\tPop.Standard\t0\tView\tfalse",
             "123\tText.View\tPop.Standard\t0\tView\tfalse",
+            "124\tBytes.Buffer\tPop.Standard\t0\tNominal\tfalse",
+            // ADRs 0147 and 0149 append non-prelude concurrency identities.
+            "125\tChannel.Sender\tPop.Standard\t1\tNominal\tfalse",
+            "126\tChannel.Receiver\tPop.Standard\t1\tNominal\tfalse",
+            "127\tChannel.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
+            "128\tChannel.ReceiveOutcome\tPop.Standard\t1\tNominal\tfalse",
+            "129\tActor.Ref\tPop.Standard\t1\tNominal\tfalse",
+            "130\tActor.Inbox\tPop.Standard\t1\tNominal\tfalse",
+            "131\tActor.Reply\tPop.Standard\t1\tNominal\tfalse",
+            // ADRs 0156 and 0160 append typed non-prelude Atomic identities.
+            "132\tAtomic.Int\tPop.Standard\t0\tNominal\tfalse",
+            "133\tAtomic.Boolean\tPop.Standard\t0\tNominal\tfalse",
+            "134\tAtomic.LoadOrder\tPop.Standard\t0\tNominal\tfalse",
+            "135\tAtomic.StoreOrder\tPop.Standard\t0\tNominal\tfalse",
+            "136\tAtomic.ReadModifyWriteOrder\tPop.Standard\t0\tNominal\tfalse",
+            "137\tActor.SendOutcome\tPop.Standard\t0\tNominal\tfalse",
+            // ADR 0167 appends the typed non-prelude network transport identities.
+            "138\tNet.Tcp.Listener\tPop.Standard\t0\tNominal\tfalse",
+            "139\tNet.Tcp.Stream\tPop.Standard\t0\tNominal\tfalse",
+            "140\tNet.Udp.Socket\tPop.Standard\t0\tNominal\tfalse",
+            "141\tNet.SocketIoOutcome\tPop.Standard\t0\tNominal\tfalse",
+            "142\tNet.Tcp.Receive\tPop.Standard\t0\tNominal\tfalse",
+            "143\tNet.Udp.Datagram\tPop.Standard\t0\tNominal\tfalse",
+            "144\tNet.Transfer\tPop.Standard\t0\tNominal\tfalse",
+            "145\tNet.Udp.Transfer\tPop.Standard\t0\tNominal\tfalse",
+            "146\tNet.Dns.Resolver\tPop.Standard\t0\tNominal\tfalse",
+            "147\tNet.Dns.Answers\tPop.Standard\t0\tNominal\tfalse",
+            "148\tNet.Unix.Listener\tPop.Standard\t0\tNominal\tfalse",
+            "149\tNet.Unix.Stream\tPop.Standard\t0\tNominal\tfalse",
+            // ABI 1.41 appends explicit non-prelude live monotonic capabilities.
+            "150\tTime.MonotonicClock\tPop.Standard\t0\tNominal\tfalse",
+            "151\tTime.LiveDeadline\tPop.Standard\t0\tNominal\tfalse",
+            "152\tNet.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
+            "153\tNet.Udp.WaitTransfer\tPop.Standard\t0\tNominal\tfalse",
+            "154\tNet.Interfaces.Snapshot\tPop.Standard\t0\tNominal\tfalse",
+            "155\tNet.Routes.Snapshot\tPop.Standard\t0\tNominal\tfalse",
+            // ABI 1.47 appends opaque TLS configurations and streams.
+            "156\tNet.Tls.ClientConfig\tPop.Standard\t0\tNominal\tfalse",
+            "157\tNet.Tls.ServerConfig\tPop.Standard\t0\tNominal\tfalse",
+            "158\tNet.Tls.Stream\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );
@@ -1852,7 +3761,9 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
     .into_iter()
     .collect();
     for public_root in PUBLIC_LIBRARY_ROOTS {
-        let expected = if ["Math", "Sequence", "Text"].contains(public_root) {
+        let expected = if *public_root == "Bytes" {
+            "implemented"
+        } else if ["Math", "Random", "Sequence", "Text", "Unicode"].contains(public_root) {
             "prototype"
         } else if bootstrap.contains(public_root) {
             "bootstrap"
@@ -1865,6 +3776,113 @@ fn public_library_root_manifest_matches_the_authoritative_catalog() {
             "status drifted for `{public_root}`"
         );
     }
+}
+
+#[test]
+fn essential_library_profile_covers_the_complete_modern_foundation() {
+    let root = repository_root();
+    let public_manifest = read_required(root.join("libraries/catalog/public-roots.tsv"));
+    let mut public_rows = BTreeMap::new();
+    for line in public_manifest
+        .lines()
+        .skip(2)
+        .filter(|line| !line.is_empty())
+    {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(columns.len(), 4, "invalid public root row: {line}");
+        public_rows.insert(
+            columns[0].to_owned(),
+            (columns[1].to_owned(), columns[3].to_owned()),
+        );
+    }
+    let mut expected = public_rows
+        .iter()
+        .filter(|(_, (tier, _))| tier.split('/').any(|part| part == "standard"))
+        .map(|(public_root, _)| public_root.clone())
+        .collect::<BTreeSet<_>>();
+    expected.extend(["Http".to_owned(), "WebSocket".to_owned()]);
+
+    let profile = read_required(root.join("libraries/catalog/essential-libraries.tsv"));
+    let mut lines = profile.lines();
+    assert_eq!(lines.next(), Some("schemaVersion\t1"));
+    assert_eq!(
+        lines.next(),
+        Some("publicRoot\tpackage\tdeliveryGroup\tstatus\tauthority")
+    );
+    assert!(profile.ends_with('\n'));
+
+    let allowed_groups = [
+        "concurrencyNetwork",
+        "core",
+        "formats",
+        "host",
+        "networkProtocol",
+        "operations",
+    ];
+    let allowed_statuses = ["implemented", "partial", "planned"];
+    let baseline = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    let mut actual = BTreeSet::new();
+    let mut previous = None;
+    for line in lines.filter(|line| !line.is_empty()) {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(columns.len(), 5, "invalid essential-library row: {line}");
+        let [public_root, package, group, status, authority] = columns.as_slice() else {
+            unreachable!("column count checked above")
+        };
+        assert!(
+            previous.is_none_or(|previous: &str| previous < *public_root),
+            "essential-library rows must be strictly sorted"
+        );
+        previous = Some(public_root);
+        assert!(
+            actual.insert((*public_root).to_owned()),
+            "duplicate essential root `{public_root}`"
+        );
+        assert!(
+            allowed_groups.contains(group),
+            "unknown delivery group `{group}`"
+        );
+        assert!(
+            allowed_statuses.contains(status),
+            "unknown status `{status}`"
+        );
+        let expected_package = if matches!(*public_root, "Http" | "WebSocket") {
+            "Pop.Http"
+        } else {
+            "Pop.Standard"
+        };
+        assert_eq!(
+            *package, expected_package,
+            "wrong owner for `{public_root}`"
+        );
+        assert!(
+            authority.starts_with("architecture/")
+                && !authority.contains("..")
+                && root.join(authority).is_file(),
+            "missing or unsafe authority for `{public_root}`: `{authority}`"
+        );
+
+        if *status == "partial" {
+            let namespace = format!("\tPop.{public_root}\t");
+            assert!(
+                baseline.contains(&namespace),
+                "partial family `{public_root}` lacks executable API-baseline evidence"
+            );
+        }
+        if *status == "implemented" {
+            assert_eq!(
+                public_rows
+                    .get(*public_root)
+                    .map(|(_, status)| status.as_str()),
+                Some("implemented"),
+                "implemented essential family `{public_root}` must advance the public root manifest"
+            );
+        }
+    }
+    assert_eq!(
+        actual, expected,
+        "essential profile must contain every standard root plus Http/WebSocket"
+    );
 }
 
 fn parse_root_inventory(
@@ -1910,6 +3928,30 @@ fn parse_root_inventory(
         );
     }
     (actual, inventory_tiers, inventory_catalogs, inventory)
+}
+
+#[test]
+fn optional_return_injection_stays_explicit_and_backend_neutral() {
+    let root = repository_root();
+    let ir = read_required(root.join("architecture/04-intermediate-representations.md"));
+    let type_architecture = read_required(root.join("architecture/12-type-system-architecture.md"));
+    let decision = read_required(
+        root.join("architecture/decisions/0112-explicit-optional-return-injection.md"),
+    );
+    let typed_body = read_required(root.join("crates/compiler/types/src/typed_body.rs"));
+    let hir = read_required(root.join("crates/compiler/hir/src/ir.rs"));
+    let mir = read_required(root.join("crates/compiler/mir/src/ir.rs"));
+
+    assert!(type_architecture.contains("At a `T?` return boundary"));
+    assert!(ir.contains("Optionals:     optionalMake, optionalIsPresent, optionalGet"));
+    assert!(decision.contains("has no allocation or effects"));
+    assert!(typed_body.contains("OptionalInject"));
+    assert!(hir.contains("OptionalInject"));
+    assert!(mir.contains("OptionalMake"));
+    for source in [&typed_body, &hir, &mir] {
+        assert!(!source.contains("DynamicOptional"));
+        assert!(!source.contains("OptionalByName"));
+    }
 }
 
 fn documented_catalog_roots(

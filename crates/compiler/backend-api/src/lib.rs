@@ -66,6 +66,9 @@ impl RuntimeProfile {
                     RuntimeContract::StandardLibraryAdapters,
                     RuntimeContract::InterfaceDispatch,
                     RuntimeContract::ClosureEnvironment,
+                    RuntimeContract::AtomicOperations,
+                    RuntimeContract::ActorOperations,
+                    RuntimeContract::NetworkIo,
                 ])
             }
             Self::LinuxEbpf => RuntimeContractSet::new([
@@ -133,6 +136,9 @@ pub enum RuntimeContract {
     StandardLibraryAdapters,
     InterfaceDispatch,
     ClosureEnvironment,
+    AtomicOperations,
+    ActorOperations,
+    NetworkIo,
     KernelHelpers,
     BpfMaps,
     RingBuffer,
@@ -306,6 +312,19 @@ impl ProgramRequirements {
             | MirInstructionKind::ListCreate { .. } => {
                 self.require_runtime(RuntimeContract::ManagedAllocator, origin);
             }
+            MirInstructionKind::CallStandard { function, .. } if matches!(function.raw(), 2..=24 | 59..=63) =>
+            {
+                self.require_runtime(RuntimeContract::AtomicOperations, origin);
+            }
+            MirInstructionKind::CallStandard { function, .. }
+                if matches!(function.raw(), 25..=34) =>
+            {
+                self.require_runtime(RuntimeContract::ActorOperations, origin);
+            }
+            MirInstructionKind::CallStandard { function, .. } if matches!(function.raw(), 35..=58 | 64..=172) =>
+            {
+                self.require_runtime(RuntimeContract::NetworkIo, origin);
+            }
             MirInstructionKind::CallStandard { .. }
             | MirInstructionKind::CallBuiltinInterface { .. } => {
                 self.require_runtime(RuntimeContract::StandardLibraryAdapters, origin);
@@ -366,6 +385,11 @@ pub enum RuntimeContractError {
         target: String,
         requirement: RuntimeContractRequirement,
     },
+    MissingTargetCapability {
+        target: String,
+        capability: TargetCapability,
+        requirement: RuntimeContractRequirement,
+    },
     IncompatibleTarget {
         profile: RuntimeProfile,
         target: String,
@@ -390,6 +414,16 @@ impl fmt::Display for RuntimeContractError {
                 formatter,
                 "runtime profile `{}` is incompatible with target `{target}`",
                 profile.name()
+            ),
+            Self::MissingTargetCapability {
+                target,
+                capability,
+                requirement,
+            } => write!(
+                formatter,
+                "target `{target}` lacks capability `{capability:?}` required by runtime contract `{:?}` from {:?}",
+                requirement.contract(),
+                requirement.origin()
             ),
         }
     }
@@ -420,6 +454,20 @@ pub fn validate_runtime_contracts(
             return Err(RuntimeContractError::MissingContract {
                 profile,
                 target: target.triple().to_owned(),
+                requirement: requirement.clone(),
+            });
+        }
+        let target_capability = match requirement.contract() {
+            RuntimeContract::AtomicOperations => Some(TargetCapability::Atomics),
+            RuntimeContract::NetworkIo => Some(TargetCapability::Networking),
+            _ => None,
+        };
+        if let Some(capability) = target_capability
+            && !target.supports(capability)
+        {
+            return Err(RuntimeContractError::MissingTargetCapability {
+                target: target.triple().to_owned(),
+                capability,
                 requirement: requirement.clone(),
             });
         }

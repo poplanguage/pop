@@ -15,6 +15,7 @@ pub struct PackageManifest {
     name: String,
     version: String,
     edition: String,
+    features: Vec<PackageFeature>,
     dependencies: Vec<DependencyRequirement>,
     development_dependencies: Vec<DependencyRequirement>,
     platform_dependencies: Vec<PlatformDependencies>,
@@ -40,6 +41,11 @@ impl PackageManifest {
     }
 
     #[must_use]
+    pub fn features(&self) -> &[PackageFeature] {
+        &self.features
+    }
+
+    #[must_use]
     pub fn dependencies(&self) -> &[DependencyRequirement] {
         &self.dependencies
     }
@@ -52,6 +58,85 @@ impl PackageManifest {
     #[must_use]
     pub fn platform_dependencies(&self) -> &[PlatformDependencies] {
         &self.platform_dependencies
+    }
+
+    /// Selects deterministic normal/platform dependencies for one exact target,
+    /// optionally including the development scope.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an alias supplied by more than one active scope.
+    pub fn selected_dependencies(
+        &self,
+        platform_target: &str,
+        include_development: bool,
+    ) -> Result<Vec<&DependencyRequirement>, ManifestError> {
+        self.selected_dependencies_with_features(
+            platform_target,
+            include_development,
+            std::iter::empty::<&str>(),
+        )
+    }
+
+    /// Selects deterministic scoped dependencies for an exact additive
+    /// feature set.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown or duplicate feature names and aliases supplied by more
+    /// than one active scope.
+    pub fn selected_dependencies_with_features<I, S>(
+        &self,
+        platform_target: &str,
+        include_development: bool,
+        features: I,
+    ) -> Result<Vec<&DependencyRequirement>, ManifestError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut requested = features
+            .into_iter()
+            .map(|feature| feature.as_ref().to_owned())
+            .collect::<Vec<_>>();
+        requested.sort();
+        if requested.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ManifestError::DuplicateSelectedFeature);
+        }
+        let mut enabled_dependencies = BTreeSet::new();
+        for requested in requested {
+            let feature = self
+                .features
+                .iter()
+                .find(|feature| feature.name == requested)
+                .ok_or(ManifestError::UnknownFeature)?;
+            enabled_dependencies.extend(feature.dependencies.iter().map(String::as_str));
+        }
+        let mut selected = self
+            .dependencies
+            .iter()
+            .filter(|dependency| {
+                !dependency.optional || enabled_dependencies.contains(dependency.alias.as_str())
+            })
+            .collect::<Vec<_>>();
+        if include_development {
+            selected.extend(&self.development_dependencies);
+        }
+        if let Some(platform) = self
+            .platform_dependencies
+            .iter()
+            .find(|platform| platform.platform_target == platform_target)
+        {
+            selected.extend(&platform.dependencies);
+        }
+        selected.sort_by(|left, right| left.alias.cmp(&right.alias));
+        if selected
+            .windows(2)
+            .any(|pair| pair[0].alias == pair[1].alias)
+        {
+            return Err(ManifestError::DuplicateDependencyAlias);
+        }
+        Ok(selected)
     }
 
     #[must_use]
@@ -507,11 +592,30 @@ impl PlatformDependencies {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageFeature {
+    name: String,
+    dependencies: Vec<String>,
+}
+
+impl PackageFeature {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn dependencies(&self) -> &[String] {
+        &self.dependencies
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DependencyRequirement {
     alias: String,
     version_requirement: Option<String>,
     source: DependencySource,
     bubble: Option<String>,
+    optional: bool,
 }
 
 impl DependencyRequirement {
@@ -544,6 +648,11 @@ impl DependencyRequirement {
     pub const fn workspace_inherited(&self) -> bool {
         matches!(self.source, DependencySource::Workspace)
     }
+
+    #[must_use]
+    pub const fn optional(&self) -> bool {
+        self.optional
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -563,6 +672,7 @@ pub struct WorkspaceManifest {
     exclude: Vec<String>,
     default_members: Vec<String>,
     resolver: String,
+    dependencies: Vec<DependencyRequirement>,
 }
 
 impl WorkspaceManifest {
@@ -584,6 +694,11 @@ impl WorkspaceManifest {
     #[must_use]
     pub fn resolver(&self) -> &str {
         &self.resolver
+    }
+
+    #[must_use]
+    pub fn dependencies(&self) -> &[DependencyRequirement] {
+        &self.dependencies
     }
 }
 
@@ -643,6 +758,15 @@ pub enum ManifestError {
     InvalidStringValue,
     InvalidPackageName,
     InvalidDependencyAlias,
+    DuplicateDependencyAlias,
+    InvalidFeature,
+    DuplicateFeatureMember,
+    UnknownFeatureDependency,
+    FeatureDependencyNotOptional,
+    UnreferencedOptionalDependency,
+    OptionalDependencyOutsideNormalScope,
+    UnknownFeature,
+    DuplicateSelectedFeature,
     InvalidVersion,
     InvalidEdition,
     UnsupportedSection,
@@ -708,6 +832,7 @@ struct PackageManifestParser {
     platform_section: Option<String>,
     saw_package: bool,
     package: BTreeMap<String, String>,
+    features: BTreeMap<String, PackageFeature>,
     dependencies: BTreeMap<String, DependencyRequirement>,
     development_dependencies: BTreeMap<String, DependencyRequirement>,
     platform_dependencies: BTreeMap<String, BTreeMap<String, DependencyRequirement>>,
@@ -724,6 +849,7 @@ impl PackageManifestParser {
                 self.saw_package = true;
                 "package"
             }
+            "[features]" => "features",
             "[dependencies]" => "dependencies",
             "[developmentDependencies]" => "developmentDependencies",
             "[nativeLibraries]" => "nativeLibraries",
@@ -753,56 +879,26 @@ impl PackageManifestParser {
         let (key, raw_value) = line.split_once('=').ok_or(ManifestError::InvalidLine)?;
         let key = key.trim();
         match self.section {
-            "package" => {
-                let value = parse_string(raw_value.trim())?;
-                if self.package.insert(key.to_owned(), value).is_some() {
-                    return Err(ManifestError::DuplicateKey);
-                }
-            }
+            "package" => insert_package_value(&mut self.package, key, raw_value)?,
+            "features" => insert_package_feature(&mut self.features, key, raw_value)?,
             "dependencies" => {
-                if !valid_pascal(key) {
-                    return Err(ManifestError::InvalidDependencyAlias);
-                }
-                let dependency = parse_dependency(key, raw_value.trim())?;
-                if self
-                    .dependencies
-                    .insert(key.to_owned(), dependency)
-                    .is_some()
-                {
-                    return Err(ManifestError::DuplicateKey);
-                }
+                insert_package_dependency(&mut self.dependencies, key, raw_value)?;
             }
             "developmentDependencies" => {
-                if !valid_pascal(key) {
-                    return Err(ManifestError::InvalidDependencyAlias);
-                }
-                let dependency = parse_dependency(key, raw_value.trim())?;
-                if self
-                    .development_dependencies
-                    .insert(key.to_owned(), dependency)
-                    .is_some()
-                {
-                    return Err(ManifestError::DuplicateKey);
-                }
+                insert_package_dependency(&mut self.development_dependencies, key, raw_value)?;
             }
             "platformDependencies" => {
-                if !valid_pascal(key) {
-                    return Err(ManifestError::InvalidDependencyAlias);
-                }
-                let dependency = parse_dependency(key, raw_value.trim())?;
                 let target = self
                     .platform_section
                     .as_ref()
                     .ok_or(ManifestError::InvalidTargetName)?;
-                if self
-                    .platform_dependencies
-                    .entry(target.clone())
-                    .or_default()
-                    .insert(key.to_owned(), dependency)
-                    .is_some()
-                {
-                    return Err(ManifestError::DuplicateKey);
-                }
+                insert_package_dependency(
+                    self.platform_dependencies
+                        .entry(target.clone())
+                        .or_default(),
+                    key,
+                    raw_value,
+                )?;
             }
             "nativeLibraries" => {
                 let library = parse_native_library(key, raw_value.trim())?;
@@ -857,12 +953,78 @@ impl PackageManifestParser {
     }
 }
 
+fn insert_package_value(
+    values: &mut BTreeMap<String, String>,
+    key: &str,
+    raw_value: &str,
+) -> Result<(), ManifestError> {
+    let value = parse_string(raw_value.trim())?;
+    if values.insert(key.to_owned(), value).is_some() {
+        return Err(ManifestError::DuplicateKey);
+    }
+    Ok(())
+}
+
+fn insert_package_feature(
+    features: &mut BTreeMap<String, PackageFeature>,
+    key: &str,
+    raw_value: &str,
+) -> Result<(), ManifestError> {
+    if !valid_camel(key) {
+        return Err(ManifestError::InvalidFeature);
+    }
+    let members = parse_string_array(raw_value.trim())?;
+    let mut dependencies = Vec::new();
+    for member in members {
+        let alias = member
+            .strip_prefix("dependency:")
+            .ok_or(ManifestError::InvalidFeature)?;
+        if !valid_pascal(alias) {
+            return Err(ManifestError::InvalidFeature);
+        }
+        dependencies.push(alias.to_owned());
+    }
+    dependencies.sort();
+    if dependencies.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ManifestError::DuplicateFeatureMember);
+    }
+    if features
+        .insert(
+            key.to_owned(),
+            PackageFeature {
+                name: key.to_owned(),
+                dependencies,
+            },
+        )
+        .is_some()
+    {
+        return Err(ManifestError::DuplicateKey);
+    }
+    Ok(())
+}
+
+fn insert_package_dependency(
+    dependencies: &mut BTreeMap<String, DependencyRequirement>,
+    key: &str,
+    raw_value: &str,
+) -> Result<(), ManifestError> {
+    if !valid_pascal(key) {
+        return Err(ManifestError::InvalidDependencyAlias);
+    }
+    let dependency = parse_dependency(key, raw_value.trim())?;
+    if dependencies.insert(key.to_owned(), dependency).is_some() {
+        return Err(ManifestError::DuplicateKey);
+    }
+    Ok(())
+}
+
 fn finish_package_manifest(
     parser: PackageManifestParser,
 ) -> Result<PackageManifest, ManifestError> {
     let PackageManifestParser {
         saw_package,
         mut package,
+        features,
         dependencies,
         development_dependencies,
         platform_dependencies,
@@ -874,6 +1036,80 @@ fn finish_package_manifest(
     if !saw_package {
         return Err(ManifestError::MissingPackageSection);
     }
+    let (name, version, edition) = take_package_identity(&mut package)?;
+    let features = features.into_values().collect::<Vec<_>>();
+    let dependencies = dependencies.into_values().collect::<Vec<_>>();
+    let development_dependencies = development_dependencies.into_values().collect::<Vec<_>>();
+    let platform_dependencies: Vec<PlatformDependencies> = platform_dependencies
+        .into_iter()
+        .map(|(platform_target, dependencies)| PlatformDependencies {
+            platform_target,
+            dependencies: dependencies.into_values().collect(),
+        })
+        .collect();
+    if development_dependencies
+        .iter()
+        .any(DependencyRequirement::optional)
+        || platform_dependencies.iter().any(|platform| {
+            platform
+                .dependencies
+                .iter()
+                .any(DependencyRequirement::optional)
+        })
+    {
+        return Err(ManifestError::OptionalDependencyOutsideNormalScope);
+    }
+    let feature_dependencies = features
+        .iter()
+        .flat_map(|feature| feature.dependencies.iter())
+        .collect::<BTreeSet<_>>();
+    for alias in &feature_dependencies {
+        let dependency = dependencies
+            .iter()
+            .find(|dependency| dependency.alias() == alias.as_str())
+            .ok_or(ManifestError::UnknownFeatureDependency)?;
+        if !dependency.optional {
+            return Err(ManifestError::FeatureDependencyNotOptional);
+        }
+    }
+    if dependencies
+        .iter()
+        .any(|dependency| dependency.optional && !feature_dependencies.contains(&dependency.alias))
+    {
+        return Err(ManifestError::UnreferencedOptionalDependency);
+    }
+    let native_libraries = native_libraries.into_values().collect();
+    let platform_native_libraries = platform_native_libraries
+        .into_iter()
+        .map(|(platform_target, libraries)| PlatformNativeLibraries {
+            platform_target,
+            libraries: libraries.into_values().collect(),
+        })
+        .collect();
+    let platform_ffi_generators = platform_ffi_generators
+        .into_iter()
+        .map(|(platform_target, generators)| PlatformFfiGenerators {
+            platform_target,
+            generators: generators.into_values().collect(),
+        })
+        .collect();
+    Ok(PackageManifest {
+        name,
+        version,
+        edition,
+        features,
+        dependencies,
+        development_dependencies,
+        platform_dependencies,
+        native_libraries,
+        platform_native_libraries,
+        platform_ffi_generators,
+    })
+}
+
+fn take_package_identity(
+    package: &mut BTreeMap<String, String>,
+) -> Result<(String, String, String), ManifestError> {
     let name = package
         .remove("name")
         .ok_or(ManifestError::MissingPackageName)?;
@@ -895,41 +1131,7 @@ fn finish_package_manifest(
     if edition.is_empty() || !edition.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(ManifestError::InvalidEdition);
     }
-    let dependencies = dependencies.into_values().collect();
-    let development_dependencies = development_dependencies.into_values().collect();
-    let platform_dependencies = platform_dependencies
-        .into_iter()
-        .map(|(platform_target, dependencies)| PlatformDependencies {
-            platform_target,
-            dependencies: dependencies.into_values().collect(),
-        })
-        .collect();
-    let native_libraries = native_libraries.into_values().collect();
-    let platform_native_libraries = platform_native_libraries
-        .into_iter()
-        .map(|(platform_target, libraries)| PlatformNativeLibraries {
-            platform_target,
-            libraries: libraries.into_values().collect(),
-        })
-        .collect();
-    let platform_ffi_generators = platform_ffi_generators
-        .into_iter()
-        .map(|(platform_target, generators)| PlatformFfiGenerators {
-            platform_target,
-            generators: generators.into_values().collect(),
-        })
-        .collect();
-    Ok(PackageManifest {
-        name,
-        version,
-        edition,
-        dependencies,
-        development_dependencies,
-        platform_dependencies,
-        native_libraries,
-        platform_native_libraries,
-        platform_ffi_generators,
-    })
+    Ok((name, version, edition))
 }
 
 fn parse_platform_dependency_section(line: &str) -> Option<String> {
@@ -1184,6 +1386,7 @@ fn parse_dependency(alias: &str, value: &str) -> Result<DependencyRequirement, M
             version_requirement: Some(version),
             source: DependencySource::Registry,
             bubble: None,
+            optional: false,
         });
     }
 
@@ -1208,6 +1411,11 @@ fn parse_dependency(alias: &str, value: &str) -> Result<DependencyRequirement, M
     {
         return Err(ManifestError::InvalidDependency);
     }
+    let optional = match fields.get("optional").map(String::as_str) {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(_) => return Err(ManifestError::InvalidDependency),
+    };
 
     let source = match (
         fields.get("path"),
@@ -1239,7 +1447,15 @@ fn parse_dependency(alias: &str, value: &str) -> Result<DependencyRequirement, M
         (None, None, None) if version_requirement.is_some() => DependencySource::Registry,
         _ => return Err(ManifestError::InvalidDependency),
     };
-    let allowed = ["version", "bubble", "path", "git", "revision", "workspace"];
+    let allowed = [
+        "version",
+        "bubble",
+        "path",
+        "git",
+        "revision",
+        "workspace",
+        "optional",
+    ];
     if fields.keys().any(|key| !allowed.contains(&key.as_str()))
         || (fields.contains_key("revision") && !matches!(source, DependencySource::ExactGit { .. }))
         || (matches!(source, DependencySource::Workspace)
@@ -1252,6 +1468,7 @@ fn parse_dependency(alias: &str, value: &str) -> Result<DependencyRequirement, M
         version_requirement,
         source,
         bubble,
+        optional,
     })
 }
 
@@ -1264,6 +1481,7 @@ fn parse_dependency(alias: &str, value: &str) -> Result<DependencyRequirement, M
 pub fn parse_workspace_manifest(text: &str) -> Result<WorkspaceManifest, ManifestError> {
     let mut section = "";
     let mut values = BTreeMap::new();
+    let mut dependencies = BTreeMap::new();
     let mut saw_workspace = false;
     for raw_line in text.lines() {
         let line = raw_line.trim();
@@ -1276,12 +1494,13 @@ pub fn parse_workspace_manifest(text: &str) -> Result<WorkspaceManifest, Manifes
                     section = "workspace";
                     saw_workspace = true;
                 }
+                "[workspace.dependencies]" => section = "workspaceDependencies",
                 "[package]"
+                | "[features]"
                 | "[dependencies]"
                 | "[developmentDependencies]"
                 | "[nativeLibraries]"
                 | "[workspace.package]"
-                | "[workspace.dependencies]"
                 | "[workspace.diagnostics]" => section = "ignored",
                 _ if parse_platform_dependency_section(line).is_some() => section = "ignored",
                 _ if parse_platform_native_library_section(line).is_some() => section = "ignored",
@@ -1293,20 +1512,14 @@ pub fn parse_workspace_manifest(text: &str) -> Result<WorkspaceManifest, Manifes
         if section == "ignored" {
             continue;
         }
+        if section == "workspaceDependencies" {
+            insert_workspace_dependency(&mut dependencies, line)?;
+            continue;
+        }
         if section != "workspace" {
             return Err(ManifestError::MissingWorkspaceSection);
         }
-        let (key, value) = line.split_once('=').ok_or(ManifestError::InvalidLine)?;
-        let key = key.trim();
-        if !["members", "exclude", "defaultMembers", "resolver"].contains(&key) {
-            return Err(ManifestError::InvalidLine);
-        }
-        if values
-            .insert(key.to_owned(), value.trim().to_owned())
-            .is_some()
-        {
-            return Err(ManifestError::DuplicateKey);
-        }
+        insert_workspace_value(&mut values, line)?;
     }
     if !saw_workspace {
         return Err(ManifestError::MissingWorkspaceSection);
@@ -1347,7 +1560,45 @@ pub fn parse_workspace_manifest(text: &str) -> Result<WorkspaceManifest, Manifes
         exclude,
         default_members,
         resolver,
+        dependencies: dependencies.into_values().collect(),
     })
+}
+
+fn insert_workspace_dependency(
+    dependencies: &mut BTreeMap<String, DependencyRequirement>,
+    line: &str,
+) -> Result<(), ManifestError> {
+    let (alias, value) = line.split_once('=').ok_or(ManifestError::InvalidLine)?;
+    let alias = alias.trim();
+    if !valid_pascal(alias) {
+        return Err(ManifestError::InvalidDependencyAlias);
+    }
+    let dependency = parse_dependency(alias, value.trim())?;
+    if dependency.workspace_inherited() || dependency.optional() {
+        return Err(ManifestError::InvalidDependency);
+    }
+    if dependencies.insert(alias.to_owned(), dependency).is_some() {
+        return Err(ManifestError::DuplicateKey);
+    }
+    Ok(())
+}
+
+fn insert_workspace_value(
+    values: &mut BTreeMap<String, String>,
+    line: &str,
+) -> Result<(), ManifestError> {
+    let (key, value) = line.split_once('=').ok_or(ManifestError::InvalidLine)?;
+    let key = key.trim();
+    if !["members", "exclude", "defaultMembers", "resolver"].contains(&key) {
+        return Err(ManifestError::InvalidLine);
+    }
+    if values
+        .insert(key.to_owned(), value.trim().to_owned())
+        .is_some()
+    {
+        return Err(ManifestError::DuplicateKey);
+    }
+    Ok(())
 }
 
 /// Expands exact paths and one-component trailing `/*` patterns against a

@@ -4,29 +4,66 @@ use pop_runtime_native::{
     allocate_utf8_string_literal, allocation_site_descriptor_count,
     allocation_site_global_lookup_count, direct_page_access_miss_count,
     direct_page_mutation_miss_count, direct_reference_mutation_miss_count, pop_rt_abi_major,
-    pop_rt_abi_minor, pop_rt_allocate_array, pop_rt_allocate_array_filled,
+    pop_rt_abi_minor, pop_rt_actor_activate, pop_rt_actor_begin_exit, pop_rt_actor_complete_exit,
+    pop_rt_actor_create, pop_rt_actor_release, pop_rt_actor_try_receive, pop_rt_actor_try_send,
+    pop_rt_actor_try_send_handle, pop_rt_allocate_array, pop_rt_allocate_array_filled,
     pop_rt_allocate_initialized_object, pop_rt_allocate_initialized_object_at_site,
     pop_rt_allocate_initialized_object_at_site_and_store_array,
     pop_rt_allocate_initialized_self_referential_object_at_site, pop_rt_allocate_object,
     pop_rt_allocate_table, pop_rt_array_fill, pop_rt_array_get, pop_rt_array_get_checked,
     pop_rt_array_get_object_field_checked, pop_rt_array_length, pop_rt_array_set,
+    pop_rt_atomic_bool_compare_exchange, pop_rt_atomic_bool_create, pop_rt_atomic_bool_load,
+    pop_rt_atomic_bool_store, pop_rt_atomic_bool_swap, pop_rt_atomic_int_compare_exchange,
+    pop_rt_atomic_int_create, pop_rt_atomic_int_fetch_add, pop_rt_atomic_int_fetch_and,
+    pop_rt_atomic_int_fetch_or, pop_rt_atomic_int_fetch_subtract, pop_rt_atomic_int_fetch_xor,
+    pop_rt_atomic_int_load, pop_rt_atomic_int_store, pop_rt_atomic_int_swap, pop_rt_atomic_release,
+    pop_rt_byte_buffer_create, pop_rt_byte_buffer_decode_utf8, pop_rt_byte_buffer_length,
+    pop_rt_byte_buffer_write_byte, pop_rt_byte_buffer_write_bytes, pop_rt_bytes_view_decode_utf8,
     pop_rt_cancel_source_create, pop_rt_cancel_source_release, pop_rt_cancel_source_token,
-    pop_rt_cancel_token_release, pop_rt_codec_read_event, pop_rt_codec_write_event,
-    pop_rt_ffi_buffer_borrow, pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow,
-    pop_rt_ffi_buffer_length, pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read,
-    pop_rt_ffi_buffer_write, pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow,
-    pop_rt_field_get, pop_rt_field_set, pop_rt_gc_safe_point_v2, pop_rt_gc_stage,
-    pop_rt_iteration_acquire, pop_rt_iteration_make, pop_rt_iteration_next, pop_rt_list_add,
-    pop_rt_list_create, pop_rt_list_get, pop_rt_list_get_checked, pop_rt_list_length,
-    pop_rt_list_set, pop_rt_pin, pop_rt_range_create, pop_rt_release_root, pop_rt_resolve_root,
-    pop_rt_resume, pop_rt_retain_root, pop_rt_string_concat, pop_rt_string_equal,
-    pop_rt_string_format, pop_rt_string_read, pop_rt_supports_abi, pop_rt_suspend,
-    pop_rt_table_get, pop_rt_table_get_checked, pop_rt_table_set, pop_rt_task_cancel,
-    pop_rt_task_cancellation_requested, pop_rt_unpin, request_abi_collection,
+    pop_rt_cancel_token_release, pop_rt_channel_close, pop_rt_channel_create,
+    pop_rt_channel_release_receiver, pop_rt_channel_release_sender, pop_rt_channel_retain_receiver,
+    pop_rt_channel_retain_sender, pop_rt_channel_try_receive, pop_rt_channel_try_send,
+    pop_rt_codec_read_event, pop_rt_codec_write_event, pop_rt_deadline_after,
+    pop_rt_deadline_close, pop_rt_deadline_expired, pop_rt_ffi_buffer_borrow,
+    pop_rt_ffi_buffer_close, pop_rt_ffi_buffer_end_borrow, pop_rt_ffi_buffer_length,
+    pop_rt_ffi_buffer_open, pop_rt_ffi_buffer_read, pop_rt_ffi_buffer_write,
+    pop_rt_ffi_bytes_borrow, pop_rt_ffi_bytes_end_borrow, pop_rt_field_get, pop_rt_field_set,
+    pop_rt_gc_safe_point_v2, pop_rt_gc_stage, pop_rt_iteration_acquire, pop_rt_iteration_make,
+    pop_rt_iteration_next, pop_rt_list_add, pop_rt_list_create, pop_rt_list_get,
+    pop_rt_list_get_checked, pop_rt_list_length, pop_rt_list_set, pop_rt_monotonic_clock_close,
+    pop_rt_monotonic_clock_create, pop_rt_monotonic_clock_now, pop_rt_net_interface_address_count,
+    pop_rt_net_interface_address_part, pop_rt_net_interface_count, pop_rt_net_interface_flags,
+    pop_rt_net_interface_index, pop_rt_net_interface_name, pop_rt_net_interfaces_close,
+    pop_rt_net_interfaces_snapshot, pop_rt_net_route_count, pop_rt_net_route_part,
+    pop_rt_net_routes_close, pop_rt_net_routes_snapshot, pop_rt_pin, pop_rt_range_create,
+    pop_rt_release_root, pop_rt_resolve_root, pop_rt_resume, pop_rt_retain_root,
+    pop_rt_string_concat, pop_rt_string_equal, pop_rt_string_format, pop_rt_string_read,
+    pop_rt_supports_abi, pop_rt_suspend, pop_rt_table_get, pop_rt_table_get_checked,
+    pop_rt_table_set, pop_rt_task_cancel, pop_rt_task_cancellation_requested, pop_rt_tcp_accept,
+    pop_rt_tcp_close, pop_rt_tcp_connect, pop_rt_tcp_connect_ipv4, pop_rt_tcp_connect_ipv6,
+    pop_rt_tcp_endpoint_part, pop_rt_tcp_keepalive, pop_rt_tcp_linger, pop_rt_tcp_listen,
+    pop_rt_tcp_listen_ipv4, pop_rt_tcp_listen_ipv6, pop_rt_tcp_local_port, pop_rt_tcp_no_delay,
+    pop_rt_tcp_receive, pop_rt_tcp_receive_buffer, pop_rt_tcp_receive_bytes, pop_rt_tcp_send,
+    pop_rt_tcp_send_bytes, pop_rt_tcp_set_keepalive, pop_rt_tcp_set_keepalive_idle,
+    pop_rt_tcp_set_linger, pop_rt_tcp_set_no_delay, pop_rt_tcp_set_ttl, pop_rt_tcp_shutdown,
+    pop_rt_tcp_ttl, pop_rt_text_view_encode_utf8, pop_rt_text_view_get_rune,
+    pop_rt_tls_client_handshake, pop_rt_tls_client_root_config, pop_rt_tls_close,
+    pop_rt_tls_config_close, pop_rt_tls_receive, pop_rt_tls_send_bytes, pop_rt_tls_server_config,
+    pop_rt_tls_server_handshake, pop_rt_udp_bind, pop_rt_udp_bind_ipv4, pop_rt_udp_bind_ipv6,
+    pop_rt_udp_broadcast, pop_rt_udp_close, pop_rt_udp_endpoint_part,
+    pop_rt_udp_join_multicast_ipv4, pop_rt_udp_join_multicast_ipv6,
+    pop_rt_udp_leave_multicast_ipv4, pop_rt_udp_leave_multicast_ipv6, pop_rt_udp_local_port,
+    pop_rt_udp_receive, pop_rt_udp_receive_buffer, pop_rt_udp_receive_buffer_until,
+    pop_rt_udp_receive_bytes, pop_rt_udp_send_bytes_to, pop_rt_udp_send_to,
+    pop_rt_udp_set_broadcast, pop_rt_udp_set_ttl, pop_rt_udp_ttl, pop_rt_unix_accept,
+    pop_rt_unix_close, pop_rt_unix_connect, pop_rt_unix_listen, pop_rt_unix_receive_buffer,
+    pop_rt_unix_send_bytes, pop_rt_unix_shutdown, pop_rt_unpin, request_abi_collection,
 };
 use pop_runtime_native_abi::{
-    AllocationSiteDescriptorAbi, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
-    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, StringFormatTag,
+    ActorLifecycleStatus, ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi,
+    ChannelReceiveStatus, ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi,
+    CodecWriteEventAbi, IterationCollectionKind, IterationStatus, SocketIoStatus, StringFormatTag,
+    TextViewGetRuneAbi,
 };
 use std::ffi::CString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -42,7 +79,7 @@ fn abi_test_lock() -> MutexGuard<'static, ()> {
 fn native_runtime_exports_the_stable_generational_abi_identity() {
     let _guard = abi_test_lock();
     assert_eq!(pop_rt_abi_major(), 1);
-    assert_eq!(pop_rt_abi_minor(), 22);
+    assert_eq!(pop_rt_abi_minor(), 47);
     assert_eq!(pop_rt_gc_stage(), 2);
     assert_eq!(pop_rt_supports_abi(1, 11), 1);
     assert_eq!(pop_rt_supports_abi(1, 12), 1);
@@ -55,7 +92,1152 @@ fn native_runtime_exports_the_stable_generational_abi_identity() {
     assert_eq!(pop_rt_supports_abi(1, 19), 1);
     assert_eq!(pop_rt_supports_abi(1, 20), 1);
     assert_eq!(pop_rt_supports_abi(1, 21), 1);
+    assert_eq!(pop_rt_supports_abi(1, 22), 1);
+    assert_eq!(pop_rt_supports_abi(1, 23), 1);
+    assert_eq!(pop_rt_supports_abi(1, 24), 1);
+    assert_eq!(pop_rt_supports_abi(1, 25), 1);
+    assert_eq!(pop_rt_supports_abi(1, 26), 1);
+    assert_eq!(pop_rt_supports_abi(1, 27), 1);
+    assert_eq!(pop_rt_supports_abi(1, 28), 1);
+    assert_eq!(pop_rt_supports_abi(1, 29), 1);
+    assert_eq!(pop_rt_supports_abi(1, 30), 1);
+    assert_eq!(pop_rt_supports_abi(1, 31), 1);
+    assert_eq!(pop_rt_supports_abi(1, 32), 1);
+    assert_eq!(pop_rt_supports_abi(1, 33), 1);
+    assert_eq!(pop_rt_supports_abi(1, 34), 1);
+    assert_eq!(pop_rt_supports_abi(1, 35), 1);
+    assert_eq!(pop_rt_supports_abi(1, 36), 1);
+    assert_eq!(pop_rt_supports_abi(1, 37), 1);
+    assert_eq!(pop_rt_supports_abi(1, 38), 1);
+    assert_eq!(pop_rt_supports_abi(1, 39), 1);
+    assert_eq!(pop_rt_supports_abi(1, 40), 1);
+    assert_eq!(pop_rt_supports_abi(1, 41), 1);
+    assert_eq!(pop_rt_supports_abi(1, 42), 1);
+    assert_eq!(pop_rt_supports_abi(1, 43), 1);
+    assert_eq!(pop_rt_supports_abi(1, 44), 1);
+    assert_eq!(pop_rt_supports_abi(1, 45), 1);
+    assert_eq!(pop_rt_supports_abi(1, 46), 1);
+    assert_eq!(pop_rt_supports_abi(1, 47), 1);
     assert_eq!(pop_rt_supports_abi(2, 0), 0);
+    assert_eq!(pop_rt_supports_abi(2, 1), 0);
+    assert_eq!(pop_rt_supports_abi(2, 2), 0);
+    assert_eq!(pop_rt_supports_abi(2, 4), 0);
+    assert_eq!(pop_rt_supports_abi(2, 5), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_monotonic_clock_owns_bounded_deadlines() {
+    let _guard = abi_test_lock();
+    let clock = pop_rt_monotonic_clock_create();
+    assert_ne!(clock, 0);
+
+    let mut seconds = u64::MAX;
+    let mut nanoseconds = u32::MAX;
+    assert_eq!(
+        unsafe { pop_rt_monotonic_clock_now(clock, &raw mut seconds, &raw mut nanoseconds) },
+        1
+    );
+    assert!(nanoseconds < 1_000_000_000);
+
+    let expired_deadline = pop_rt_deadline_after(clock, 0, 0);
+    assert_ne!(expired_deadline, 0);
+    let mut expired = 0;
+    assert_eq!(
+        unsafe { pop_rt_deadline_expired(clock, expired_deadline, &raw mut expired) },
+        1
+    );
+    assert_eq!(expired, 1);
+    assert_eq!(pop_rt_deadline_close(expired_deadline), 1);
+    assert_eq!(pop_rt_deadline_after(clock, 0, 1_000_000_000), 0);
+
+    let owned_deadline = pop_rt_deadline_after(clock, 1, 0);
+    assert_ne!(owned_deadline, 0);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(
+        unsafe { pop_rt_deadline_expired(clock, owned_deadline, &raw mut expired) },
+        0
+    );
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_wait_distinguishes_timeout_and_cancellation() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    let buffer = pop_rt_byte_buffer_create(16);
+    let clock = pop_rt_monotonic_clock_create();
+    let source = pop_rt_cancel_source_create();
+    let token = pop_rt_cancel_source_token(source);
+    assert_ne!(socket, 0);
+    assert_ne!(buffer, 0);
+    assert_ne!(clock, 0);
+    assert_ne!(source, 0);
+    assert_ne!(token, 0);
+
+    let expired = pop_rt_deadline_after(clock, 0, 0);
+    let mut address = 0;
+    let mut port = 0;
+    let mut received = 0;
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive_buffer_until(
+                socket,
+                buffer,
+                16,
+                expired,
+                token,
+                &raw mut address,
+                &raw mut port,
+                &raw mut received,
+            )
+        },
+        4
+    );
+
+    let pending = pop_rt_deadline_after(clock, 1, 0);
+    assert_eq!(pop_rt_task_cancel(source), 1);
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive_buffer_until(
+                socket,
+                buffer,
+                16,
+                pending,
+                token,
+                &raw mut address,
+                &raw mut port,
+                &raw mut received,
+            )
+        },
+        5
+    );
+
+    assert_eq!(pop_rt_deadline_close(expired), 1);
+    assert_eq!(pop_rt_deadline_close(pending), 1);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(pop_rt_cancel_source_release(source), 1);
+    assert_eq!(pop_rt_cancel_token_release(token), 1);
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_interface_snapshot_exposes_typed_host_facts() {
+    let _guard = abi_test_lock();
+    let snapshot = pop_rt_net_interfaces_snapshot();
+    assert_ne!(snapshot, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_interface_count(snapshot, &raw mut count) },
+        1
+    );
+    assert!(count > 0);
+
+    let mut name = 0;
+    let mut index = 0;
+    let mut flags = 0;
+    let mut addresses = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_interface_name(snapshot, 0, &raw mut name) },
+        1
+    );
+    assert_ne!(name, 0);
+    assert!(unsafe { pop_rt_string_read(name, std::ptr::null_mut(), 0) } > 1);
+    assert_eq!(
+        unsafe { pop_rt_net_interface_index(snapshot, 0, &raw mut index) },
+        1
+    );
+    assert_ne!(index, 0);
+    assert_eq!(
+        unsafe { pop_rt_net_interface_flags(snapshot, 0, &raw mut flags) },
+        1
+    );
+    assert_eq!(
+        unsafe { pop_rt_net_interface_address_count(snapshot, 0, &raw mut addresses) },
+        1
+    );
+    if addresses > 0 {
+        let mut family = 0;
+        assert_eq!(
+            unsafe { pop_rt_net_interface_address_part(snapshot, 0, 0, 0, 0, &raw mut family) },
+            1
+        );
+        assert!(matches!(family, 4 | 6));
+    }
+    assert_eq!(pop_rt_net_interfaces_close(snapshot), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_route_snapshot_exposes_typed_linux_facts() {
+    let _guard = abi_test_lock();
+    let snapshot = pop_rt_net_routes_snapshot();
+    assert_ne!(snapshot, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_route_count(snapshot, &raw mut count) },
+        1
+    );
+    assert!(count > 0);
+
+    let mut family = 0;
+    let mut prefix = 0;
+    let mut interface = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 0, 0, &raw mut family) },
+        1
+    );
+    assert!(matches!(family, 4 | 6));
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 2, 0, &raw mut prefix) },
+        1
+    );
+    assert!(prefix <= if family == 4 { 32 } else { 128 });
+    assert_eq!(
+        unsafe { pop_rt_net_route_part(snapshot, 0, 4, 0, &raw mut interface) },
+        1
+    );
+    assert_eq!(pop_rt_net_routes_close(snapshot), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_ipv6_multicast_membership_is_typed_and_reversible() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind_ipv6(0, 0, 0, 0, 0, 0);
+    assert_ne!(socket, 0);
+    let snapshot = pop_rt_net_interfaces_snapshot();
+    assert_ne!(snapshot, 0);
+    let mut index = 0;
+    assert_eq!(
+        unsafe { pop_rt_net_interface_index(snapshot, 0, &raw mut index) },
+        1
+    );
+    assert_ne!(index, 0);
+    assert_eq!(
+        pop_rt_udp_join_multicast_ipv6(socket, 0xff02_0000, 0, 0, 1, index),
+        1
+    );
+    assert_eq!(
+        pop_rt_udp_leave_multicast_ipv6(socket, 0xff02_0000, 0, 0, 1, index),
+        1
+    );
+    assert_eq!(pop_rt_net_interfaces_close(snapshot), 1);
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_atomics_keep_typed_state_and_fail_closed() {
+    let _guard = abi_test_lock();
+    let integer = pop_rt_atomic_int_create(-7);
+    let boolean = pop_rt_atomic_bool_create(0);
+    assert_ne!(integer, 0);
+    assert_ne!(boolean, 0);
+    let mut integer_value = 0_u64;
+    let mut boolean_value = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_load(integer, 0, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), -7);
+    assert_eq!(pop_rt_atomic_int_store(integer, 13, 1), 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_swap(integer, 21, 2, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 13);
+    assert_eq!(
+        unsafe {
+            pop_rt_atomic_int_compare_exchange(integer, 21, 34, 2, 0, &raw mut integer_value)
+        },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 21);
+    assert_eq!(
+        unsafe {
+            pop_rt_atomic_int_compare_exchange(integer, 21, 55, 2, 0, &raw mut integer_value)
+        },
+        2
+    );
+    assert_eq!(integer_value.cast_signed(), 34);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_fetch_add(integer, 6, 3, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 34);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_fetch_subtract(integer, 8, 3, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 40);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_fetch_and(integer, 15, 3, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 32);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_fetch_or(integer, 5, 3, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 0);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_fetch_xor(integer, 3, 3, &raw mut integer_value) },
+        1
+    );
+    assert_eq!(integer_value.cast_signed(), 5);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_load(boolean, 0, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 0);
+    assert_eq!(pop_rt_atomic_bool_store(boolean, 1, 1), 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_swap(boolean, 0, 2, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 1);
+    assert_eq!(
+        unsafe { pop_rt_atomic_bool_compare_exchange(boolean, 0, 1, 2, 0, &raw mut boolean_value) },
+        1
+    );
+    assert_eq!(boolean_value, 0);
+    assert_eq!(
+        unsafe { pop_rt_atomic_int_load(0, 0, &raw mut integer_value) },
+        0
+    );
+    assert_eq!(pop_rt_atomic_release(integer), 1);
+    assert_eq!(pop_rt_atomic_release(boolean), 1);
+    assert_eq!(pop_rt_atomic_release(integer), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_actors_preserve_incarnation_fifo_and_cleanup_lifecycle() {
+    let _guard = abi_test_lock();
+    let actor = pop_rt_actor_create(7, 3, 2);
+    assert_ne!(actor, 0);
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::AlreadyActive as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 2, 11, 0),
+        ActorSendStatus::Stale as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 11, 0),
+        ActorSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send_handle(actor, 13, 0),
+        ActorSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 17, 0),
+        ActorSendStatus::Full as u8
+    );
+    let mut value = 0_u64;
+    let mut managed = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_actor_try_receive(actor, &raw mut value, &raw mut managed) },
+        ActorReceiveStatus::Item as u8
+    );
+    assert_eq!((value, managed), (11, 0));
+    assert_eq!(
+        pop_rt_actor_begin_exit(actor, 0),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 7, 3, 19, 0),
+        ActorSendStatus::Closed as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::AlreadyExited as u8
+    );
+    assert_eq!(pop_rt_actor_release(actor), 1);
+    assert_eq!(pop_rt_actor_release(actor), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_actor_managed_messages_transfer_one_precise_root() {
+    let _guard = abi_test_lock();
+    let actor = pop_rt_actor_create(8, 1, 1);
+    let text = allocate_utf8_string_literal(b"actor-root");
+    assert_eq!(
+        pop_rt_actor_activate(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_try_send(actor, 8, 1, text, 1),
+        ActorSendStatus::Sent as u8
+    );
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(81, &[]), 1);
+    let mut value = 0_u64;
+    let mut managed = 0_u8;
+    assert_eq!(
+        unsafe { pop_rt_actor_try_receive(actor, &raw mut value, &raw mut managed) },
+        ActorReceiveStatus::Item as u8
+    );
+    assert_eq!((value, managed), (text, 1));
+    assert_eq!(
+        pop_rt_actor_begin_exit(actor, 0),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(
+        pop_rt_actor_complete_exit(actor),
+        ActorLifecycleStatus::Applied as u8
+    );
+    assert_eq!(pop_rt_actor_release(actor), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(82, &[]), 1);
+    assert_eq!(pop_rt_retain_root(value), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_handles_fail_closed_without_a_capability() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener != 0 {
+        assert_eq!(pop_rt_tcp_close(listener), 1);
+    }
+    assert_eq!(pop_rt_tcp_connect(1), 0);
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(0, &raw mut port) }, 0);
+    assert_eq!(pop_rt_tcp_accept(0), 0);
+    let mut count = 0_u64;
+    assert_eq!(
+        unsafe { pop_rt_tcp_send(0, b"x".as_ptr(), 1, &raw mut count) },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(
+        unsafe { pop_rt_tcp_receive(0, (&raw mut port).cast::<u8>(), 1, &raw mut count,) },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(pop_rt_tcp_close(0), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_transfers_owning_bytes_with_exact_counts() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client = pop_rt_tcp_connect(port);
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_tcp_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"buffered Pop Net");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 16);
+    let mut received_bytes = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_tcp_receive_bytes(server, 64, &raw mut received_bytes, &raw mut count)
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_ne!(received_bytes, 0);
+    assert_eq!(count, 16);
+    assert_eq!(pop_rt_tcp_close(client), 1);
+    assert_eq!(pop_rt_tcp_close(server), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tls_completes_verified_loopback_handshake_and_transfer() {
+    let _guard = abi_test_lock();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate = allocate_immutable_bytes(cert.der().as_ref());
+    let private_key = allocate_immutable_bytes(&signing_key.serialize_der());
+    let client_config = pop_rt_tls_client_root_config(certificate);
+    let server_config = pop_rt_tls_server_config(certificate, private_key);
+    assert_ne!(client_config, 0);
+    assert_ne!(server_config, 0);
+
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client_tcp = pop_rt_tcp_connect(port);
+    assert_ne!(client_tcp, 0);
+    let mut server_tcp = 0;
+    for _ in 0..1000 {
+        server_tcp = pop_rt_tcp_accept(listener);
+        if server_tcp != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server_tcp, 0);
+
+    let clock = pop_rt_monotonic_clock_create();
+    let deadline = pop_rt_deadline_after(clock, 5, 0);
+    let cancellation_source = pop_rt_cancel_source_create();
+    let cancellation = pop_rt_cancel_source_token(cancellation_source);
+    let server = std::thread::spawn(move || {
+        pop_rt_tls_server_handshake(server_config, server_tcp, deadline, cancellation)
+    });
+    let server_name = allocate_utf8_string_literal(b"localhost");
+    let client = pop_rt_tls_client_handshake(
+        client_config,
+        client_tcp,
+        server_name,
+        deadline,
+        cancellation,
+    );
+    let server = server.join().expect("server handshake thread");
+    assert_ne!(client, 0);
+    assert_ne!(server, 0);
+
+    let payload = allocate_immutable_bytes(b"encrypted Pop Net");
+    let mut written = 0;
+    assert_eq!(
+        unsafe { pop_rt_tls_send_bytes(client, payload, &raw mut written) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(written, 17);
+    let mut output = [0_u8; 32];
+    let mut received = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_tls_receive(
+                server,
+                output.as_mut_ptr(),
+                output.len() as u64,
+                &raw mut received,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    let received = usize::try_from(received).expect("received count fits host address space");
+    assert_eq!(&output[..received], b"encrypted Pop Net");
+
+    assert_eq!(pop_rt_tls_close(client), 1);
+    assert_eq!(pop_rt_tls_close(server), 1);
+    assert_eq!(pop_rt_tls_config_close(client_config), 1);
+    assert_eq!(pop_rt_tls_config_close(server_config), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+    assert_eq!(pop_rt_deadline_close(deadline), 1);
+    assert_eq!(pop_rt_monotonic_clock_close(clock), 1);
+    assert_eq!(pop_rt_cancel_token_release(cancellation), 1);
+    assert_eq!(pop_rt_cancel_source_release(cancellation_source), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_exposes_half_close_and_common_stream_options() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client = pop_rt_tcp_connect(port);
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_tcp_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+
+    assert_eq!(pop_rt_tcp_set_no_delay(client, 1), 1);
+    let mut no_delay = 0;
+    assert_eq!(unsafe { pop_rt_tcp_no_delay(client, &raw mut no_delay) }, 1);
+    assert_eq!(no_delay, 1);
+    assert_eq!(pop_rt_tcp_set_ttl(client, 42), 1);
+    let mut ttl = 0;
+    assert_eq!(unsafe { pop_rt_tcp_ttl(client, &raw mut ttl) }, 1);
+    assert_eq!(ttl, 42);
+    assert_eq!(pop_rt_tcp_set_keepalive(client, 1), 1);
+    let mut keepalive = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_keepalive(client, &raw mut keepalive) },
+        1
+    );
+    assert_eq!(keepalive, 1);
+    assert_eq!(pop_rt_tcp_set_keepalive_idle(client, 30_000), 1);
+    assert_eq!(pop_rt_tcp_set_linger(client, 2_000), 1);
+    let mut linger = 0;
+    assert_eq!(unsafe { pop_rt_tcp_linger(client, &raw mut linger) }, 1);
+    assert_eq!(linger, 2_000);
+    assert_eq!(pop_rt_tcp_set_linger(client, 0), 1);
+    assert_eq!(unsafe { pop_rt_tcp_linger(client, &raw mut linger) }, 1);
+    assert_eq!(linger, 0);
+    let mut endpoint_part = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 0, 0, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, 4);
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 1, 1, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, u32::from(std::net::Ipv4Addr::LOCALHOST));
+    assert_eq!(
+        unsafe { pop_rt_tcp_endpoint_part(client, 1, 2, 0, &raw mut endpoint_part) },
+        1
+    );
+    assert_eq!(endpoint_part, u32::from(port));
+    assert_eq!(pop_rt_tcp_shutdown(client, 1), 1);
+    assert_eq!(pop_rt_tcp_shutdown(server, 0), 1);
+
+    assert_eq!(pop_rt_tcp_close(client), 1);
+    assert_eq!(pop_rt_tcp_close(server), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_ipv4_endpoints_bind_and_connect_explicit_addresses() {
+    let _guard = abi_test_lock();
+    let loopback = 0x7f00_0001;
+    let listener = pop_rt_tcp_listen_ipv4(loopback, 0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let stream = pop_rt_tcp_connect_ipv4(loopback, port);
+    assert_ne!(stream, 0);
+    assert_eq!(pop_rt_tcp_close(stream), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+
+    let socket = pop_rt_udp_bind_ipv4(loopback, 0);
+    assert_ne!(socket, 0);
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_ipv6_endpoints_bind_and_connect_exact_addresses() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen_ipv6(0, 0, 0, 1, 0, 0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let stream = pop_rt_tcp_connect_ipv6(0, 0, 0, 1, port, 0);
+    assert_ne!(stream, 0);
+    assert_eq!(pop_rt_tcp_close(stream), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+
+    let socket = pop_rt_udp_bind_ipv6(0, 0, 0, 1, 0, 0);
+    assert_ne!(socket, 0);
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_dns_resolver_returns_bounded_localhost_answers() {
+    let _guard = abi_test_lock();
+    let resolver = pop_runtime_native::pop_rt_dns_resolver_create();
+    assert_ne!(resolver, 0);
+    let name = allocate_utf8_string_literal(b"localhost");
+    let answers = unsafe { pop_runtime_native::pop_rt_dns_resolve(resolver, name, 8) };
+    assert_ne!(answers, 0);
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_runtime_native::pop_rt_dns_answer_count(answers, &raw mut count) },
+        1
+    );
+    assert!((1..=8).contains(&count));
+    let mut family = 0;
+    assert_eq!(
+        unsafe { pop_runtime_native::pop_rt_dns_answer_family(answers, 0, &raw mut family) },
+        1
+    );
+    assert!(matches!(family, 4 | 6));
+    assert_eq!(pop_runtime_native::pop_rt_dns_answers_close(answers), 1);
+    assert_eq!(pop_runtime_native::pop_rt_dns_resolver_close(resolver), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_tcp_receives_directly_into_a_reusable_buffer() {
+    let _guard = abi_test_lock();
+    let listener = pop_rt_tcp_listen(0);
+    if listener == 0 {
+        return;
+    }
+    let mut port = 0_u16;
+    assert_eq!(unsafe { pop_rt_tcp_local_port(listener, &raw mut port) }, 1);
+    let client = pop_rt_tcp_connect(port);
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_tcp_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"buffered Pop Net");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_tcp_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    let buffer = pop_rt_byte_buffer_create(64);
+    assert_ne!(buffer, 0);
+    for _ in 0..1000 {
+        let status = unsafe { pop_rt_tcp_receive_buffer(server, buffer, 64, &raw mut count) };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_eq!(count, 16);
+    let mut length = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_length(buffer, &raw mut length) },
+        1
+    );
+    assert_eq!(length, 16);
+    assert_eq!(pop_rt_tcp_close(client), 1);
+    assert_eq!(pop_rt_tcp_close(server), 1);
+    assert_eq!(pop_rt_tcp_close(listener), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_handles_fail_closed_without_a_capability() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket != 0 {
+        assert_eq!(pop_rt_udp_close(socket), 1);
+    }
+    let mut port = 0_u16;
+    let mut address = 0_u32;
+    let mut count = 0_u64;
+    let mut bytes = [0_u8; 1];
+    assert_eq!(unsafe { pop_rt_udp_local_port(0, &raw mut port) }, 0);
+    assert_eq!(
+        unsafe { pop_rt_udp_send_to(0, 0, 1, bytes.as_ptr(), 1, &raw mut count) },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(
+        unsafe {
+            pop_rt_udp_receive(
+                0,
+                bytes.as_mut_ptr(),
+                1,
+                &raw mut address,
+                &raw mut port,
+                &raw mut count,
+            )
+        },
+        SocketIoStatus::Failure as u8
+    );
+    assert_eq!(pop_rt_udp_close(0), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_exposes_endpoint_broadcast_hop_limit_and_multicast_controls() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket == 0 {
+        return;
+    }
+    assert_eq!(pop_rt_udp_set_broadcast(socket, 1), 1);
+    let mut scalar = 0_u32;
+    let mut enabled = 0_u8;
+    assert_eq!(unsafe { pop_rt_udp_broadcast(socket, &raw mut enabled) }, 1);
+    assert_eq!(enabled, 1);
+    assert_eq!(pop_rt_udp_set_ttl(socket, 42), 1);
+    assert_eq!(unsafe { pop_rt_udp_ttl(socket, &raw mut scalar) }, 1);
+    assert_eq!(scalar, 42);
+    assert_eq!(
+        unsafe { pop_rt_udp_endpoint_part(socket, 0, 0, &raw mut scalar) },
+        1
+    );
+    assert_eq!(scalar, 4);
+    assert_eq!(
+        unsafe { pop_rt_udp_endpoint_part(socket, 1, 0, &raw mut scalar) },
+        1
+    );
+    assert_eq!(scalar, u32::from(std::net::Ipv4Addr::LOCALHOST));
+
+    let group = u32::from(std::net::Ipv4Addr::new(224, 0, 0, 251));
+    let interface = u32::from(std::net::Ipv4Addr::LOCALHOST);
+    if pop_rt_udp_join_multicast_ipv4(socket, group, interface) == 1 {
+        assert_eq!(pop_rt_udp_leave_multicast_ipv4(socket, group, interface), 1);
+    }
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[cfg(unix)]
+#[test]
+#[allow(unsafe_code)]
+fn native_unix_stream_transfers_into_reusable_buffers() {
+    let _guard = abi_test_lock();
+    let path = std::env::temp_dir().join(format!("pop-runtime-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let encoded_path = allocate_utf8_string_literal(path.to_string_lossy().as_bytes());
+    let listener = unsafe { pop_rt_unix_listen(encoded_path) };
+    assert_ne!(listener, 0);
+    let client = unsafe { pop_rt_unix_connect(encoded_path) };
+    assert_ne!(client, 0);
+    let mut server = 0;
+    for _ in 0..1000 {
+        server = pop_rt_unix_accept(listener);
+        if server != 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    assert_ne!(server, 0);
+    let payload = allocate_immutable_bytes(b"Pop Unix");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_unix_send_bytes(client, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 8);
+    let buffer = pop_rt_byte_buffer_create(32);
+    for _ in 0..1000 {
+        let status = unsafe { pop_rt_unix_receive_buffer(server, buffer, 32, &raw mut count) };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_eq!(count, 8);
+    assert_eq!(pop_rt_unix_shutdown(client, 1), 1);
+    assert_eq!(pop_rt_unix_close(client), 1);
+    assert_eq!(pop_rt_unix_close(server), 1);
+    assert_eq!(pop_rt_unix_close(listener), 1);
+    std::fs::remove_file(path).expect("remove owned Unix socket path");
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_udp_transfers_owning_bytes_with_source_and_exact_count() {
+    let _guard = abi_test_lock();
+    let socket = pop_rt_udp_bind(0);
+    if socket == 0 {
+        return;
+    }
+    let mut port = 0;
+    assert_eq!(unsafe { pop_rt_udp_local_port(socket, &raw mut port) }, 1);
+    let payload = allocate_immutable_bytes(b"datagram");
+    let mut count = 0;
+    assert_eq!(
+        unsafe { pop_rt_udp_send_bytes_to(socket, 0x7f00_0001, port, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    assert_eq!(count, 8);
+    let mut received_bytes = 0;
+    let mut address = 0;
+    let mut source_port = 0;
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_udp_receive_bytes(
+                socket,
+                64,
+                &raw mut received_bytes,
+                &raw mut address,
+                &raw mut source_port,
+                &raw mut count,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    assert_ne!(received_bytes, 0);
+    assert_eq!((address, source_port, count), (0x7f00_0001, port, 8));
+    assert_eq!(
+        unsafe { pop_rt_udp_send_bytes_to(socket, 0x7f00_0001, port, payload, &raw mut count) },
+        SocketIoStatus::Progress as u8
+    );
+    let buffer = pop_rt_byte_buffer_create(64);
+    for _ in 0..1000 {
+        let status = unsafe {
+            pop_rt_udp_receive_buffer(
+                socket,
+                buffer,
+                64,
+                &raw mut address,
+                &raw mut source_port,
+                &raw mut count,
+            )
+        };
+        if status == SocketIoStatus::Progress as u8 {
+            break;
+        }
+        assert_eq!(status, SocketIoStatus::WouldBlock as u8);
+        std::thread::yield_now();
+    }
+    let mut buffered_length = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_length(buffer, &raw mut buffered_length) },
+        1
+    );
+    assert_eq!(
+        (address, source_port, count, buffered_length),
+        (0x7f00_0001, port, 8, 8)
+    );
+    assert_eq!(pop_rt_udp_close(socket), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_bounded_channels_preserve_fifo_backpressure_and_directional_close() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(2);
+    assert_ne!(channel, 0);
+    assert_eq!(pop_rt_channel_retain_sender(channel), 1);
+    assert_eq!(pop_rt_channel_retain_receiver(channel), 1);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 11, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 13, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 17, 0),
+        ChannelSendStatus::Full as u8
+    );
+
+    let mut value = 0;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(value, 11);
+    assert_eq!(pop_rt_channel_close(channel), 1);
+    assert_eq!(pop_rt_channel_close(channel), 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 19, 0),
+        ChannelSendStatus::Closed as u8
+    );
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(value, 13);
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Closed as u8
+    );
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_channel_managed_payloads_remain_precisely_rooted_until_receive() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    let text = allocate_utf8_string_literal(b"rooted in channel");
+    assert_ne!(channel, 0);
+    assert_ne!(text, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, text, 1),
+        ChannelSendStatus::Sent as u8
+    );
+
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(71, &[]), 1);
+    let mut received = 0;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut received) },
+        ChannelReceiveStatus::Item as u8
+    );
+    assert_eq!(received, text);
+    let needed = unsafe { pop_rt_string_read(received, std::ptr::null_mut(), 0) };
+    assert_eq!(needed, b"rooted in channel".len() as u64 + 1);
+
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(72, &[]), 1);
+    assert_eq!(pop_rt_retain_root(received), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_channel_rejects_unknown_payload_maps_without_mutation() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    assert_ne!(channel, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 43, 2),
+        ChannelSendStatus::Failure as u8
+    );
+    let mut value = 47;
+    assert_eq!(
+        unsafe { pop_rt_channel_try_receive(channel, &raw mut value) },
+        ChannelReceiveStatus::Empty as u8
+    );
+    assert_eq!(value, 47);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+}
+
+#[test]
+fn native_channel_capacity_is_logical_and_does_not_eagerly_allocate_the_bound() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(u64::MAX);
+    assert_ne!(channel, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, 53, 0),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+}
+
+#[test]
+fn native_channel_last_receiver_releases_queued_managed_payloads() {
+    let _guard = abi_test_lock();
+    let channel = pop_rt_channel_create(1);
+    let text = allocate_utf8_string_literal(b"released with receiver");
+    assert_ne!(channel, 0);
+    assert_ne!(text, 0);
+    assert_eq!(
+        pop_rt_channel_try_send(channel, text, 1),
+        ChannelSendStatus::Sent as u8
+    );
+    assert_eq!(pop_rt_channel_release_receiver(channel), 1);
+    assert!(request_abi_collection());
+    assert_eq!(abi_safe_point(73, &[]), 1);
+    assert_eq!(pop_rt_retain_root(text), 0);
+    assert_eq!(pop_rt_channel_release_sender(channel), 1);
+}
+
+#[test]
+fn native_unicode_scalar_adapter_has_the_exact_versioned_shape() {
+    let _: TextViewGetRuneAbi = pop_rt_text_view_get_rune;
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn native_checked_utf8_transcoding_distinguishes_malformed_data() {
+    let _guard = abi_test_lock();
+    let source = allocate_utf8_string_literal("Aé中🦀".as_bytes());
+    let encoded = pop_rt_text_view_encode_utf8(source, 1, "é中".len() as u64);
+    assert_ne!(encoded, 0);
+
+    let mut decoded = 0;
+    assert_eq!(
+        unsafe {
+            pop_rt_bytes_view_decode_utf8(encoded, 0, "é中".len() as u64, &raw mut decoded)
+        },
+        2
+    );
+    let needed = unsafe { pop_rt_string_read(decoded, std::ptr::null_mut(), 0) };
+    assert_eq!(needed, "é中".len() as u64 + 1);
+    let mut text = vec![0_u8; "é中".len()];
+    assert_eq!(
+        unsafe { pop_rt_string_read(decoded, text.as_mut_ptr(), text.len() as u64) },
+        needed
+    );
+    assert_eq!(text, "é中".as_bytes());
+
+    for malformed_bytes in [
+        &[0xc2][..],
+        &[0x80][..],
+        &[0xe0, 0x80, 0x80][..],
+        &[0xed, 0xa0, 0x80][..],
+        &[0xf4, 0x90, 0x80, 0x80][..],
+    ] {
+        let malformed = allocate_immutable_bytes(malformed_bytes);
+        decoded = 77;
+        assert_eq!(
+            unsafe {
+                pop_rt_bytes_view_decode_utf8(
+                    malformed,
+                    0,
+                    malformed_bytes.len() as u64,
+                    &raw mut decoded,
+                )
+            },
+            1
+        );
+        assert_eq!(decoded, 77);
+    }
+    assert_eq!(
+        unsafe { pop_rt_bytes_view_decode_utf8(u64::MAX, 0, 3, &raw mut decoded) },
+        0
+    );
+    assert_eq!(decoded, 77);
+
+    let buffer = pop_rt_byte_buffer_create(4);
+    assert_ne!(buffer, 0);
+    assert_eq!(pop_rt_byte_buffer_write_bytes(buffer, encoded), 1);
+    decoded = 0;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_decode_utf8(buffer, &raw mut decoded) },
+        2
+    );
+    assert_ne!(decoded, 0);
+    assert_eq!(pop_rt_byte_buffer_write_byte(buffer, 0xff), 1);
+    decoded = 91;
+    assert_eq!(
+        unsafe { pop_rt_byte_buffer_decode_utf8(buffer, &raw mut decoded) },
+        1
+    );
+    assert_eq!(decoded, 91);
 }
 
 #[test]
@@ -1120,6 +2302,47 @@ fn integer_range_abi_iterates_without_materializing_items() {
         let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
         assert_eq!(status, IterationStatus::End as u8);
     }
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn string_iteration_abi_decodes_scalars_and_stays_exhausted() {
+    let _guard = abi_test_lock();
+    let string = allocate_utf8_string_literal("Aé中😀\0e\u{301}".as_bytes());
+    assert_ne!(string, 0);
+    let iterator = pop_rt_iteration_acquire(string, IterationCollectionKind::String as u8);
+    assert_ne!(iterator, 0);
+    let mut value = u64::MAX;
+    for expected in [65, 233, 20_013, 128_512, 0, 101, 769] {
+        // SAFETY: `value` is live and writable for the complete call.
+        let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
+        assert_eq!(status, IterationStatus::Item as u8);
+        assert_eq!(value, expected);
+    }
+    for _ in 0..2 {
+        // SAFETY: `value` is live and writable for the complete call.
+        let status = unsafe { pop_rt_iteration_next(iterator, &raw mut value) };
+        assert_eq!(status, IterationStatus::End as u8);
+        assert_eq!(value, 0);
+    }
+    let repeat = pop_rt_iteration_acquire(string, IterationCollectionKind::String as u8);
+    assert_ne!(repeat, 0);
+    // SAFETY: `value` is live and writable for the complete call.
+    assert_eq!(
+        unsafe { pop_rt_iteration_next(repeat, &raw mut value) },
+        IterationStatus::Item as u8
+    );
+    assert_eq!(value, 65);
+
+    assert_eq!(
+        pop_rt_iteration_acquire(0, IterationCollectionKind::String as u8),
+        0
+    );
+    let not_string = pop_rt_allocate_object(0);
+    assert_eq!(
+        pop_rt_iteration_acquire(not_string, IterationCollectionKind::String as u8),
+        0
+    );
 }
 
 #[test]

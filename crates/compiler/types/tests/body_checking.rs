@@ -242,6 +242,193 @@ fn structured_task_intrinsics_reject_nominal_authority_and_owner_mismatches() {
 }
 
 #[test]
+fn directional_channel_intrinsics_preserve_exact_generic_endpoints_and_outcomes() {
+    let create = check_function(
+        "namespace Example\n\
+         public function create(): (Channel.Sender<Int>, Channel.Receiver<Int>)?\n\
+             return Channel.bounded<<Int>>(UInt64(2))\n\
+         end\n",
+        "create",
+    );
+    assert!(
+        create.result.diagnostics().is_empty(),
+        "{}",
+        create.result.diagnostic_snapshot()
+    );
+
+    let send = check_function(
+        "namespace Example\n\
+         public function send(sender: Channel.Sender<Int>): Boolean\n\
+             local outcome: Channel.SendOutcome = Channel.trySend(sender, 42)\n\
+             return Channel.sendAccepted(outcome) or Channel.sendFull(outcome) or Channel.sendClosed(outcome)\n\
+         end\n",
+        "send",
+    );
+    assert!(
+        send.result.diagnostics().is_empty(),
+        "{}",
+        send.result.diagnostic_snapshot()
+    );
+
+    let receive = check_function(
+        "namespace Example\n\
+         public function receive(receiver: Channel.Receiver<String>): String?\n\
+             local outcome: Channel.ReceiveOutcome<String> = Channel.tryReceive(receiver)\n\
+             if Channel.receiveEmpty(outcome) or Channel.receiveClosed(outcome) then\n\
+                 return nil\n\
+             end\n\
+             return Channel.received(outcome)\n\
+         end\n",
+        "receive",
+    );
+    assert!(
+        receive.result.diagnostics().is_empty(),
+        "{}",
+        receive.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn directional_channel_intrinsics_reject_endpoint_and_payload_mismatches() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function invalid(receiver: Channel.Receiver<Int>, sender: Channel.Sender<String>): Boolean\n\
+             local first = Channel.trySend(receiver, 42)\n\
+             local second = Channel.trySend(sender, 42)\n\
+             return Channel.close(receiver) or Channel.receiveEmpty(first) or Channel.sendAccepted(second)\n\
+         end\n",
+        "invalid",
+    );
+
+    let snapshot = fixture.result.diagnostic_snapshot();
+    assert!(fixture.result.body().is_none(), "{snapshot}");
+    assert!(snapshot.matches("POP2003").count() >= 3, "{snapshot}");
+}
+
+#[test]
+fn atomic_standard_calls_preserve_handle_value_and_order_types() {
+    let order = check_function(
+        "namespace Example\n\
+         public function order(): Atomic.LoadOrder\n\
+             return Atomic.acquireLoadOrder()\n\
+         end\n",
+        "order",
+    );
+    assert!(
+        order.result.diagnostics().is_empty(),
+        "{}",
+        order.result.diagnostic_snapshot()
+    );
+
+    let integer = check_function(
+        "namespace Example\n\
+         public function update(value: Int): Boolean\n\
+             local state: Atomic.Int = Atomic.int(value)\n\
+             local loaded: Int = Atomic.loadInt(state, Atomic.acquireLoadOrder())\n\
+             local swapped: Int = Atomic.swapInt(state, loaded + 1, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local observed: Int = Atomic.compareExchangeInt(state, swapped, loaded, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local added: Int = Atomic.fetchAddInt(state, 4, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local subtracted: Int = Atomic.fetchSubtractInt(state, 2, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local masked: Int = Atomic.fetchAndInt(state, 255, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local combined: Int = Atomic.fetchOrInt(state, 16, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local toggled: Int = Atomic.fetchXorInt(state, 3, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local stored = Atomic.storeInt(state, swapped, Atomic.releaseStoreOrder())\n\
+             return observed == swapped and added >= 0 and subtracted >= 0 and masked >= 0 and combined >= 0 and toggled >= 0 and stored and Atomic.releaseInt(state)\n\
+         end\n",
+        "update",
+    );
+    assert!(
+        integer.result.diagnostics().is_empty(),
+        "{}",
+        integer.result.diagnostic_snapshot()
+    );
+
+    let boolean = check_function(
+        "namespace Example\n\
+         public function update(value: Boolean): Boolean\n\
+             local state: Atomic.Boolean = Atomic.boolean(value)\n\
+             local loaded = Atomic.loadBoolean(state, Atomic.relaxedLoadOrder())\n\
+             local swapped = Atomic.swapBoolean(state, not loaded, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
+             local observed = Atomic.compareExchangeBoolean(state, swapped, loaded, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             return observed == swapped and Atomic.storeBoolean(state, swapped, Atomic.sequentiallyConsistentStoreOrder()) and Atomic.releaseBoolean(state)\n\
+         end\n",
+        "update",
+    );
+    assert!(
+        boolean.result.diagnostics().is_empty(),
+        "{}",
+        boolean.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn actor_mailboxes_preserve_exact_integer_message_types_and_outcomes() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function run(actorId: UInt64, incarnation: UInt64): Boolean\n\
+             if local inbox = Actor.mailbox<<Int>>(actorId, incarnation, UInt64(2)) then\n\
+                 local reference: Actor.Ref<Int> = Actor.reference(inbox)\n\
+                 local sent: Actor.SendOutcome = Actor.trySend(reference, 42)\n\
+                 if local received = Actor.tryReceive(inbox) then\n\
+                     return Actor.sendAccepted(sent) and received == 42 and Actor.finish(inbox) and Actor.release(inbox)\n\
+                 end\n\
+             end\n\
+             return false\n\
+         end\n",
+        "run",
+    );
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn net_tcp_and_udp_transport_calls_preserve_exact_handle_and_payload_types() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function transport(): Boolean\n\
+             local listener: Net.Tcp.Listener = Net.Tcp.listen(UInt16(0))\n\
+             local port: UInt16 = Net.Tcp.listenerLocalPort(listener)\n\
+             local stream: Net.Tcp.Stream = Net.Tcp.connect(port)\n\
+             local sent: Net.SocketIoOutcome = Net.Tcp.sendByte(stream, Byte(65))\n\
+             local payload = Text.encodeUtf8(\"Pop Net\")\n\
+             local transfer: Net.Transfer = Net.Tcp.send(stream, payload)\n\
+             local received = Bytes.withCapacity(64)\n\
+             local reception: Net.Transfer = Net.Tcp.receive(stream, received, UInt64(64))\n\
+             local noDelaySet: Boolean = Net.Tcp.setNoDelay(stream, true)\n\
+             local noDelay: Boolean = Net.Tcp.noDelay(stream)\n\
+             local hopLimitSet: Boolean = Net.Tcp.setHopLimit(stream, UInt32(42))\n\
+             local hopLimit: UInt32 = Net.Tcp.hopLimit(stream)\n\
+             local localFamily: Byte = Net.Tcp.localAddressFamily(stream)\n\
+             local peerFamily: Byte = Net.Tcp.peerAddressFamily(stream)\n\
+             local localWord: UInt32? = Net.Tcp.localAddressWord(stream, Byte(0))\n\
+             local peerWord: UInt32? = Net.Tcp.peerAddressWord(stream, Byte(0))\n\
+             local localScope: UInt32 = Net.Tcp.localScopeId(stream)\n\
+             local peerScope: UInt32 = Net.Tcp.peerScopeId(stream)\n\
+             local peerPort: UInt16 = Net.Tcp.peerPort(stream)\n\
+             local socket: Net.Udp.Socket = Net.Udp.bind(UInt16(0))\n\
+             local udpFamily: Byte = Net.Udp.localAddressFamily(socket)\n\
+             local udpWord: UInt32? = Net.Udp.localAddressWord(socket, Byte(0))\n\
+             local udpScope: UInt32 = Net.Udp.localScopeId(socket)\n\
+             local broadcastSet: Boolean = Net.Udp.setBroadcast(socket, true)\n\
+             local broadcast: Boolean = Net.Udp.broadcast(socket)\n\
+             local udpHopSet: Boolean = Net.Udp.setHopLimit(socket, UInt32(42))\n\
+             local udpHop: UInt32 = Net.Udp.hopLimit(socket)\n\
+             local datagramSent = Net.Udp.sendByteTo(socket, UInt32(2130706433), Net.Udp.localPort(socket), Byte(66))\n\
+             return Net.ioProgress(sent) and (Net.transferProgress(transfer) or Net.transferWouldBlock(transfer)) and (Net.transferProgress(reception) or Net.transferWouldBlock(reception) or Net.transferClosed(reception)) and Net.transferredByteCount(transfer) <= UInt64(7) and noDelaySet and noDelay and hopLimitSet and hopLimit == UInt32(42) and localFamily == Byte(4) and peerFamily == Byte(4) and localWord ~= nil and peerWord ~= nil and localScope == UInt32(0) and peerScope == UInt32(0) and peerPort == port and Net.Tcp.shutdownWrite(stream) and udpFamily == Byte(4) and udpWord ~= nil and udpScope == UInt32(0) and broadcastSet and broadcast and udpHopSet and udpHop == UInt32(42) and Net.ioProgress(datagramSent) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener) and Net.Udp.close(socket)\n\
+         end\n",
+        "transport",
+    );
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
 fn await_requires_async_context_and_exact_task_operand() {
     let outside = check_function(
         "namespace Example\n\
@@ -816,6 +1003,45 @@ fn types_optional_binding_defaulting_propagation_and_nil_narrowing() {
             body,
             ..
         } if name == "bound" && *inner_type == boolean && body.len() == 2
+    ));
+}
+
+#[test]
+fn injects_present_and_absent_members_into_an_optional_return() {
+    // The accepted subtype contract makes both Int and nil assignable to
+    // Int?. The conversion remains explicit in the typed body so later IR
+    // never guesses whether a scalar is an optional payload.
+    let fixture = check_function(
+        "namespace Example\n\
+         private function choose(value: Int, present: Boolean): Int?\n\
+             if present then\n\
+                 return value\n\
+             end\n\
+             return nil\n\
+         end\n",
+        "choose",
+    );
+
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+    let body = fixture.result.body().expect("typed optional injection");
+    let TypedStatementKind::If { then_body, .. } = body.statements()[0].kind() else {
+        panic!("optional injection branch");
+    };
+    let TypedStatementKind::Return { values } = then_body[0].kind() else {
+        panic!("present optional return");
+    };
+    let optional = values[0].type_id();
+    let TypedStatementKind::Return { values } = body.statements()[1].kind() else {
+        panic!("absent optional return");
+    };
+    assert_eq!(values[0].type_id(), optional);
+    assert!(matches!(
+        fixture.arena.get(optional),
+        Some(SemanticType::Union(members)) if members.len() == 2
     ));
 }
 

@@ -20,13 +20,133 @@ use pop_types::{
 use crate::ir::*;
 use crate::lowering::{
     array_element_map, expected_safe_point_roots, expected_suspend_frame_slots,
-    is_managed_reference_type_id, list_element_map, local_instruction_effects, table_element_maps,
-    task_group_object_map, task_object_map, terminator_effects,
+    is_managed_reference_type_id, iteration_object_map, list_element_map,
+    local_instruction_effects, table_element_maps, task_group_object_map, task_object_map,
+    terminator_effects, value_element_map,
 };
 use crate::render::{float_kind_text, integer_kind_text};
 use crate::{
     MirFfiCallbackAbi, MirFfiCallbackFingerprint, MirFfiCallbackSignature, MirFfiLayoutCatalog,
 };
+
+fn standard_function_type(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    name: &str,
+) -> Option<TypeId> {
+    if let Some(inner) = name.strip_suffix('?') {
+        let inner = standard_function_type(arena, schema, inner)?;
+        let nil = arena.source_type("nil")?;
+        return arena
+            .find(&SemanticType::Union(vec![inner, nil]))
+            .or_else(|| arena.find(&SemanticType::Union(vec![nil, inner])));
+    }
+    arena.source_type(name).or_else(|| {
+        let entry = schema.type_by_source_name(name)?;
+        (entry.arity() == 0).then(|| {
+            arena.find(&SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+        })?
+    })
+}
+
+fn verify_actor_standard_call(
+    instruction: &MirInstruction,
+    function: u32,
+    arguments: &[ValueId],
+    arena: &TypeArena,
+    values: &BTreeMap<ValueId, TypeId>,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    let Ok(schema) = embedded_bootstrap_schema() else {
+        errors.push(MirVerificationError::UnknownStandardFunction(
+            pop_foundation::StandardFunctionId::from_raw(function),
+        ));
+        return;
+    };
+    let Some(boolean) = arena.source_type("Boolean") else {
+        return;
+    };
+    let Some(uint64) = arena.source_type("UInt64") else {
+        return;
+    };
+    let Some(send_outcome) = schema
+        .type_by_source_name("Actor.SendOutcome")
+        .and_then(|entry| builtin_instance(arena, entry.id(), &[]))
+    else {
+        return;
+    };
+    let Some(argument_types) = arguments
+        .iter()
+        .map(|argument| values.get(argument).copied())
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    let builtin_element = |value: TypeId, name: &str| {
+        let expected = schema.type_by_source_name(name)?.id();
+        match arena.get(value) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if *definition == expected && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        }
+    };
+    let builtin = |name: &str, element: TypeId| {
+        builtin_instance(arena, schema.type_by_source_name(name)?.id(), &[element])
+    };
+    let scalar_message = |element: TypeId| {
+        matches!(
+            arena.get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        )
+    };
+    let signature = match function {
+        25 if argument_types == [uint64, uint64, uint64] => {
+            let inbox = optional_inner_type(arena, instruction.result_type())
+                .and_then(|inbox| builtin_element(inbox, "Actor.Inbox"))
+                .filter(|element| scalar_message(*element));
+            inbox.map(|_| (argument_types, vec![instruction.result_type()]))
+        }
+        26 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .and_then(|element| builtin("Actor.Ref", element))
+            .map(|result| (argument_types, vec![result])),
+        27 if argument_types.len() == 2 => builtin_element(argument_types[0], "Actor.Ref")
+            .filter(|element| scalar_message(*element))
+            .filter(|element| *element == argument_types[1])
+            .map(|_| (argument_types, vec![send_outcome])),
+        28 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .filter(|element| {
+                optional_inner_type(arena, instruction.result_type()) == Some(*element)
+            })
+            .map(|_| (argument_types, vec![instruction.result_type()])),
+        29 | 30 if argument_types.len() == 1 => builtin_element(argument_types[0], "Actor.Inbox")
+            .filter(|element| scalar_message(*element))
+            .map(|_| (argument_types, vec![boolean])),
+        31..=34 if argument_types == [send_outcome] => Some((argument_types, vec![boolean])),
+        _ => None,
+    };
+    if let Some((parameters, results)) = signature {
+        verify_call_signature(
+            instruction,
+            arguments,
+            &parameters,
+            &results,
+            values,
+            errors,
+        );
+    } else {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+}
 
 fn canonical_arguments_match(
     arena: &TypeArena,
@@ -375,7 +495,28 @@ pub(crate) fn instruction_allocation_site(kind: &MirInstructionKind) -> Option<A
         | MirInstructionKind::TupleMake {
             allocation_site, ..
         }
+        | MirInstructionKind::ChannelCreate {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ChannelTryReceive {
+            allocation_site, ..
+        }
         | MirInstructionKind::ViewMaterialize {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ByteBufferCreate {
+            allocation_site, ..
+        }
+        | MirInstructionKind::ByteBufferMaterialize {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8Encode {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8DecodeView {
+            allocation_site, ..
+        }
+        | MirInstructionKind::Utf8DecodeBuffer {
             allocation_site, ..
         }
         | MirInstructionKind::CaptureCellAllocate {
@@ -533,6 +674,31 @@ impl<'mir> MirSchema<'mir> {
             fields: BTreeMap::new(),
         };
         let mut symbols = BTreeSet::new();
+        let mut record_identities = BTreeSet::new();
+        for reference in bubble.nominal_references().records() {
+            let valid_owner = bubble.dependencies.contains(&reference.identity().bubble());
+            let valid_declaration = bubble.declarations.iter().any(|declaration| {
+                declaration.symbol() == reference.symbol()
+                    && matches!(
+                        declaration.kind(),
+                        MirDeclarationKind::Record(record)
+                            if record.type_id() == reference.type_id()
+                    )
+            });
+            let valid_type = matches!(
+                arena.get(reference.type_id()),
+                Some(SemanticType::Record(_))
+            );
+            if !valid_owner
+                || !valid_declaration
+                || !valid_type
+                || !record_identities.insert(reference.identity())
+            {
+                errors.push(MirVerificationError::InvalidNominalReference(
+                    reference.identity(),
+                ));
+            }
+        }
         for reference in bubble.nominal_references().interfaces() {
             let valid_owner = bubble
                 .dependencies
@@ -1571,11 +1737,6 @@ fn verify_gc_contracts(
                     object_map,
                     ..
                 }
-                | MirInstructionKind::IterationMake {
-                    arguments,
-                    object_map,
-                    ..
-                }
                 | MirInstructionKind::ErrorMake {
                     arguments,
                     object_map,
@@ -1584,6 +1745,22 @@ fn verify_gc_contracts(
                     if expected_operand_object_map(arguments, 1, facts.values, arena)
                         .is_some_and(|expected| expected != *object_map)
                     {
+                        errors.push(MirVerificationError::InvalidObjectMap {
+                            instruction: instruction.result(),
+                        });
+                    }
+                }
+                MirInstructionKind::IterationMake {
+                    arguments,
+                    object_map,
+                    ..
+                } => {
+                    let expected = arguments
+                        .iter()
+                        .map(|argument| facts.values.get(argument).copied())
+                        .collect::<Option<Vec<_>>>()
+                        .map(|types| iteration_object_map(arena, types));
+                    if expected.is_some_and(|expected| expected != *object_map) {
                         errors.push(MirVerificationError::InvalidObjectMap {
                             instruction: instruction.result(),
                         });
@@ -2855,6 +3032,7 @@ fn verify_view_lifetimes(
     }
 
     let mut materializations = BTreeSet::new();
+    let parameter_aliases = exact_parameter_aliases(function);
     for block in function.blocks() {
         for instruction in block.instructions() {
             match instruction.kind() {
@@ -2885,10 +3063,10 @@ fn verify_view_lifetimes(
                     }
                     verify_created_view_provenance(
                         function,
-                        entry,
                         instruction,
                         *lender,
                         *lender_provenance,
+                        &parameter_aliases,
                         errors,
                     );
                 }
@@ -3042,26 +3220,86 @@ fn verify_view_lifetimes(
 
 fn verify_created_view_provenance(
     function: &MirFunction,
-    entry: &MirBlock,
     instruction: &MirInstruction,
     lender: ValueId,
     provenance: MirViewLender,
+    parameter_aliases: &BTreeMap<ValueId, BTreeSet<u32>>,
     errors: &mut Vec<MirVerificationError>,
 ) {
     if let MirViewLender::Parameter { index } = provenance {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
         if function.parameters().get(index).is_none()
-            || entry
-                .arguments()
-                .get(index)
-                .map(|argument| argument.value())
-                != Some(lender)
+            || !parameter_aliases
+                .get(&lender)
+                .is_some_and(|aliases| aliases.contains(&u32::try_from(index).unwrap_or(u32::MAX)))
         {
             errors.push(MirVerificationError::InvalidViewOperation {
                 instruction: instruction.result(),
             });
         }
     }
+}
+
+fn exact_parameter_aliases(function: &MirFunction) -> BTreeMap<ValueId, BTreeSet<u32>> {
+    let Some(entry) = function.blocks().first() else {
+        return BTreeMap::new();
+    };
+    let all_parameters = (0..entry.arguments().len())
+        .filter_map(|index| u32::try_from(index).ok())
+        .collect::<BTreeSet<_>>();
+    let mut aliases = BTreeMap::new();
+    for (index, argument) in entry.arguments().iter().enumerate() {
+        aliases.insert(
+            argument.value(),
+            u32::try_from(index).ok().into_iter().collect(),
+        );
+    }
+    for block in function.blocks().iter().skip(1) {
+        for argument in block.arguments() {
+            aliases.insert(argument.value(), all_parameters.clone());
+        }
+    }
+
+    loop {
+        let previous = aliases.clone();
+        for target in function.blocks().iter().skip(1) {
+            for (argument_index, argument) in target.arguments().iter().enumerate() {
+                let mut found_predecessor = false;
+                let mut candidates = all_parameters.clone();
+                for predecessor in function.blocks() {
+                    let MirTerminator::Branch {
+                        target: edge_target,
+                        arguments,
+                    } = predecessor.terminator()
+                    else {
+                        continue;
+                    };
+                    if *edge_target != target.block() {
+                        continue;
+                    }
+                    found_predecessor = true;
+                    let incoming = arguments
+                        .get(argument_index)
+                        .and_then(|value| previous.get(value))
+                        .cloned()
+                        .unwrap_or_default();
+                    candidates = candidates
+                        .intersection(&incoming)
+                        .copied()
+                        .collect::<BTreeSet<_>>();
+                }
+                if !found_predecessor {
+                    candidates.clear();
+                }
+                aliases.insert(argument.value(), candidates);
+            }
+        }
+        if aliases == previous {
+            break;
+        }
+    }
+    aliases.retain(|_, candidates| !candidates.is_empty());
+    aliases
 }
 
 fn propagate_view_block_arguments(
@@ -3125,10 +3363,18 @@ fn verify_view_escapes(
                     MirInstructionKind::ViewSlice { view, .. }
                         | MirInstructionKind::ViewLength { view, .. }
                         | MirInstructionKind::ViewMaterialize { view, .. }
+                        | MirInstructionKind::Utf8Encode { view, .. }
+                        | MirInstructionKind::Utf8DecodeView { view, .. }
                         if *view == operand
                 ) || matches!(
                     instruction.kind(),
-                    MirInstructionKind::ViewGetByte { view, .. } if *view == operand
+                    MirInstructionKind::ViewGetByte { view, .. }
+                        | MirInstructionKind::ViewGetRune { view, .. }
+                        if *view == operand
+                ) || matches!(
+                    instruction.kind(),
+                    MirInstructionKind::ByteBufferWriteView { value, .. }
+                        if *value == operand
                 ) || view_call_argument_does_not_retain(
                     instruction.kind(),
                     operand,
@@ -3627,7 +3873,13 @@ fn verify_instruction_types(
             | MirInstructionKind::ViewSlice { .. }
             | MirInstructionKind::ViewLength { .. }
             | MirInstructionKind::ViewGetByte { .. }
+            | MirInstructionKind::ViewGetRune { .. }
             | MirInstructionKind::ViewMaterialize { .. }
+            | MirInstructionKind::Utf8Encode { .. }
+            | MirInstructionKind::Utf8DecodeView { .. }
+            | MirInstructionKind::Utf8DecodeBuffer { .. }
+            | MirInstructionKind::RuneFromCodePoint { .. }
+            | MirInstructionKind::RuneCodePoint { .. }
     );
     if requires_value_form && !instruction.has_result() {
         let error = if matches!(
@@ -3636,6 +3888,7 @@ fn verify_instruction_types(
                 | MirInstructionKind::ViewSlice { .. }
                 | MirInstructionKind::ViewLength { .. }
                 | MirInstructionKind::ViewGetByte { .. }
+                | MirInstructionKind::ViewGetRune { .. }
                 | MirInstructionKind::ViewMaterialize { .. }
         ) {
             MirVerificationError::InvalidViewOperation {
@@ -3748,6 +4001,16 @@ fn verify_instruction_types(
                     .is_some_and(|byte| is_optional_of(arena, instruction.result_type(), byte));
             verify_view_operation(instruction, valid, errors);
         }
+        MirInstructionKind::ViewGetRune { view, index } => {
+            let valid = values
+                .get(view)
+                .is_some_and(|type_id| view_type_matches(arena, *type_id, MirViewKind::Text))
+                && value_has_type(values, *index, arena.source_type("Int"))
+                && arena
+                    .source_type("Rune")
+                    .is_some_and(|rune| is_optional_of(arena, instruction.result_type(), rune));
+            verify_view_operation(instruction, valid, errors);
+        }
         MirInstructionKind::ViewMaterialize { kind, view, .. } => {
             let valid = values
                 .get(view)
@@ -3756,6 +4019,28 @@ fn verify_instruction_types(
             verify_view_operation(instruction, valid, errors);
         }
         MirInstructionKind::ViewEnd { .. } => {}
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            let valid = value_has_type(values, *value, arena.source_type("UInt32"))
+                && arena
+                    .source_type("Rune")
+                    .is_some_and(|rune| is_optional_of(arena, instruction.result_type(), rune));
+            if !valid {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            let valid = value_has_type(values, *value, arena.source_type("Rune"))
+                && arena.source_type("UInt32") == Some(instruction.result_type());
+            if !valid {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
         MirInstructionKind::FfiHandleOpen { value } => {
             let valid = values.get(value).copied().is_some_and(|payload| {
                 is_managed_reference_type_id(payload, Some(arena))
@@ -4265,6 +4550,16 @@ fn verify_instruction_types(
                     ) == Some(element)
             });
             verify_ffi_unsafe_operation(instruction, valid, errors);
+        }
+        MirInstructionKind::OptionalMake { value } => {
+            let valid =
+                values.get(value).copied() == optional_inner_type(arena, instruction.result_type());
+            if !valid {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
         }
         MirInstructionKind::OptionalIsPresent { optional } => {
             let valid_operand = values
@@ -4784,6 +5079,274 @@ fn verify_instruction_types(
                 errors,
             );
         }
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            element,
+            endpoints,
+            ..
+        } => {
+            if let Some(unsigned) = arena.source_type("UInt64") {
+                verify_operand_type(instruction.result(), *capacity, unsigned, values, errors);
+            }
+            let sender = builtin_instance(arena, pop_types::CHANNEL_SENDER_TYPE_ID, &[*element]);
+            let receiver =
+                builtin_instance(arena, pop_types::CHANNEL_RECEIVER_TYPE_ID, &[*element]);
+            let expected_endpoints = sender.zip(receiver).and_then(|(sender, receiver)| {
+                arena.find(&SemanticType::Tuple(vec![sender, receiver]))
+            });
+            if expected_endpoints != Some(*endpoints)
+                || !is_optional_of(arena, instruction.result_type(), *endpoints)
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+            element_map,
+        } => {
+            if let Some(sender_type) =
+                builtin_instance(arena, pop_types::CHANNEL_SENDER_TYPE_ID, &[*element])
+            {
+                verify_operand_type(instruction.result(), *sender, sender_type, values, errors);
+            }
+            verify_operand_type(instruction.result(), *value, *element, values, errors);
+            if *element_map != value_element_map(arena, *element)
+                || builtin_type(arena, pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID)
+                    != Some(instruction.result_type())
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element,
+            element_map,
+            ..
+        } => {
+            if let Some(receiver_type) =
+                builtin_instance(arena, pop_types::CHANNEL_RECEIVER_TYPE_ID, &[*element])
+            {
+                verify_operand_type(
+                    instruction.result(),
+                    *receiver,
+                    receiver_type,
+                    values,
+                    errors,
+                );
+            }
+            if *element_map != value_element_map(arena, *element)
+                || builtin_instance(
+                    arena,
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) != Some(instruction.result_type())
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let definition = match direction {
+                pop_types::ChannelDirection::Sender => pop_types::CHANNEL_SENDER_TYPE_ID,
+                pop_types::ChannelDirection::Receiver => pop_types::CHANNEL_RECEIVER_TYPE_ID,
+            };
+            let valid_endpoint = values
+                .get(endpoint)
+                .and_then(|endpoint| builtin_element(arena, *endpoint, definition))
+                .is_some();
+            if !valid_endpoint || arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, .. } => {
+            if let Some(outcome_type) = builtin_type(arena, pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID)
+            {
+                verify_operand_type(instruction.result(), *outcome, outcome_type, values, errors);
+            }
+            if arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            if let Some(outcome_type) = builtin_instance(
+                arena,
+                pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                &[*element],
+            ) {
+                verify_operand_type(instruction.result(), *outcome, outcome_type, values, errors);
+            }
+            if !is_optional_of(arena, instruction.result_type(), *element) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            let valid_outcome = values
+                .get(outcome)
+                .and_then(|outcome| {
+                    builtin_element(arena, *outcome, pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID)
+                })
+                .is_some();
+            if !valid_outcome || arena.source_type("Boolean") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            if byte_buffer_type(arena) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+            if let (Some(capacity), Some(integer)) = (capacity, arena.source_type("Int")) {
+                verify_operand_type(instruction.result(), *capacity, integer, values, errors);
+            }
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if arena.source_type("Int") != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if let Some(integer) = arena.source_type("Int") {
+                verify_operand_type(
+                    instruction.result(),
+                    *additional_capacity,
+                    integer,
+                    values,
+                    errors,
+                );
+            }
+            verify_nil_result(instruction, arena, errors);
+        }
+        MirInstructionKind::ByteBufferClear { buffer } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            verify_nil_result(instruction, arena, errors);
+        }
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => {
+            verify_byte_buffer_write(instruction, *buffer, *value, "Byte", arena, values, errors);
+        }
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => {
+            verify_byte_buffer_write(instruction, *buffer, *value, "Bytes", arena, values, errors);
+        }
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            verify_byte_buffer_write(
+                instruction,
+                *buffer,
+                *value,
+                "Bytes.View",
+                arena,
+                values,
+                errors,
+            );
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            ..
+        } => {
+            let expected = match kind {
+                pop_types::IntegerKind::UInt16 => "UInt16",
+                pop_types::IntegerKind::UInt32 => "UInt32",
+                pop_types::IntegerKind::UInt64 => "UInt64",
+                _ => "",
+            };
+            verify_byte_buffer_write(
+                instruction,
+                *buffer,
+                *value,
+                expected,
+                arena,
+                values,
+                errors,
+            );
+        }
+        MirInstructionKind::ByteBufferMaterialize { buffer, .. } => {
+            if let Some(buffer_type) = byte_buffer_type(arena) {
+                verify_operand_type(instruction.result(), *buffer, buffer_type, values, errors);
+            }
+            if builtin_type(arena, pop_types::BYTES_TYPE_ID) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8Encode { view, .. } => {
+            if builtin_type(arena, pop_types::TEXT_VIEW_TYPE_ID) != values.get(view).copied() {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+            if builtin_type(arena, pop_types::BYTES_TYPE_ID) != Some(instruction.result_type()) {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8DecodeView { view, .. } => {
+            if builtin_type(arena, pop_types::BYTES_VIEW_TYPE_ID) != values.get(view).copied()
+                || optional_inner_type(arena, instruction.result_type())
+                    != arena.source_type("String")
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
+        MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => {
+            if byte_buffer_type(arena) != values.get(buffer).copied()
+                || optional_inner_type(arena, instruction.result_type())
+                    != arena.source_type("String")
+            {
+                errors.push(MirVerificationError::InvalidInstructionType {
+                    instruction: instruction.result(),
+                    result_type: instruction.result_type(),
+                });
+            }
+        }
         MirInstructionKind::RangeCreate { first, last, step } => {
             let Some(first_type) = values.get(first).copied() else {
                 return;
@@ -4999,11 +5562,19 @@ fn list_element_type(arena: &TypeArena, type_id: TypeId) -> Option<TypeId> {
         .ok()?
         .iteration_protocol()?
         .list();
+    builtin_element(arena, type_id, list)
+}
+
+fn builtin_element(
+    arena: &TypeArena,
+    type_id: TypeId,
+    definition: BuiltinTypeId,
+) -> Option<TypeId> {
     match arena.get(type_id)? {
         SemanticType::Builtin {
-            definition,
+            definition: found,
             arguments,
-        } if *definition == list && arguments.len() == 1 => Some(arguments[0]),
+        } if *found == definition && arguments.len() == 1 => Some(arguments[0]),
         _ => None,
     }
 }
@@ -5020,6 +5591,67 @@ fn range_element_type(arena: &TypeArena, type_id: TypeId) -> Option<TypeId> {
         } if *definition == range && arguments.len() == 1 => Some(arguments[0]),
         _ => None,
     }
+}
+
+fn builtin_type(arena: &TypeArena, definition: BuiltinTypeId) -> Option<TypeId> {
+    builtin_instance(arena, definition, &[])
+}
+
+fn builtin_instance(
+    arena: &TypeArena,
+    definition: BuiltinTypeId,
+    arguments: &[TypeId],
+) -> Option<TypeId> {
+    arena.find(&SemanticType::Builtin {
+        definition,
+        arguments: arguments.to_vec(),
+    })
+}
+
+fn byte_buffer_type(arena: &TypeArena) -> Option<TypeId> {
+    builtin_type(arena, pop_types::BYTES_BUFFER_TYPE_ID)
+}
+
+fn verify_nil_result(
+    instruction: &MirInstruction,
+    arena: &TypeArena,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    if arena.source_type("nil") != Some(instruction.result_type()) {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_byte_buffer_write(
+    instruction: &MirInstruction,
+    buffer: ValueId,
+    value: ValueId,
+    expected_value: &str,
+    arena: &TypeArena,
+    values: &BTreeMap<ValueId, TypeId>,
+    errors: &mut Vec<MirVerificationError>,
+) {
+    if let Some(buffer_type) = byte_buffer_type(arena) {
+        verify_operand_type(instruction.result(), buffer, buffer_type, values, errors);
+    }
+    let value_type = match expected_value {
+        "Bytes" => builtin_type(arena, pop_types::BYTES_TYPE_ID),
+        "Bytes.View" => builtin_type(arena, pop_types::BYTES_VIEW_TYPE_ID),
+        _ => arena.source_type(expected_value),
+    };
+    if let Some(value_type) = value_type {
+        verify_operand_type(instruction.result(), value, value_type, values, errors);
+    } else {
+        errors.push(MirVerificationError::InvalidInstructionType {
+            instruction: instruction.result(),
+            result_type: instruction.result_type(),
+        });
+    }
+    verify_nil_result(instruction, arena, errors);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5166,6 +5798,9 @@ fn iteration_source_item(
 ) -> Option<TypeId> {
     match arena.get(type_id) {
         Some(SemanticType::Array(item)) => Some(*item),
+        Some(SemanticType::Primitive(pop_types::PrimitiveType::String)) => {
+            arena.source_type("Rune")
+        }
         Some(SemanticType::Table { key, value }) => {
             arena.find(&SemanticType::Tuple(vec![*key, *value]))
         }
@@ -5467,6 +6102,7 @@ fn mir_supports_default_equality(arena: &TypeArena, type_id: TypeId) -> bool {
                 pop_types::PrimitiveType::Nil
                 | pop_types::PrimitiveType::Boolean
                 | pop_types::PrimitiveType::Integer(_)
+                | pop_types::PrimitiveType::Rune
                 | pop_types::PrimitiveType::String,
             )
             | SemanticType::Class { .. }
@@ -6228,16 +6864,57 @@ fn verify_callable_instruction(
             arguments,
             ..
         } => {
-            let parameter = match function.raw() {
-                0 => arena.source_type("Int"),
-                1 => arena.source_type("String"),
-                _ => {
-                    errors.push(MirVerificationError::UnknownStandardFunction(*function));
-                    None
-                }
+            if matches!(function.raw(), 25..=34) {
+                verify_actor_standard_call(
+                    instruction,
+                    function.raw(),
+                    arguments,
+                    arena,
+                    values,
+                    errors,
+                );
+                return true;
+            }
+            let Some(bootstrap) = embedded_bootstrap_schema().ok() else {
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
+                return true;
             };
-            if let Some(parameter) = parameter {
-                verify_call_signature(instruction, arguments, &[parameter], &[], values, errors);
+            let Some(entry) = bootstrap
+                .standard_functions()
+                .iter()
+                .find(|entry| entry.id() == *function)
+            else {
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
+                return true;
+            };
+            let parameters = entry
+                .parameter_types()
+                .iter()
+                .map(|name| standard_function_type(arena, &bootstrap, name))
+                .collect::<Option<Vec<_>>>();
+            let results = entry
+                .result_types()
+                .iter()
+                .map(|name| standard_function_type(arena, &bootstrap, name))
+                .collect::<Option<Vec<_>>>();
+            if let (Some(parameters), Some(results)) = (parameters, results) {
+                verify_call_signature(
+                    instruction,
+                    arguments,
+                    &parameters,
+                    &results,
+                    values,
+                    errors,
+                );
+            } else if arguments.len() != entry.parameter_types().len()
+                || instruction.has_result() != !entry.result_types().is_empty()
+            {
+                // Referenced Standard nominal records/unions are resolved by
+                // the front end and already have a typed MIR result. The
+                // verifier cannot reconstruct those cross-Bubble identities
+                // from bootstrap names alone, but it can still enforce the
+                // closed arity/result contract here.
+                errors.push(MirVerificationError::UnknownStandardFunction(*function));
             }
         }
         MirInstructionKind::CallDirectMethod {
@@ -7132,7 +7809,10 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
         } => vec![*view, *start, *length],
         MirInstructionKind::ViewLength { view, .. }
         | MirInstructionKind::ViewMaterialize { view, .. } => vec![*view],
-        MirInstructionKind::ViewGetByte { view, index } => vec![*view, *index],
+        MirInstructionKind::ViewGetByte { view, index }
+        | MirInstructionKind::ViewGetRune { view, index } => vec![*view, *index],
+        MirInstructionKind::RuneFromCodePoint { value }
+        | MirInstructionKind::RuneCodePoint { value } => vec![*value],
         MirInstructionKind::TupleGet { tuple, .. } => vec![*tuple],
         MirInstructionKind::IterationIsItem { iteration, .. }
         | MirInstructionKind::IterationGetItem { iteration, .. } => vec![*iteration],
@@ -7141,7 +7821,32 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
             initial_value,
             ..
         } => vec![*length, *initial_value],
-        MirInstructionKind::ListCreate { capacity, .. } => capacity.iter().copied().collect(),
+        MirInstructionKind::ListCreate { capacity, .. }
+        | MirInstructionKind::ByteBufferCreate { capacity, .. } => {
+            capacity.iter().copied().collect()
+        }
+        MirInstructionKind::ChannelCreate { capacity, .. } => vec![*capacity],
+        MirInstructionKind::ChannelTryReceive { receiver, .. } => vec![*receiver],
+        MirInstructionKind::ChannelClose { endpoint, .. } => vec![*endpoint],
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, .. }
+        | MirInstructionKind::ChannelReceiveItem { outcome, .. }
+        | MirInstructionKind::ChannelReceiveOutcomeTest { outcome, .. } => vec![*outcome],
+        MirInstructionKind::ByteBufferLength { buffer }
+        | MirInstructionKind::ByteBufferClear { buffer }
+        | MirInstructionKind::ByteBufferMaterialize { buffer, .. }
+        | MirInstructionKind::Utf8DecodeBuffer { buffer, .. } => vec![*buffer],
+        MirInstructionKind::Utf8Encode { view, .. }
+        | MirInstructionKind::Utf8DecodeView { view, .. } => vec![*view],
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => vec![*buffer, *additional_capacity],
+        MirInstructionKind::ByteBufferWriteByte { buffer, value }
+        | MirInstructionKind::ByteBufferWriteBytes { buffer, value }
+        | MirInstructionKind::ByteBufferWriteView { buffer, value }
+        | MirInstructionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            vec![*buffer, *value]
+        }
         MirInstructionKind::RangeCreate { first, last, step } => vec![*first, *last, *step],
         MirInstructionKind::CallIndirect {
             callee, arguments, ..
@@ -7211,6 +7916,7 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
             ..
         } => vec![*source, *destination, *count],
         MirInstructionKind::BooleanNot { operand }
+        | MirInstructionKind::OptionalMake { value: operand }
         | MirInstructionKind::OptionalIsPresent { optional: operand }
         | MirInstructionKind::OptionalGet { optional: operand }
         | MirInstructionKind::FfiPointerToOptional { pointer: operand }
@@ -7256,6 +7962,7 @@ pub(crate) fn instruction_operands(kind: &MirInstructionKind) -> Vec<ValueId> {
             list, index, value, ..
         } => vec![*list, *index, *value],
         MirInstructionKind::ListAdd { list, value, .. } => vec![*list, *value],
+        MirInstructionKind::ChannelTrySend { sender, value, .. } => vec![*sender, *value],
         MirInstructionKind::TableSet {
             table, key, value, ..
         } => vec![*table, *key, *value],

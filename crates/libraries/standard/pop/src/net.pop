@@ -1,0 +1,330 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one exact network-order IPv4 address.
+--- </summary>
+public record Ipv4Address
+    --- <summary>
+    --- The four octets packed most-significant first.
+    --- </summary>
+    bits: UInt32
+end
+
+private function ipv4Value(bits: UInt32): Ipv4Address
+    local address: Ipv4Address = { bits = bits }
+    return address
+end
+
+private function ipv4OctetValue(address: Ipv4Address, index: Int): Int
+    local value = Int(address.bits)
+    if index == 1 then
+        return value / 16777216
+    end
+    if index == 2 then
+        return (value / 65536) % 256
+    end
+    if index == 3 then
+        return (value / 256) % 256
+    end
+    return value % 256
+end
+
+private function decimalOctet(value: Int): String
+    local output = Bytes.create()
+    if value >= 100 then
+        Bytes.write(output, Byte(48 + value / 100))
+        Bytes.write(output, Byte(48 + (value / 10) % 10))
+    elseif value >= 10 then
+        Bytes.write(output, Byte(48 + value / 10))
+    end
+    Bytes.write(output, Byte(48 + value % 10))
+    return Text.decodeUtf8(output) ?? ""
+end
+
+--- <summary>
+--- Creates an IPv4 address from four exact octets.
+--- </summary>
+---
+--- <param name="first">
+--- The first network-order octet.
+--- </param>
+---
+--- <param name="second">
+--- The second network-order octet.
+--- </param>
+---
+--- <param name="third">
+--- The third network-order octet.
+--- </param>
+---
+--- <param name="fourth">
+--- The fourth network-order octet.
+--- </param>
+---
+--- <returns>
+--- The exact packed address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv4Address.
+--- </allocation>
+public function ipv4(first: Byte, second: Byte, third: Byte, fourth: Byte): Ipv4Address
+    local bits = UInt32(Int(first) * 16777216 + Int(second) * 65536 + Int(third) * 256 + Int(fourth))
+    return ipv4Value(bits)
+end
+
+--- <summary>
+--- Parses canonical dotted-decimal IPv4 text.
+--- </summary>
+---
+--- <param name="text">
+--- The complete four-octet text without whitespace.
+--- </param>
+---
+--- <returns>
+--- The address, or nil for malformed or noncanonical input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one bounded octet list and one Ipv4Address on success.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Net
+---
+--- private function ipv4Example(): Boolean?
+---     local address = parseIpv4("192.168.1.42")?
+---     return isIpv4Private(address) and formatIpv4(address) == "192.168.1.42"
+--- end
+--- </code>
+--- </example>
+public function parseIpv4(text: String): Ipv4Address?
+    local octets = List.create<<Int>>()
+    local current = 0
+    local digits = 0
+    local leadingZero = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if point == 46 then
+            if digits == 0 or List.length(octets) >= 3 then
+                return nil
+            end
+            List.add(octets, current)
+            current = 0
+            digits = 0
+            leadingZero = false
+        elseif point >= 48 and point <= 57 then
+            if digits == 0 then
+                leadingZero = point == 48
+            elseif leadingZero then
+                return nil
+            end
+            if digits >= 3 then
+                return nil
+            end
+            current = current * 10 + point - 48
+            if current > 255 then
+                return nil
+            end
+            digits = digits + 1
+        else
+            return nil
+        end
+    end
+    if digits == 0 or List.length(octets) ~= 3 then
+        return nil
+    end
+    List.add(octets, current)
+    return ipv4(
+        Byte(List.get(octets, 1)),
+        Byte(List.get(octets, 2)),
+        Byte(List.get(octets, 3)),
+        Byte(List.get(octets, 4))
+    )
+end
+
+--- <summary>
+--- Formats an IPv4 address as canonical dotted decimal.
+--- </summary>
+---
+--- <param name="address">
+--- The exact address to format.
+--- </param>
+---
+--- <returns>
+--- Canonical four-octet text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates the four decimal components and result String.
+--- </allocation>
+public function formatIpv4(address: Ipv4Address): String
+    return decimalOctet(ipv4OctetValue(address, 1)) .. "." .. decimalOctet(ipv4OctetValue(address, 2)) .. "." .. decimalOctet(ipv4OctetValue(address, 3)) .. "." .. decimalOctet(ipv4OctetValue(address, 4))
+end
+
+--- <summary>
+--- Returns one network-order IPv4 octet.
+--- </summary>
+---
+--- <param name="address">
+--- The exact address to inspect.
+--- </param>
+---
+--- <param name="index">
+--- The one-based octet index.
+--- </param>
+---
+--- <returns>
+--- The selected octet, or nil outside one through four.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function ipv4Octet(address: Ipv4Address, index: Int): Byte?
+    if index < 1 or index > 4 then
+        return nil
+    end
+    return Byte(ipv4OctetValue(address, index))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to loopback 127/8.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True exactly when the first octet is 127.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv4Loopback(address: Ipv4Address): Boolean
+    return ipv4OctetValue(address, 1) == 127
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to an RFC 1918 private block.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for 10/8, 172.16/12, or 192.168/16.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv4Private(address: Ipv4Address): Boolean
+    local first = ipv4OctetValue(address, 1)
+    local second = ipv4OctetValue(address, 2)
+    return first == 10 or (first == 172 and second >= 16 and second <= 31) or (first == 192 and second == 168)
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to 169.254/16.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for a link-local IPv4 address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4LinkLocal(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsLinkLocal(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to 224/4.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for a multicast IPv4 address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Multicast(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsMulticast(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address is 255.255.255.255.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for the limited broadcast address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Broadcast(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsBroadcast(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv4 address belongs to a documentation block.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an address reserved for documentation.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv4Documentation(address: Ipv4Address): Boolean
+    return RustNet.ipv4IsDocumentation(UInt64(address.bits))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address has multicast scope.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 multicast address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6Multicast(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsMulticast(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fc00::/7.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 unique-local address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6UniqueLocal(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsUniqueLocal(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fe80::/10.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 unicast link-local address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6UnicastLinkLocal(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsUnicastLinkLocal(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to 2001:db8::/32.
+--- </summary>
+--- <param name="address">The address to classify.</param>
+--- <returns>True for an IPv6 documentation address.</returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>Does not allocate.</allocation>
+public function isIpv6Documentation(address: Ipv6Address): Boolean
+    return RustNet.ipv6IsDocumentation(UInt64(address.first), UInt64(address.second), UInt64(address.third), UInt64(address.fourth))
+end

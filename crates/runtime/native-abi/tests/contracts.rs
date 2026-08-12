@@ -2,19 +2,43 @@ use std::collections::BTreeSet;
 
 use pop_runtime_interface::RuntimeOperation;
 use pop_runtime_native_abi::{
-    ABI_SUPPORT_SYMBOL, ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
+    ABI_SUPPORT_SYMBOL, ACTOR_ACTIVATE_SYMBOL, ACTOR_BEGIN_EXIT_SYMBOL, ACTOR_COMPLETE_EXIT_SYMBOL,
+    ACTOR_CREATE_SYMBOL, ACTOR_RELEASE_SYMBOL, ACTOR_TRY_RECEIVE_SYMBOL, ACTOR_TRY_SEND_SYMBOL,
+    ALLOCATE_INITIALIZED_OBJECT_AT_SITE_AND_STORE_ARRAY_SYMBOL,
     ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
-    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, AllocationSiteDescriptorAbi, CodecEventStatus,
-    CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi, GC_SAFE_POINT_V2_SYMBOL, INVALID_HANDLE,
-    ITERATION_MAKE_SYMBOL, NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION, symbol,
+    ARRAY_GET_OBJECT_FIELD_CHECKED_SYMBOL, ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
+    ATOMIC_BOOL_CREATE_SYMBOL, ATOMIC_BOOL_LOAD_SYMBOL, ATOMIC_BOOL_STORE_SYMBOL,
+    ATOMIC_BOOL_SWAP_SYMBOL, ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL, ATOMIC_INT_CREATE_SYMBOL,
+    ATOMIC_INT_FETCH_ADD_SYMBOL, ATOMIC_INT_FETCH_AND_SYMBOL, ATOMIC_INT_FETCH_OR_SYMBOL,
+    ATOMIC_INT_FETCH_SUBTRACT_SYMBOL, ATOMIC_INT_FETCH_XOR_SYMBOL, ATOMIC_INT_LOAD_SYMBOL,
+    ATOMIC_INT_STORE_SYMBOL, ATOMIC_INT_SWAP_SYMBOL, ATOMIC_RELEASE_SYMBOL, ActorLifecycleStatus,
+    ActorReceiveStatus, ActorSendStatus, AllocationSiteDescriptorAbi, ChannelReceiveStatus,
+    ChannelSendStatus, CodecEventStatus, CodecEventTag, CodecReadEventAbi, CodecWriteEventAbi,
+    DEADLINE_AFTER_SYMBOL, DEADLINE_CLOSE_SYMBOL, DEADLINE_EXPIRED_SYMBOL, GC_SAFE_POINT_V2_SYMBOL,
+    INVALID_HANDLE, ITERATION_MAKE_SYMBOL, IterationCollectionKind, MONOTONIC_CLOCK_CLOSE_SYMBOL,
+    MONOTONIC_CLOCK_CREATE_SYMBOL, MONOTONIC_CLOCK_NOW_SYMBOL, NATIVE_ABI_1_VERSION,
+    NATIVE_ABI_2_VERSION, SocketIoStatus, TCP_ACCEPT_SYMBOL, TCP_CLOSE_SYMBOL, TCP_CONNECT_SYMBOL,
+    TCP_ENDPOINT_PART_SYMBOL, TCP_KEEPALIVE_SYMBOL, TCP_LINGER_SYMBOL, TCP_LISTEN_SYMBOL,
+    TCP_LOCAL_PORT_SYMBOL, TCP_NO_DELAY_SYMBOL, TCP_RECEIVE_BUFFER_SYMBOL, TCP_RECEIVE_SYMBOL,
+    TCP_SEND_SYMBOL, TCP_SET_KEEPALIVE_IDLE_SYMBOL, TCP_SET_KEEPALIVE_SYMBOL,
+    TCP_SET_LINGER_SYMBOL, TCP_SET_NO_DELAY_SYMBOL, TCP_SET_TTL_SYMBOL, TCP_SHUTDOWN_SYMBOL,
+    TCP_TTL_SYMBOL, TEXT_VIEW_GET_RUNE_SYMBOL, TLS_CLIENT_HANDSHAKE_SYMBOL,
+    TLS_CLIENT_ROOT_CONFIG_SYMBOL, TLS_CLIENT_SYSTEM_CONFIG_SYMBOL, TLS_CLOSE_SYMBOL,
+    TLS_CONFIG_CLOSE_SYMBOL, TLS_RECEIVE_BUFFER_SYMBOL, TLS_SEND_BYTES_SYMBOL,
+    TLS_SERVER_CONFIG_SYMBOL, TLS_SERVER_HANDSHAKE_SYMBOL, TextViewGetRuneAbi, UDP_BIND_SYMBOL,
+    UDP_BROADCAST_SYMBOL, UDP_CLOSE_SYMBOL, UDP_ENDPOINT_PART_SYMBOL,
+    UDP_JOIN_MULTICAST_IPV4_SYMBOL, UDP_LEAVE_MULTICAST_IPV4_SYMBOL, UDP_LOCAL_PORT_SYMBOL,
+    UDP_RECEIVE_SYMBOL, UDP_SEND_TO_SYMBOL, UDP_SET_BROADCAST_SYMBOL, UDP_SET_TTL_SYMBOL,
+    UDP_TTL_SYMBOL, UNIX_ACCEPT_SYMBOL, UNIX_CLOSE_SYMBOL, UNIX_CONNECT_SYMBOL, UNIX_LISTEN_SYMBOL,
+    UNIX_RECEIVE_BUFFER_SYMBOL, UNIX_SEND_BYTES_SYMBOL, UNIX_SHUTDOWN_SYMBOL, symbol,
 };
 
 #[test]
 fn abi_version_and_invalid_handle_are_explicit() {
     assert_eq!(NATIVE_ABI_1_VERSION.major(), 1);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 22);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 47);
     assert_eq!(NATIVE_ABI_2_VERSION.major(), 2);
-    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 0);
+    assert_eq!(NATIVE_ABI_2_VERSION.minor(), 5);
     assert_ne!(NATIVE_ABI_1_VERSION, NATIVE_ABI_2_VERSION);
     assert_eq!(ABI_SUPPORT_SYMBOL, "pop_rt_supports_abi");
     assert_eq!(GC_SAFE_POINT_V2_SYMBOL, "pop_rt_gc_safe_point_v2");
@@ -22,6 +46,93 @@ fn abi_version_and_invalid_handle_are_explicit() {
 }
 
 #[test]
+fn socket_io_status_is_closed_and_exact() {
+    assert_eq!(SocketIoStatus::from_raw(0), Some(SocketIoStatus::Failure));
+    assert_eq!(SocketIoStatus::from_raw(1), Some(SocketIoStatus::Progress));
+    assert_eq!(
+        SocketIoStatus::from_raw(2),
+        Some(SocketIoStatus::WouldBlock)
+    );
+    assert_eq!(SocketIoStatus::from_raw(3), Some(SocketIoStatus::Closed));
+    assert_eq!(SocketIoStatus::from_raw(4), None);
+}
+
+#[test]
+fn monotonic_time_symbols_are_exact_and_closed() {
+    let symbols = [
+        MONOTONIC_CLOCK_CREATE_SYMBOL,
+        MONOTONIC_CLOCK_NOW_SYMBOL,
+        MONOTONIC_CLOCK_CLOSE_SYMBOL,
+        DEADLINE_AFTER_SYMBOL,
+        DEADLINE_EXPIRED_SYMBOL,
+        DEADLINE_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(symbols.iter().all(|symbol| symbol.starts_with("pop_rt_")));
+}
+
+#[test]
+fn atomic_symbols_are_typed_and_closed() {
+    let symbols = [
+        ATOMIC_INT_CREATE_SYMBOL,
+        ATOMIC_INT_LOAD_SYMBOL,
+        ATOMIC_INT_STORE_SYMBOL,
+        ATOMIC_INT_SWAP_SYMBOL,
+        ATOMIC_INT_COMPARE_EXCHANGE_SYMBOL,
+        ATOMIC_INT_FETCH_ADD_SYMBOL,
+        ATOMIC_INT_FETCH_SUBTRACT_SYMBOL,
+        ATOMIC_INT_FETCH_AND_SYMBOL,
+        ATOMIC_INT_FETCH_OR_SYMBOL,
+        ATOMIC_INT_FETCH_XOR_SYMBOL,
+        ATOMIC_BOOL_CREATE_SYMBOL,
+        ATOMIC_BOOL_LOAD_SYMBOL,
+        ATOMIC_BOOL_STORE_SYMBOL,
+        ATOMIC_BOOL_SWAP_SYMBOL,
+        ATOMIC_BOOL_COMPARE_EXCHANGE_SYMBOL,
+        ATOMIC_RELEASE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_atomic_"))
+    );
+}
+
+#[test]
+fn actor_symbols_and_statuses_are_closed() {
+    let symbols = [
+        ACTOR_CREATE_SYMBOL,
+        ACTOR_ACTIVATE_SYMBOL,
+        ACTOR_TRY_SEND_SYMBOL,
+        ACTOR_TRY_RECEIVE_SYMBOL,
+        ACTOR_BEGIN_EXIT_SYMBOL,
+        ACTOR_COMPLETE_EXIT_SYMBOL,
+        ACTOR_RELEASE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_actor_"))
+    );
+    assert_eq!(ActorSendStatus::from_raw(4), Some(ActorSendStatus::Stale));
+    assert_eq!(ActorSendStatus::from_raw(5), None);
+    assert_eq!(
+        ActorReceiveStatus::from_raw(3),
+        Some(ActorReceiveStatus::Closed)
+    );
+    assert_eq!(
+        ActorLifecycleStatus::from_raw(5),
+        Some(ActorLifecycleStatus::NotStopping)
+    );
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the complete closed ABI symbol inventory is intentionally one uniqueness assertion"
+)]
 fn supported_symbols_are_unique_and_native() {
     let operations = [
         RuntimeOperation::AllocateObject,
@@ -44,6 +155,18 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::ListGetChecked,
         RuntimeOperation::ListSet,
         RuntimeOperation::ListAdd,
+        RuntimeOperation::ByteBufferCreate,
+        RuntimeOperation::ByteBufferLength,
+        RuntimeOperation::ByteBufferReserve,
+        RuntimeOperation::ByteBufferClear,
+        RuntimeOperation::ByteBufferWriteByte,
+        RuntimeOperation::ByteBufferWriteBytes,
+        RuntimeOperation::ByteBufferWriteView,
+        RuntimeOperation::ByteBufferWriteInteger,
+        RuntimeOperation::ByteBufferMaterialize,
+        RuntimeOperation::Utf8Encode,
+        RuntimeOperation::Utf8DecodeView,
+        RuntimeOperation::Utf8DecodeBuffer,
         RuntimeOperation::RangeCreate,
         RuntimeOperation::IterationAcquire,
         RuntimeOperation::IterationNext,
@@ -100,6 +223,130 @@ fn supported_symbols_are_unique_and_native() {
         RuntimeOperation::Resume,
         RuntimeOperation::TaskCancel,
         RuntimeOperation::TaskCancellationRequested,
+        RuntimeOperation::ChannelCreate,
+        RuntimeOperation::ChannelRetainSender,
+        RuntimeOperation::ChannelReleaseSender,
+        RuntimeOperation::ChannelRetainReceiver,
+        RuntimeOperation::ChannelReleaseReceiver,
+        RuntimeOperation::ChannelClose,
+        RuntimeOperation::ChannelTrySend,
+        RuntimeOperation::ChannelTryReceive,
+        RuntimeOperation::AtomicIntCreate,
+        RuntimeOperation::AtomicIntLoad,
+        RuntimeOperation::AtomicIntStore,
+        RuntimeOperation::AtomicIntSwap,
+        RuntimeOperation::AtomicIntCompareExchange,
+        RuntimeOperation::AtomicIntFetchAdd,
+        RuntimeOperation::AtomicIntFetchSubtract,
+        RuntimeOperation::AtomicIntFetchAnd,
+        RuntimeOperation::AtomicIntFetchOr,
+        RuntimeOperation::AtomicIntFetchXor,
+        RuntimeOperation::AtomicBoolCreate,
+        RuntimeOperation::AtomicBoolLoad,
+        RuntimeOperation::AtomicBoolStore,
+        RuntimeOperation::AtomicBoolSwap,
+        RuntimeOperation::AtomicBoolCompareExchange,
+        RuntimeOperation::AtomicRelease,
+        RuntimeOperation::ActorCreate,
+        RuntimeOperation::ActorActivate,
+        RuntimeOperation::ActorTrySend,
+        RuntimeOperation::ActorTrySendHandle,
+        RuntimeOperation::ActorTryReceive,
+        RuntimeOperation::ActorBeginExit,
+        RuntimeOperation::ActorCompleteExit,
+        RuntimeOperation::ActorRelease,
+        RuntimeOperation::TcpListen,
+        RuntimeOperation::TcpListenIpv4,
+        RuntimeOperation::TcpListenIpv6,
+        RuntimeOperation::TcpLocalPort,
+        RuntimeOperation::TcpConnect,
+        RuntimeOperation::TcpConnectIpv4,
+        RuntimeOperation::TcpConnectIpv6,
+        RuntimeOperation::TcpAccept,
+        RuntimeOperation::TcpSend,
+        RuntimeOperation::TcpReceive,
+        RuntimeOperation::TcpSendBytes,
+        RuntimeOperation::TcpReceiveBytes,
+        RuntimeOperation::TcpReceiveBuffer,
+        RuntimeOperation::TcpShutdown,
+        RuntimeOperation::TcpSetNoDelay,
+        RuntimeOperation::TcpNoDelay,
+        RuntimeOperation::TcpSetTtl,
+        RuntimeOperation::TcpTtl,
+        RuntimeOperation::TcpSetKeepalive,
+        RuntimeOperation::TcpKeepalive,
+        RuntimeOperation::TcpSetKeepaliveIdle,
+        RuntimeOperation::TcpSetLinger,
+        RuntimeOperation::TcpLinger,
+        RuntimeOperation::TcpEndpointPart,
+        RuntimeOperation::TcpClose,
+        RuntimeOperation::TlsClientSystemConfig,
+        RuntimeOperation::TlsClientRootConfig,
+        RuntimeOperation::TlsServerConfig,
+        RuntimeOperation::TlsConfigClose,
+        RuntimeOperation::TlsClientHandshake,
+        RuntimeOperation::TlsServerHandshake,
+        RuntimeOperation::TlsSendBytes,
+        RuntimeOperation::TlsReceiveBuffer,
+        RuntimeOperation::TlsClose,
+        RuntimeOperation::UdpBind,
+        RuntimeOperation::UdpBindIpv4,
+        RuntimeOperation::UdpBindIpv6,
+        RuntimeOperation::UdpLocalPort,
+        RuntimeOperation::UdpSendTo,
+        RuntimeOperation::UdpReceive,
+        RuntimeOperation::UdpSendBytesTo,
+        RuntimeOperation::UdpReceiveBytes,
+        RuntimeOperation::UdpReceiveBuffer,
+        RuntimeOperation::UdpEndpointPart,
+        RuntimeOperation::UdpSetBroadcast,
+        RuntimeOperation::UdpBroadcast,
+        RuntimeOperation::UdpSetTtl,
+        RuntimeOperation::UdpTtl,
+        RuntimeOperation::UdpJoinMulticastIpv4,
+        RuntimeOperation::UdpLeaveMulticastIpv4,
+        RuntimeOperation::UdpClose,
+        RuntimeOperation::UnixListen,
+        RuntimeOperation::UnixConnect,
+        RuntimeOperation::UnixAccept,
+        RuntimeOperation::UnixSendBytes,
+        RuntimeOperation::UnixReceiveBuffer,
+        RuntimeOperation::UnixShutdown,
+        RuntimeOperation::UnixClose,
+        RuntimeOperation::MonotonicClockCreate,
+        RuntimeOperation::MonotonicClockNow,
+        RuntimeOperation::MonotonicClockClose,
+        RuntimeOperation::DeadlineAfter,
+        RuntimeOperation::DeadlineExpired,
+        RuntimeOperation::DeadlineClose,
+        RuntimeOperation::TcpSendBytesUntil,
+        RuntimeOperation::TcpReceiveBufferUntil,
+        RuntimeOperation::UdpSendBytesToUntil,
+        RuntimeOperation::UdpReceiveBufferUntil,
+        RuntimeOperation::UnixSendBytesUntil,
+        RuntimeOperation::UnixReceiveBufferUntil,
+        RuntimeOperation::NetInterfacesSnapshot,
+        RuntimeOperation::NetInterfacesClose,
+        RuntimeOperation::NetInterfaceCount,
+        RuntimeOperation::NetInterfaceName,
+        RuntimeOperation::NetInterfaceIndex,
+        RuntimeOperation::NetInterfaceFlags,
+        RuntimeOperation::NetInterfaceAddressCount,
+        RuntimeOperation::NetInterfaceAddressPart,
+        RuntimeOperation::NetRoutesSnapshot,
+        RuntimeOperation::NetRoutesClose,
+        RuntimeOperation::NetRouteCount,
+        RuntimeOperation::NetRoutePart,
+        RuntimeOperation::UdpJoinMulticastIpv6,
+        RuntimeOperation::UdpLeaveMulticastIpv6,
+        RuntimeOperation::DnsResolverCreate,
+        RuntimeOperation::DnsResolverClose,
+        RuntimeOperation::DnsResolve,
+        RuntimeOperation::DnsAnswerCount,
+        RuntimeOperation::DnsAnswerFamily,
+        RuntimeOperation::DnsAnswerIpv4,
+        RuntimeOperation::DnsAnswerIpv6Word,
+        RuntimeOperation::DnsAnswersClose,
         RuntimeOperation::CodecWriteEvent,
         RuntimeOperation::CodecReadEvent,
     ];
@@ -109,6 +356,101 @@ fn supported_symbols_are_unique_and_native() {
         .collect();
     assert_eq!(symbols.len(), operations.len());
     assert!(symbols.iter().all(|name| name.starts_with("pop_rt_")));
+}
+
+#[test]
+fn tcp_symbols_are_exact_and_closed() {
+    let symbols = [
+        TCP_LISTEN_SYMBOL,
+        TCP_LOCAL_PORT_SYMBOL,
+        TCP_CONNECT_SYMBOL,
+        TCP_ACCEPT_SYMBOL,
+        TCP_SEND_SYMBOL,
+        TCP_RECEIVE_SYMBOL,
+        TCP_RECEIVE_BUFFER_SYMBOL,
+        TCP_SHUTDOWN_SYMBOL,
+        TCP_SET_NO_DELAY_SYMBOL,
+        TCP_NO_DELAY_SYMBOL,
+        TCP_SET_TTL_SYMBOL,
+        TCP_TTL_SYMBOL,
+        TCP_SET_KEEPALIVE_SYMBOL,
+        TCP_KEEPALIVE_SYMBOL,
+        TCP_SET_KEEPALIVE_IDLE_SYMBOL,
+        TCP_SET_LINGER_SYMBOL,
+        TCP_LINGER_SYMBOL,
+        TCP_ENDPOINT_PART_SYMBOL,
+        TCP_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_tcp_"))
+    );
+}
+
+#[test]
+fn tls_symbols_are_exact_and_closed() {
+    let symbols = [
+        TLS_CLIENT_SYSTEM_CONFIG_SYMBOL,
+        TLS_CLIENT_ROOT_CONFIG_SYMBOL,
+        TLS_SERVER_CONFIG_SYMBOL,
+        TLS_CONFIG_CLOSE_SYMBOL,
+        TLS_CLIENT_HANDSHAKE_SYMBOL,
+        TLS_SERVER_HANDSHAKE_SYMBOL,
+        TLS_SEND_BYTES_SYMBOL,
+        TLS_RECEIVE_BUFFER_SYMBOL,
+        TLS_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_tls_"))
+    );
+}
+
+#[test]
+fn udp_symbols_are_exact_and_closed() {
+    let symbols = [
+        UDP_BIND_SYMBOL,
+        UDP_LOCAL_PORT_SYMBOL,
+        UDP_SEND_TO_SYMBOL,
+        UDP_RECEIVE_SYMBOL,
+        UDP_ENDPOINT_PART_SYMBOL,
+        UDP_SET_BROADCAST_SYMBOL,
+        UDP_BROADCAST_SYMBOL,
+        UDP_SET_TTL_SYMBOL,
+        UDP_TTL_SYMBOL,
+        UDP_JOIN_MULTICAST_IPV4_SYMBOL,
+        UDP_LEAVE_MULTICAST_IPV4_SYMBOL,
+        UDP_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_udp_"))
+    );
+}
+
+#[test]
+fn unix_symbols_are_exact_and_closed() {
+    let symbols = [
+        UNIX_LISTEN_SYMBOL,
+        UNIX_CONNECT_SYMBOL,
+        UNIX_ACCEPT_SYMBOL,
+        UNIX_SEND_BYTES_SYMBOL,
+        UNIX_RECEIVE_BUFFER_SYMBOL,
+        UNIX_SHUTDOWN_SYMBOL,
+        UNIX_CLOSE_SYMBOL,
+    ];
+    assert_eq!(symbols.len(), symbols.iter().collect::<BTreeSet<_>>().len());
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.starts_with("pop_rt_unix_"))
+    );
 }
 
 #[test]
@@ -124,7 +466,54 @@ fn codec_event_abi_has_closed_widths_and_statuses() {
     assert_eq!(CodecEventTag::from_raw(0), Some(CodecEventTag::RecordStart));
     assert_eq!(CodecEventTag::from_raw(26), Some(CodecEventTag::Bytes));
     assert_eq!(CodecEventTag::from_raw(27), None);
-    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 22);
+    assert_eq!(NATIVE_ABI_1_VERSION.minor(), 47);
+}
+
+#[test]
+fn channel_abi_has_closed_send_and_receive_statuses() {
+    assert_eq!(
+        ChannelSendStatus::from_raw(0),
+        Some(ChannelSendStatus::Failure)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(1),
+        Some(ChannelSendStatus::Sent)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(2),
+        Some(ChannelSendStatus::Full)
+    );
+    assert_eq!(
+        ChannelSendStatus::from_raw(3),
+        Some(ChannelSendStatus::Closed)
+    );
+    assert_eq!(ChannelSendStatus::from_raw(4), None);
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(0),
+        Some(ChannelReceiveStatus::Failure)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(1),
+        Some(ChannelReceiveStatus::Item)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(2),
+        Some(ChannelReceiveStatus::Empty)
+    );
+    assert_eq!(
+        ChannelReceiveStatus::from_raw(3),
+        Some(ChannelReceiveStatus::Closed)
+    );
+    assert_eq!(ChannelReceiveStatus::from_raw(4), None);
+}
+
+#[test]
+fn abi_one_twenty_four_appends_the_exact_string_iteration_kind() {
+    assert_eq!(IterationCollectionKind::Array as u8, 0);
+    assert_eq!(IterationCollectionKind::Table as u8, 1);
+    assert_eq!(IterationCollectionKind::List as u8, 2);
+    assert_eq!(IterationCollectionKind::Range as u8, 3);
+    assert_eq!(IterationCollectionKind::String as u8, 4);
 }
 
 #[test]
@@ -163,6 +552,12 @@ fn abi_one_twenty_two_layout_symbols_are_exact_and_distinct() {
         ALLOCATE_INITIALIZED_SELF_REFERENTIAL_OBJECT_AT_SITE_SYMBOL,
         ITERATION_MAKE_SYMBOL
     );
+}
+
+#[test]
+fn abi_one_twenty_three_unicode_scalar_symbol_is_exact() {
+    assert_eq!(TEXT_VIEW_GET_RUNE_SYMBOL, "pop_rt_text_view_get_rune");
+    assert!(std::mem::size_of::<TextViewGetRuneAbi>() > 0);
 }
 
 #[test]

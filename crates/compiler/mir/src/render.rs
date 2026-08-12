@@ -630,6 +630,9 @@ fn dump_instruction(output: &mut String, instruction: &MirInstructionKind) {
             let _ = write!(output, "const.boolean {value}");
         }
         MirInstructionKind::NilConstant => output.push_str("const.nil"),
+        MirInstructionKind::OptionalMake { value } => {
+            dump_unary(output, "optionalMake", *value);
+        }
         MirInstructionKind::OptionalIsPresent { optional } => {
             dump_unary(output, "optionalIsPresent", *optional);
         }
@@ -1033,6 +1036,180 @@ fn dump_instruction(output: &mut String, instruction: &MirInstructionKind) {
         } => {
             let map = array_element_map_name(*element_map);
             let _ = write!(output, "listAdd {map} v{} v{}", list.raw(), value.raw());
+        }
+        MirInstructionKind::ChannelCreate {
+            capacity,
+            element,
+            endpoints,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "channelCreate site#{} t{} t{} v{}",
+                allocation_site.raw(),
+                element.raw(),
+                endpoints.raw(),
+                capacity.raw()
+            );
+        }
+        MirInstructionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+            element_map,
+        } => {
+            let map = array_element_map_name(*element_map);
+            let _ = write!(
+                output,
+                "channelTrySend {map} t{} v{} v{}",
+                element.raw(),
+                sender.raw(),
+                value.raw()
+            );
+        }
+        MirInstructionKind::ChannelTryReceive {
+            receiver,
+            element,
+            element_map,
+            allocation_site,
+        } => {
+            let map = array_element_map_name(*element_map);
+            let _ = write!(
+                output,
+                "channelTryReceive site#{} {map} t{} v{}",
+                allocation_site.raw(),
+                element.raw(),
+                receiver.raw()
+            );
+        }
+        MirInstructionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let direction = match direction {
+                pop_types::ChannelDirection::Sender => "sender",
+                pop_types::ChannelDirection::Receiver => "receiver",
+            };
+            let _ = write!(output, "channelClose {direction} v{}", endpoint.raw());
+        }
+        MirInstructionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelSendOutcomeKind::Accepted => "accepted",
+                pop_types::ChannelSendOutcomeKind::Full => "full",
+                pop_types::ChannelSendOutcomeKind::Closed => "closed",
+            };
+            let _ = write!(
+                output,
+                "channelSendOutcomeTest {expected} v{}",
+                outcome.raw()
+            );
+        }
+        MirInstructionKind::ChannelReceiveItem { outcome, element } => {
+            let _ = write!(
+                output,
+                "channelReceiveItem t{} v{}",
+                element.raw(),
+                outcome.raw()
+            );
+        }
+        MirInstructionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let expected = match expected {
+                pop_types::ChannelReceiveOutcomeKind::Empty => "empty",
+                pop_types::ChannelReceiveOutcomeKind::Closed => "closed",
+            };
+            let _ = write!(
+                output,
+                "channelReceiveOutcomeTest {expected} v{}",
+                outcome.raw()
+            );
+        }
+        MirInstructionKind::ByteBufferCreate {
+            capacity,
+            allocation_site,
+        } => {
+            let capacity =
+                capacity.map_or_else(|| "none".to_owned(), |value| format!("v{}", value.raw()));
+            let _ = write!(
+                output,
+                "byteBufferCreate site#{} {capacity}",
+                allocation_site.raw()
+            );
+        }
+        MirInstructionKind::ByteBufferLength { buffer } => {
+            let _ = write!(output, "byteBufferLength v{}", buffer.raw());
+        }
+        MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => dump_binary(output, "byteBufferReserve", *buffer, *additional_capacity),
+        MirInstructionKind::ByteBufferClear { buffer } => {
+            let _ = write!(output, "byteBufferClear v{}", buffer.raw());
+        }
+        MirInstructionKind::ByteBufferWriteByte { buffer, value } => {
+            dump_binary(output, "byteBufferWriteByte", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteBytes { buffer, value } => {
+            dump_binary(output, "byteBufferWriteBytes", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteView { buffer, value } => {
+            dump_binary(output, "byteBufferWriteView", *buffer, *value);
+        }
+        MirInstructionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let _ = write!(
+                output,
+                "byteBufferWriteInteger {kind:?} {order:?} v{} v{}",
+                buffer.raw(),
+                value.raw()
+            );
+        }
+        MirInstructionKind::ByteBufferMaterialize {
+            buffer,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "byteBufferMaterialize site#{} v{}",
+                allocation_site.raw(),
+                buffer.raw()
+            );
+        }
+        MirInstructionKind::Utf8Encode {
+            view,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8Encode site#{} v{}",
+                allocation_site.raw(),
+                view.raw()
+            );
+        }
+        MirInstructionKind::Utf8DecodeView {
+            view,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8DecodeView site#{} v{}",
+                allocation_site.raw(),
+                view.raw()
+            );
+        }
+        MirInstructionKind::Utf8DecodeBuffer {
+            buffer,
+            allocation_site,
+        } => {
+            let _ = write!(
+                output,
+                "utf8DecodeBuffer site#{} v{}",
+                allocation_site.raw(),
+                buffer.raw()
+            );
         }
         MirInstructionKind::RangeCreate { first, last, step } => {
             let _ = write!(
@@ -1859,6 +2036,9 @@ fn dump_callable_or_schema_instruction(
         MirInstructionKind::ViewGetByte { view, index } => {
             let _ = write!(output, "viewGetByte v{} v{}", view.raw(), index.raw());
         }
+        MirInstructionKind::ViewGetRune { view, index } => {
+            let _ = write!(output, "viewGetRune v{} v{}", view.raw(), index.raw());
+        }
         MirInstructionKind::ViewMaterialize {
             kind,
             view,
@@ -1874,6 +2054,12 @@ fn dump_callable_or_schema_instruction(
         }
         MirInstructionKind::ViewEnd { borrow_lifetime } => {
             let _ = write!(output, "viewEnd lifetime#{}", borrow_lifetime.raw());
+        }
+        MirInstructionKind::RuneFromCodePoint { value } => {
+            let _ = write!(output, "runeFromCodePoint v{}", value.raw());
+        }
+        MirInstructionKind::RuneCodePoint { value } => {
+            let _ = write!(output, "runeCodePoint v{}", value.raw());
         }
         MirInstructionKind::CaptureCellAllocate {
             binding,

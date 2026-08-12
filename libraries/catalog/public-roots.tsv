@@ -6,7 +6,7 @@ Archive	official	core/portable	planned
 Atomic	standard/platform	system/network/security	planned
 Audio	official/platform	application/media/science	planned
 Benchmark	tooling	data/observability/tooling	planned
-Bytes	standard	core/portable	planned
+Bytes	standard	core/portable	implemented
 Channel	standard	system/network/security	planned
 Cli	official/tooling	data/observability/tooling	bootstrap
 Cluster	official/platform	system/network/security	planned
@@ -46,7 +46,7 @@ Package	tooling	data/observability/tooling	planned
 Path	standard	system/network/security	planned
 Platform	standard/platform	system/network/security	planned
 Process	standard/platform	system/network/security	planned
-Random	standard	core/portable	planned
+Random	standard	core/portable	prototype
 Regex	standard	core/portable	planned
 Resource	standard/tooling	core/portable	planned
 Rpc	official	application/media/science	bootstrap
@@ -70,7 +70,7 @@ Text	standard	core/portable	prototype
 Time	standard/platform	core/portable	planned
 Toml	standard	core/portable	planned
 Ui	official/platform	application/media/science	planned
-Unicode	standard	core/portable	planned
+Unicode	standard	core/portable	prototype
 Units	official	application/media/science	planned
 Uri	standard	core/portable	planned
 Version	standard	core/portable	planned

@@ -461,6 +461,55 @@ pub const BYTES_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(0);
 pub const BYTES_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(122);
 /// Stable compiler-known identity of the non-owning `Text.View` value kind.
 pub const TEXT_VIEW_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(123);
+/// Stable compiler-known identity of the reusable mutable `Bytes.Buffer`.
+pub const BYTES_BUFFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(124);
+/// Stable compiler-known identity of directional `Channel.Sender<T>`.
+pub const CHANNEL_SENDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(125);
+/// Stable compiler-known identity of directional `Channel.Receiver<T>`.
+pub const CHANNEL_RECEIVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(126);
+/// Stable compiler-known identity of closed `Channel.SendOutcome`.
+pub const CHANNEL_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(127);
+/// Stable compiler-known identity of closed `Channel.ReceiveOutcome<T>`.
+pub const CHANNEL_RECEIVE_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(128);
+/// Stable compiler-known identity of incarnation-scoped `Actor.Ref<TMessage>`.
+pub const ACTOR_REF_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(129);
+/// Stable compiler-known identity of non-escapable `Actor.Inbox<TMessage>`.
+pub const ACTOR_INBOX_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(130);
+/// Stable compiler-known identity of single-use `Actor.Reply<T>`.
+pub const ACTOR_REPLY_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(131);
+/// Stable compiler-known identity of the native signed-64 Atomic integer.
+pub const ATOMIC_INT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(132);
+/// Stable compiler-known identity of the native Boolean Atomic value.
+pub const ATOMIC_BOOLEAN_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(133);
+/// Stable compiler-known identity of Atomic load ordering.
+pub const ATOMIC_LOAD_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(134);
+/// Stable compiler-known identity of Atomic store ordering.
+pub const ATOMIC_STORE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(135);
+/// Stable compiler-known identity of Atomic read-modify-write ordering.
+pub const ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(136);
+/// Stable compiler-known identity of closed local Actor send outcomes.
+pub const ACTOR_SEND_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(137);
+pub const NET_TCP_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(138);
+pub const NET_TCP_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(139);
+pub const NET_UDP_SOCKET_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(140);
+pub const NET_SOCKET_IO_OUTCOME_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(141);
+pub const NET_TCP_RECEIVE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(142);
+pub const NET_UDP_DATAGRAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(143);
+pub const NET_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(144);
+pub const NET_UDP_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(145);
+pub const NET_DNS_RESOLVER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(146);
+pub const NET_DNS_ANSWERS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(147);
+pub const NET_UNIX_LISTENER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(148);
+pub const NET_UNIX_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(149);
+pub const TIME_MONOTONIC_CLOCK_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(150);
+pub const TIME_LIVE_DEADLINE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(151);
+pub const NET_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(152);
+pub const NET_UDP_WAIT_TRANSFER_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(153);
+pub const NET_INTERFACES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(154);
+pub const NET_ROUTES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(155);
+pub const NET_TLS_CLIENT_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(156);
+pub const NET_TLS_SERVER_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(157);
+pub const NET_TLS_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(158);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -640,7 +689,7 @@ impl BootstrapSchema {
     ) -> impl Iterator<Item = &'a BootstrapStandardFunctionEntry> + 'a {
         self.standard_functions
             .iter()
-            .filter(move |entry| entry.prelude && entry.source_name == name)
+            .filter(move |entry| entry.source_name == name && (entry.prelude || name.contains('.')))
     }
 
     /// Finds a trusted prelude compiler-attribute candidate by source name.
@@ -1137,6 +1186,174 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
             ));
         }
     }
+    let Some(buffer) = entries
+        .iter()
+        .find(|entry| entry.source_name == "Bytes.Buffer")
+    else {
+        return Err(error(
+            "standard type",
+            2,
+            "missing required byte buffer type",
+        ));
+    };
+    if buffer.id != BYTES_BUFFER_TYPE_ID
+        || buffer.owner_bubble != "Pop.Standard"
+        || buffer.arity != 0
+        || buffer.role != BootstrapTypeRole::Nominal
+        || buffer.prelude
+    {
+        return Err(error(
+            "standard type",
+            2,
+            "invalid trusted byte buffer type contract",
+        ));
+    }
+    for (id, source_name, arity) in [
+        (CHANNEL_SENDER_TYPE_ID, "Channel.Sender", 1),
+        (CHANNEL_RECEIVER_TYPE_ID, "Channel.Receiver", 1),
+        (CHANNEL_SEND_OUTCOME_TYPE_ID, "Channel.SendOutcome", 0),
+        (CHANNEL_RECEIVE_OUTCOME_TYPE_ID, "Channel.ReceiveOutcome", 1),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required channel type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != arity
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted channel type contract",
+            ));
+        }
+    }
+    for (id, source_name) in [
+        (ACTOR_REF_TYPE_ID, "Actor.Ref"),
+        (ACTOR_INBOX_TYPE_ID, "Actor.Inbox"),
+        (ACTOR_REPLY_TYPE_ID, "Actor.Reply"),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required actor type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 1
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted actor type contract",
+            ));
+        }
+    }
+    let Some(send_outcome) = entries
+        .iter()
+        .find(|entry| entry.source_name == "Actor.SendOutcome")
+    else {
+        return Err(error(
+            "standard type",
+            2,
+            "missing required actor send outcome",
+        ));
+    };
+    if send_outcome.id != ACTOR_SEND_OUTCOME_TYPE_ID
+        || send_outcome.owner_bubble != "Pop.Standard"
+        || send_outcome.arity != 0
+        || send_outcome.role != BootstrapTypeRole::Nominal
+        || send_outcome.prelude
+    {
+        return Err(error(
+            "standard type",
+            2,
+            "invalid trusted actor send outcome contract",
+        ));
+    }
+    for (id, source_name) in [
+        (NET_TCP_LISTENER_TYPE_ID, "Net.Tcp.Listener"),
+        (NET_TCP_STREAM_TYPE_ID, "Net.Tcp.Stream"),
+        (NET_UDP_SOCKET_TYPE_ID, "Net.Udp.Socket"),
+        (NET_SOCKET_IO_OUTCOME_TYPE_ID, "Net.SocketIoOutcome"),
+        (NET_TCP_RECEIVE_TYPE_ID, "Net.Tcp.Receive"),
+        (NET_UDP_DATAGRAM_TYPE_ID, "Net.Udp.Datagram"),
+        (NET_TRANSFER_TYPE_ID, "Net.Transfer"),
+        (NET_UDP_TRANSFER_TYPE_ID, "Net.Udp.Transfer"),
+        (NET_DNS_RESOLVER_TYPE_ID, "Net.Dns.Resolver"),
+        (NET_DNS_ANSWERS_TYPE_ID, "Net.Dns.Answers"),
+        (NET_UNIX_LISTENER_TYPE_ID, "Net.Unix.Listener"),
+        (NET_UNIX_STREAM_TYPE_ID, "Net.Unix.Stream"),
+        (TIME_MONOTONIC_CLOCK_TYPE_ID, "Time.MonotonicClock"),
+        (TIME_LIVE_DEADLINE_TYPE_ID, "Time.LiveDeadline"),
+        (NET_WAIT_TRANSFER_TYPE_ID, "Net.WaitTransfer"),
+        (NET_UDP_WAIT_TRANSFER_TYPE_ID, "Net.Udp.WaitTransfer"),
+        (NET_INTERFACES_SNAPSHOT_TYPE_ID, "Net.Interfaces.Snapshot"),
+        (NET_ROUTES_SNAPSHOT_TYPE_ID, "Net.Routes.Snapshot"),
+        (NET_TLS_CLIENT_CONFIG_TYPE_ID, "Net.Tls.ClientConfig"),
+        (NET_TLS_SERVER_CONFIG_TYPE_ID, "Net.Tls.ServerConfig"),
+        (NET_TLS_STREAM_TYPE_ID, "Net.Tls.Stream"),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error(
+                "standard type",
+                2,
+                "missing required Net transport type",
+            ));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 0
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted Net transport type contract",
+            ));
+        }
+    }
+    for (id, source_name) in [
+        (ATOMIC_INT_TYPE_ID, "Atomic.Int"),
+        (ATOMIC_BOOLEAN_TYPE_ID, "Atomic.Boolean"),
+        (ATOMIC_LOAD_ORDER_TYPE_ID, "Atomic.LoadOrder"),
+        (ATOMIC_STORE_ORDER_TYPE_ID, "Atomic.StoreOrder"),
+        (
+            ATOMIC_READ_MODIFY_WRITE_ORDER_TYPE_ID,
+            "Atomic.ReadModifyWriteOrder",
+        ),
+    ] {
+        let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.source_name == source_name)
+        else {
+            return Err(error("standard type", 2, "missing required Atomic type"));
+        };
+        if entry.id != id
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.arity != 0
+            || entry.role != BootstrapTypeRole::Nominal
+            || entry.prelude
+        {
+            return Err(error(
+                "standard type",
+                2,
+                "invalid trusted Atomic type contract",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1279,14 +1496,14 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 2 {
+    if entries.len() != 195 {
         return Err(error(
             "standard function",
             2,
-            "bootstrap requires exactly two standard functions",
+            "bootstrap requires the exact trusted standard function inventory",
         ));
     }
-    for (index, (entry, parameter_type)) in entries.iter().zip(["Int", "String"]).enumerate() {
+    for (index, (entry, parameter_type)) in entries[..2].iter().zip(["Int", "String"]).enumerate() {
         if entry.id.raw() != u32::try_from(index).unwrap_or(u32::MAX)
             || entry.source_name != "print"
             || entry.owner_bubble != "Pop.Standard"
@@ -1299,6 +1516,965 @@ fn validate_standard_functions(
                 "standard function",
                 index + 3,
                 "invalid trusted print contract",
+            ));
+        }
+    }
+    let atomic = [
+        ("Atomic.relaxedLoadOrder", "-", "Atomic.LoadOrder", "-"),
+        ("Atomic.acquireLoadOrder", "-", "Atomic.LoadOrder", "-"),
+        (
+            "Atomic.sequentiallyConsistentLoadOrder",
+            "-",
+            "Atomic.LoadOrder",
+            "-",
+        ),
+        ("Atomic.relaxedStoreOrder", "-", "Atomic.StoreOrder", "-"),
+        ("Atomic.releaseStoreOrder", "-", "Atomic.StoreOrder", "-"),
+        (
+            "Atomic.sequentiallyConsistentStoreOrder",
+            "-",
+            "Atomic.StoreOrder",
+            "-",
+        ),
+        (
+            "Atomic.relaxedReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.acquireReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.releaseReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.acquireReleaseReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        (
+            "Atomic.sequentiallyConsistentReadModifyWriteOrder",
+            "-",
+            "Atomic.ReadModifyWriteOrder",
+            "-",
+        ),
+        ("Atomic.int", "Int", "Atomic.Int", "Synchronizes"),
+        (
+            "Atomic.boolean",
+            "Boolean",
+            "Atomic.Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.loadInt",
+            "Atomic.Int,Atomic.LoadOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.loadBoolean",
+            "Atomic.Boolean,Atomic.LoadOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.storeInt",
+            "Atomic.Int,Int,Atomic.StoreOrder",
+            "Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.storeBoolean",
+            "Atomic.Boolean,Boolean,Atomic.StoreOrder",
+            "Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.swapInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.swapBoolean",
+            "Atomic.Boolean,Boolean,Atomic.ReadModifyWriteOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
+        ),
+        ("Atomic.releaseInt", "Atomic.Int", "Boolean", "Synchronizes"),
+        (
+            "Atomic.releaseBoolean",
+            "Atomic.Boolean",
+            "Boolean",
+            "Synchronizes",
+        ),
+        (
+            "Atomic.compareExchangeInt",
+            "Atomic.Int,Int,Int,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.compareExchangeBoolean",
+            "Atomic.Boolean,Boolean,Boolean,Atomic.ReadModifyWriteOrder,Atomic.LoadOrder",
+            "Boolean",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Actor.mailbox",
+            "UInt64,UInt64,UInt64",
+            "Actor.Inbox<T>",
+            "Synchronizes,MayTrap",
+        ),
+        ("Actor.reference", "Actor.Inbox<T>", "Actor.Ref<T>", "-"),
+        (
+            "Actor.trySend",
+            "Actor.Ref<T>,T",
+            "Actor.SendOutcome",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Actor.tryReceive",
+            "Actor.Inbox<T>",
+            "T?",
+            "Synchronizes,MayTrap",
+        ),
+        ("Actor.finish", "Actor.Inbox<T>", "Boolean", "Synchronizes"),
+        ("Actor.release", "Actor.Inbox<T>", "Boolean", "Synchronizes"),
+        ("Actor.sendAccepted", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendFull", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendClosed", "Actor.SendOutcome", "Boolean", "-"),
+        ("Actor.sendStale", "Actor.SendOutcome", "Boolean", "-"),
+        (
+            "Net.Tcp.listen",
+            "UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.listenerLocalPort",
+            "Net.Tcp.Listener",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.streamLocalPort",
+            "Net.Tcp.Stream",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connect",
+            "UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.accept",
+            "Net.Tcp.Listener",
+            "Net.Tcp.Stream?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.sendByte",
+            "Net.Tcp.Stream,Byte",
+            "Net.SocketIoOutcome",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.receiveByte",
+            "Net.Tcp.Stream",
+            "Net.Tcp.Receive",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.closeListener",
+            "Net.Tcp.Listener",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.closeStream",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        ("Net.ioProgress", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.ioWouldBlock", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.ioClosed", "Net.SocketIoOutcome", "Boolean", "-"),
+        ("Net.Tcp.received", "Net.Tcp.Receive", "Boolean", "-"),
+        ("Net.Tcp.receivedByte", "Net.Tcp.Receive", "Byte?", "-"),
+        (
+            "Net.Tcp.receiveWouldBlock",
+            "Net.Tcp.Receive",
+            "Boolean",
+            "-",
+        ),
+        ("Net.Tcp.receiveClosed", "Net.Tcp.Receive", "Boolean", "-"),
+        (
+            "Net.Udp.bind",
+            "UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localPort",
+            "Net.Udp.Socket",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.sendByteTo",
+            "Net.Udp.Socket,UInt32,UInt16,Byte",
+            "Net.SocketIoOutcome",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receiveByte",
+            "Net.Udp.Socket",
+            "Net.Udp.Datagram?",
+            "AmbientIo,MayTrap",
+        ),
+        ("Net.Udp.close", "Net.Udp.Socket", "Boolean", "AmbientIo"),
+        ("Net.Udp.datagramByte", "Net.Udp.Datagram", "Byte", "-"),
+        ("Net.Udp.datagramAddress", "Net.Udp.Datagram", "UInt32", "-"),
+        ("Net.Udp.datagramPort", "Net.Udp.Datagram", "UInt16", "-"),
+        (
+            "Atomic.fetchAddInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchSubtractInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchAndInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchOrInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Atomic.fetchXorInt",
+            "Atomic.Int,Int,Atomic.ReadModifyWriteOrder",
+            "Int",
+            "Synchronizes,MayTrap",
+        ),
+        (
+            "Net.Tcp.send",
+            "Net.Tcp.Stream,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.receive",
+            "Net.Tcp.Stream,Bytes.Buffer,UInt64",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        ("Net.transferProgress", "Net.Transfer", "Boolean", "-"),
+        ("Net.transferWouldBlock", "Net.Transfer", "Boolean", "-"),
+        ("Net.transferClosed", "Net.Transfer", "Boolean", "-"),
+        ("Net.transferredByteCount", "Net.Transfer", "UInt64", "-"),
+        (
+            "Net.Udp.sendTo",
+            "Net.Udp.Socket,UInt32,UInt16,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receive",
+            "Net.Udp.Socket,Bytes.Buffer,UInt64",
+            "Net.Udp.Transfer?",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.transferredByteCount",
+            "Net.Udp.Transfer",
+            "UInt64",
+            "-",
+        ),
+        ("Net.Udp.sourceAddress", "Net.Udp.Transfer", "UInt32", "-"),
+        ("Net.Udp.sourcePort", "Net.Udp.Transfer", "UInt16", "-"),
+        (
+            "Net.Tcp.listenAt",
+            "Net.Ipv4Address,UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connectTo",
+            "Net.Ipv4Address,UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.bindAt",
+            "Net.Ipv4Address,UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.listenAt",
+            "Net.Ipv6Address,UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connectTo",
+            "Net.Ipv6Address,UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.bindAt",
+            "Net.Ipv6Address,UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.listenScopedAt",
+            "Net.ScopedIpv6Address,UInt16",
+            "Net.Tcp.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.connectScopedTo",
+            "Net.ScopedIpv6Address,UInt16",
+            "Net.Tcp.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.bindScopedAt",
+            "Net.ScopedIpv6Address,UInt16",
+            "Net.Udp.Socket",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.systemResolver",
+            "-",
+            "Net.Dns.Resolver",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.resolve",
+            "Net.Dns.Resolver,Net.DnsName,UInt16",
+            "Net.Dns.Answers",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Dns.closeResolver",
+            "Net.Dns.Resolver",
+            "Boolean",
+            "AmbientIo",
+        ),
+        ("Net.Dns.answerCount", "Net.Dns.Answers", "UInt64", "-"),
+        (
+            "Net.Dns.answerFamily",
+            "Net.Dns.Answers,UInt64",
+            "Byte",
+            "MayTrap",
+        ),
+        (
+            "Net.Dns.answerIpv4",
+            "Net.Dns.Answers,UInt64",
+            "UInt32?",
+            "-",
+        ),
+        (
+            "Net.Dns.answerIpv6Word",
+            "Net.Dns.Answers,UInt64,Byte",
+            "UInt32?",
+            "-",
+        ),
+        (
+            "Net.Dns.closeAnswers",
+            "Net.Dns.Answers",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.shutdownRead",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.shutdownWrite",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.setNoDelay",
+            "Net.Tcp.Stream,Boolean",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.noDelay",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.setHopLimit",
+            "Net.Tcp.Stream,UInt32",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.hopLimit",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.localAddressFamily",
+            "Net.Tcp.Stream",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerAddressFamily",
+            "Net.Tcp.Stream",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.localAddressWord",
+            "Net.Tcp.Stream,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.peerAddressWord",
+            "Net.Tcp.Stream,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.localScopeId",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerScopeId",
+            "Net.Tcp.Stream",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.peerPort",
+            "Net.Tcp.Stream",
+            "UInt16",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localAddressFamily",
+            "Net.Udp.Socket",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.localAddressWord",
+            "Net.Udp.Socket,Byte",
+            "UInt32?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.localScopeId",
+            "Net.Udp.Socket",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.setBroadcast",
+            "Net.Udp.Socket,Boolean",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.broadcast",
+            "Net.Udp.Socket",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.setHopLimit",
+            "Net.Udp.Socket,UInt32",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.hopLimit",
+            "Net.Udp.Socket",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.joinMulticastIpv4",
+            "Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.leaveMulticastIpv4",
+            "Net.Udp.Socket,Net.Ipv4Address,Net.Ipv4Address",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.listen",
+            "String",
+            "Net.Unix.Listener",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.connect",
+            "String",
+            "Net.Unix.Stream",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.accept",
+            "Net.Unix.Listener",
+            "Net.Unix.Stream?",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.send",
+            "Net.Unix.Stream,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.receive",
+            "Net.Unix.Stream,Bytes.Buffer,UInt64",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.shutdownRead",
+            "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.shutdownWrite",
+            "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.closeListener",
+            "Net.Unix.Listener",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Unix.closeStream",
+            "Net.Unix.Stream",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Time.monotonicClock",
+            "-",
+            "Time.MonotonicClock",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.deadlineAfterMilliseconds",
+            "Time.MonotonicClock,UInt64",
+            "Time.LiveDeadline",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.liveDeadlineExpired",
+            "Time.MonotonicClock,Time.LiveDeadline",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Time.closeLiveDeadline",
+            "Time.LiveDeadline",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Time.closeMonotonicClock",
+            "Time.MonotonicClock",
+            "Boolean",
+            "AmbientIo",
+        ),
+        ("Net.waitProgress", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitClosed", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitTimedOut", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitCancelled", "Net.WaitTransfer", "Boolean", "-"),
+        ("Net.waitedByteCount", "Net.WaitTransfer", "UInt64", "-"),
+        (
+            "Net.Tcp.sendUntil",
+            "Net.Tcp.Stream,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.receiveUntil",
+            "Net.Tcp.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.sendUntil",
+            "Net.Udp.Socket,UInt32,UInt16,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.receiveUntil",
+            "Net.Udp.Socket,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.Udp.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.waitProgress",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitTimedOut",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitCancelled",
+            "Net.Udp.WaitTransfer",
+            "Boolean",
+            "-",
+        ),
+        (
+            "Net.Udp.waitedByteCount",
+            "Net.Udp.WaitTransfer",
+            "UInt64",
+            "-",
+        ),
+        (
+            "Net.Udp.waitSourceAddress",
+            "Net.Udp.WaitTransfer",
+            "UInt32",
+            "-",
+        ),
+        (
+            "Net.Udp.waitSourcePort",
+            "Net.Udp.WaitTransfer",
+            "UInt16",
+            "-",
+        ),
+        (
+            "Net.Unix.sendUntil",
+            "Net.Unix.Stream,Bytes,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Unix.receiveUntil",
+            "Net.Unix.Stream,Bytes.Buffer,UInt64,Time.LiveDeadline,CancelToken",
+            "Net.WaitTransfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.snapshot",
+            "-",
+            "Net.Interfaces.Snapshot",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.close",
+            "Net.Interfaces.Snapshot",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Interfaces.count",
+            "Net.Interfaces.Snapshot",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.name",
+            "Net.Interfaces.Snapshot,UInt64",
+            "String",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.index",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.flags",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressCount",
+            "Net.Interfaces.Snapshot,UInt64",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressFamily",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.addressWord",
+            "Net.Interfaces.Snapshot,UInt64,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.prefixLength",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Interfaces.scopeId",
+            "Net.Interfaces.Snapshot,UInt64,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.snapshot",
+            "-",
+            "Net.Routes.Snapshot",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.close",
+            "Net.Routes.Snapshot",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Routes.count",
+            "Net.Routes.Snapshot",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.family",
+            "Net.Routes.Snapshot,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.destinationWord",
+            "Net.Routes.Snapshot,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.prefixLength",
+            "Net.Routes.Snapshot,UInt64",
+            "Byte",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.gatewayWord",
+            "Net.Routes.Snapshot,UInt64,Byte",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.interfaceIndex",
+            "Net.Routes.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.metric",
+            "Net.Routes.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Routes.flags",
+            "Net.Routes.Snapshot,UInt64",
+            "UInt32",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Udp.joinMulticastIpv6",
+            "Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Udp.leaveMulticastIpv6",
+            "Net.Udp.Socket,Net.Ipv6Address,Net.InterfaceId",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.setKeepAlive",
+            "Net.Tcp.Stream,Boolean",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.keepAlive",
+            "Net.Tcp.Stream",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tcp.setKeepAliveIdleMilliseconds",
+            "Net.Tcp.Stream,UInt64",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.setLingerMilliseconds",
+            "Net.Tcp.Stream,UInt64",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tcp.lingerMilliseconds",
+            "Net.Tcp.Stream",
+            "UInt64",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.clientSystemConfig",
+            "-",
+            "Net.Tls.ClientConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.clientRootConfig",
+            "Bytes",
+            "Net.Tls.ClientConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.serverConfig",
+            "Bytes,Bytes",
+            "Net.Tls.ServerConfig",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.closeClientConfig",
+            "Net.Tls.ClientConfig",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tls.closeServerConfig",
+            "Net.Tls.ServerConfig",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Net.Tls.clientHandshake",
+            "Net.Tls.ClientConfig,Net.Tcp.Stream,String,Time.LiveDeadline,CancelToken",
+            "Net.Tls.Stream",
+            "AmbientIo,Suspends,MayTrap",
+        ),
+        (
+            "Net.Tls.serverHandshake",
+            "Net.Tls.ServerConfig,Net.Tcp.Stream,Time.LiveDeadline,CancelToken",
+            "Net.Tls.Stream",
+            "AmbientIo,Suspends,MayTrap",
+        ),
+        (
+            "Net.Tls.send",
+            "Net.Tls.Stream,Bytes",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Net.Tls.receive",
+            "Net.Tls.Stream,Bytes.Buffer,UInt64",
+            "Net.Transfer",
+            "AmbientIo,MayTrap",
+        ),
+        ("Net.Tls.close", "Net.Tls.Stream", "Boolean", "AmbientIo"),
+        ("Process.id", "-", "Int", "AmbientIo"),
+        ("Process.availableParallelism", "-", "Int", "AmbientIo"),
+        ("Terminal.stdoutIsTerminal", "-", "Boolean", "AmbientIo"),
+        ("Terminal.stderrIsTerminal", "-", "Boolean", "AmbientIo"),
+        ("RustNet.ipv4IsLinkLocal", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsMulticast", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsBroadcast", "UInt64", "Boolean", "-"),
+        ("RustNet.ipv4IsDocumentation", "UInt64", "Boolean", "-"),
+        (
+            "RustNet.ipv6IsMulticast",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsUniqueLocal",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsUnicastLinkLocal",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+        (
+            "RustNet.ipv6IsDocumentation",
+            "UInt64,UInt64,UInt64,UInt64",
+            "Boolean",
+            "-",
+        ),
+    ];
+    for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
+        let parameters = schema_list(expected.1);
+        let results = schema_list(expected.2);
+        let effects = schema_list(expected.3);
+        if entry.id.raw() != u32::try_from(offset + 2).unwrap_or(u32::MAX)
+            || entry.source_name != expected.0
+            || entry.owner_bubble != "Pop.Standard"
+            || entry.parameter_types != parameters
+            || entry.result_types != results
+            || entry.effects != effects
+            || entry.prelude
+        {
+            return Err(error(
+                "standard function",
+                offset + 5,
+                "invalid trusted Atomic function contract",
             ));
         }
     }

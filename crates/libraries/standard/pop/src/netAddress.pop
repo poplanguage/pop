@@ -1,0 +1,132 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one exact IPv4 or IPv6 address.
+--- </summary>
+public union Address
+    --- <summary>
+    --- Holds an IPv4 address without changing its representation.
+    --- </summary>
+    Ipv4(value: Ipv4Address)
+
+    --- <summary>
+    --- Holds an IPv6 address without changing its representation.
+    --- </summary>
+    Ipv6(value: Ipv6Address)
+end
+
+--- <summary>
+--- Parses one canonical IPv4 or IPv6 address.
+--- </summary>
+---
+--- <param name="text">
+--- Complete canonical address text without a prefix, zone, or port.
+--- </param>
+---
+--- <returns>
+--- The family-preserving address, or nil for malformed or alternate text.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates the selected address and union values on success.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Net
+---
+--- private function addressExample(): Boolean?
+---     local address = parseAddress("2001:db8::1")?
+---     return formatAddress(address) == "2001:db8::1"
+--- end
+--- </code>
+--- </example>
+public function parseAddress(text: String): Address?
+    if local ipv4 = parseIpv4(text) then
+        return Address.Ipv4(ipv4)
+    end
+    if local ipv6Value = parseIpv6(text) then
+        return Address.Ipv6(ipv6Value)
+    end
+    return nil
+end
+
+--- <summary>
+--- Formats an IP address in its family's canonical spelling.
+--- </summary>
+---
+--- <param name="address">
+--- The family-preserving address.
+--- </param>
+---
+--- <returns>
+--- Canonical IPv4 dotted decimal or canonical lowercase IPv6 text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates the canonical result string.
+--- </allocation>
+public function formatAddress(address: Address): String
+    match address
+    when Address.Ipv4(value) then
+        return formatIpv4(value)
+    when Address.Ipv6(value) then
+        return formatIpv6(value)
+    end
+end
+
+--- <summary>
+--- Reports whether an IP address is loopback in its exact family.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for IPv4 127/8 or IPv6 ::1.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAddressLoopback(address: Address): Boolean
+    match address
+    when Address.Ipv4(value) then
+        return isIpv4Loopback(value)
+    when Address.Ipv6(value) then
+        return isIpv6Loopback(value)
+    end
+end
+
+--- <summary>
+--- Reports whether an IP address is its family's unspecified address.
+--- </summary>
+---
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True exactly for IPv4 0.0.0.0 or IPv6 ::.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAddressUnspecified(address: Address): Boolean
+    match address
+    when Address.Ipv4(value) then
+        return value.bits == UInt32(0)
+    when Address.Ipv6(value) then
+        return isIpv6Unspecified(value)
+    end
+end

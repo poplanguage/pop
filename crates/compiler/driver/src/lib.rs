@@ -50,4 +50,6 @@ pub use native_link::{
     ResolvedNativeProvider, resolve_native_link_inputs, validate_foreign_link_aliases,
 };
 pub use retained_metadata::*;
-pub use tooling::{TOOLING_STANDARD_BUBBLE, tooling_standard_reference_metadata};
+pub use tooling::{
+    TOOLING_INTERNAL_BUBBLE, TOOLING_STANDARD_BUBBLE, tooling_standard_reference_metadata,
+};

@@ -16,6 +16,9 @@ pop-runtime-interface.workspace = true
 pop-standard.workspace = true
 pop-target.workspace = true
 pop-types.workspace = true
+libc.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
 
 [dev-dependencies]
 pop-compile-time.workspace = true
@@ -25,6 +28,7 @@ pop-query.workspace = true
 pop-resolve.workspace = true
 pop-runtime-collector.workspace = true
 pop-source.workspace = true
+rcgen.workspace = true
 
 [lints]
 workspace = true

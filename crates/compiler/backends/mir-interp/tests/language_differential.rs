@@ -69,6 +69,30 @@ fn codec_error_cases_execute_with_exact_exhaustive_identities() {
     assert_eq!(execute_pair(&mir, &arena, entry).0, vec![integer("123")]);
 }
 
+#[test]
+fn reserved_iteration_match_executes_before_and_after_generic_specialization() {
+    let (mir, arena, entry) = lower(
+        "namespace Main\n\
+         private function inspect<T>(step: Iteration<T>, fallback: T): T\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return fallback\n\
+             end\n\
+         end\n\
+         public function run(): Int\n\
+             local item: Iteration<Int> = Iteration.Item(41)\n\
+             local empty: Iteration<Int> = Iteration.End\n\
+             return inspect(item, 0) + inspect(empty, 1)\n\
+         end\n",
+        "run",
+    );
+
+    assert_eq!(execute_pair(&mir, &arena, entry).0, vec![integer("42")]);
+    assert!(!mir.dump().contains("dynamic"), "{}", mir.dump());
+}
+
 fn execute_pair(
     mir: &MirBubble,
     arena: &TypeArena,

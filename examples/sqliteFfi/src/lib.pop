@@ -1,0 +1,5 @@
+namespace Example.SqliteFfi
+
+public function available(): Boolean
+    return true
+end

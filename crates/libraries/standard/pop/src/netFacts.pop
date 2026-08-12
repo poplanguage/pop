@@ -1,0 +1,342 @@
+namespace Pop.Net
+
+--- <summary>
+--- Describes one network interface at a captured instant.
+--- </summary>
+public record NetworkInterface
+    identity: InterfaceId
+    name: String
+    isUp: Boolean
+    isLoopback: Boolean
+    maximumTransmissionUnit: UInt32
+end
+
+--- <summary>
+--- Associates one interface with one assigned network prefix.
+--- </summary>
+public record InterfaceAddress
+    identity: InterfaceId
+    prefix: Prefix
+end
+
+--- <summary>
+--- Holds one family-safe immutable network route.
+--- </summary>
+public union Route
+    --- <summary>
+    --- Holds an on-link IPv4 destination.
+    --- </summary>
+    Ipv4OnLink(destination: Ipv4Prefix, identity: InterfaceId, metric: UInt32)
+
+    --- <summary>
+    --- Holds an IPv4 destination reached through an IPv4 next hop.
+    --- </summary>
+    Ipv4Via(destination: Ipv4Prefix, nextHop: Ipv4Address, identity: InterfaceId, metric: UInt32)
+
+    --- <summary>
+    --- Holds an on-link IPv6 destination.
+    --- </summary>
+    Ipv6OnLink(destination: Ipv6Prefix, identity: InterfaceId, metric: UInt32)
+
+    --- <summary>
+    --- Holds an IPv6 destination reached through an IPv6 next hop.
+    --- </summary>
+    Ipv6Via(destination: Ipv6Prefix, nextHop: Ipv6Address, identity: InterfaceId, metric: UInt32)
+end
+
+--- <summary>
+--- Creates an immutable network-interface fact.
+--- </summary>
+---
+--- <param name="identity">
+--- The numeric interface identity.
+--- </param>
+--- <param name="name">
+--- The exact nonempty host-supplied interface name.
+--- </param>
+--- <param name="isUp">
+--- Whether the captured interface state is up.
+--- </param>
+--- <param name="isLoopback">
+--- Whether the interface is a loopback interface.
+--- </param>
+--- <param name="maximumTransmissionUnit">
+--- The captured maximum transmission unit.
+--- </param>
+---
+--- <returns>
+--- The fact, or nil for an empty name.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one NetworkInterface on success.
+--- </allocation>
+public function networkInterface(
+    identity: InterfaceId,
+    name: String,
+    isUp: Boolean,
+    isLoopback: Boolean,
+    maximumTransmissionUnit: UInt32,
+): NetworkInterface?
+    if name == "" then
+        return nil
+    end
+    local value: NetworkInterface = {
+        identity = identity,
+        name = name,
+        isUp = isUp,
+        isLoopback = isLoopback,
+        maximumTransmissionUnit = maximumTransmissionUnit,
+    }
+    return value
+end
+
+--- <summary>
+--- Associates one interface identity with an assigned prefix.
+--- </summary>
+---
+--- <param name="identity">
+--- The numeric interface identity.
+--- </param>
+--- <param name="prefix">
+--- The exact assigned prefix.
+--- </param>
+--- <returns>
+--- The immutable association.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one InterfaceAddress.
+--- </allocation>
+public function interfaceAddress(identity: InterfaceId, prefix: Prefix): InterfaceAddress
+    local value: InterfaceAddress = { identity = identity, prefix = prefix }
+    return value
+end
+
+--- <summary>
+--- Creates an on-link IPv4 route fact.
+--- </summary>
+---
+--- <param name="destination">
+--- The IPv4 destination prefix.
+--- </param>
+--- <param name="identity">
+--- The egress interface identity.
+--- </param>
+--- <param name="metric">
+--- The captured route metric.
+--- </param>
+--- <returns>
+--- The family-safe route.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Route value.
+--- </allocation>
+public function ipv4OnLinkRoute(
+    destination: Ipv4Prefix,
+    identity: InterfaceId,
+    metric: UInt32,
+): Route
+    return Route.Ipv4OnLink(destination, identity, metric)
+end
+
+--- <summary>
+--- Creates an IPv4 route through a next hop.
+--- </summary>
+---
+--- <param name="destination">
+--- The IPv4 destination prefix.
+--- </param>
+--- <param name="nextHop">
+--- The concrete IPv4 next hop.
+--- </param>
+--- <param name="identity">
+--- The egress interface identity.
+--- </param>
+--- <param name="metric">
+--- The captured route metric.
+--- </param>
+--- <returns>
+--- The family-safe route.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Route value.
+--- </allocation>
+public function ipv4ViaRoute(
+    destination: Ipv4Prefix,
+    nextHop: Ipv4Address,
+    identity: InterfaceId,
+    metric: UInt32,
+): Route
+    return Route.Ipv4Via(destination, nextHop, identity, metric)
+end
+
+--- <summary>
+--- Creates an on-link IPv6 route fact.
+--- </summary>
+---
+--- <param name="destination">
+--- The IPv6 destination prefix.
+--- </param>
+--- <param name="identity">
+--- The egress interface identity.
+--- </param>
+--- <param name="metric">
+--- The captured route metric.
+--- </param>
+--- <returns>
+--- The family-safe route.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Route value.
+--- </allocation>
+public function ipv6OnLinkRoute(
+    destination: Ipv6Prefix,
+    identity: InterfaceId,
+    metric: UInt32,
+): Route
+    return Route.Ipv6OnLink(destination, identity, metric)
+end
+
+--- <summary>
+--- Creates an IPv6 route through a next hop.
+--- </summary>
+---
+--- <param name="destination">
+--- The IPv6 destination prefix.
+--- </param>
+--- <param name="nextHop">
+--- The concrete IPv6 next hop.
+--- </param>
+--- <param name="identity">
+--- The egress interface identity.
+--- </param>
+--- <param name="metric">
+--- The captured route metric.
+--- </param>
+--- <returns>
+--- The family-safe route.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Route value.
+--- </allocation>
+public function ipv6ViaRoute(
+    destination: Ipv6Prefix,
+    nextHop: Ipv6Address,
+    identity: InterfaceId,
+    metric: UInt32,
+): Route
+    return Route.Ipv6Via(destination, nextHop, identity, metric)
+end
+
+--- <summary>
+--- Returns a route's family-preserving destination.
+--- </summary>
+---
+--- <param name="route">
+--- The route to inspect.
+--- </param>
+--- <returns>
+--- The destination prefix.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Prefix union value.
+--- </allocation>
+public function routeDestination(route: Route): Prefix
+    match route
+    when Route.Ipv4OnLink(destination, _, _) then
+        return Prefix.Ipv4(destination)
+    when Route.Ipv4Via(destination, _, _, _) then
+        return Prefix.Ipv4(destination)
+    when Route.Ipv6OnLink(destination, _, _) then
+        return Prefix.Ipv6(destination)
+    when Route.Ipv6Via(destination, _, _, _) then
+        return Prefix.Ipv6(destination)
+    end
+end
+
+--- <summary>
+--- Returns a route's optional family-preserving next hop.
+--- </summary>
+---
+--- <param name="route">
+--- The route to inspect.
+--- </param>
+--- <returns>
+--- The next-hop address, or nil for an on-link route.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Allocates one Address union value when a next hop exists.
+--- </allocation>
+public function routeNextHop(route: Route): Address?
+    match route
+    when Route.Ipv4OnLink(_, _, _) then
+        return nil
+    when Route.Ipv4Via(_, nextHop, _, _) then
+        return Address.Ipv4(nextHop)
+    when Route.Ipv6OnLink(_, _, _) then
+        return nil
+    when Route.Ipv6Via(_, nextHop, _, _) then
+        return Address.Ipv6(nextHop)
+    end
+end
+
+--- <summary>
+--- Returns a route's egress interface identity.
+--- </summary>
+---
+--- <param name="route">
+--- The route to inspect.
+--- </param>
+--- <returns>
+--- The exact interface identity.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function routeInterfaceId(route: Route): InterfaceId
+    match route
+    when Route.Ipv4OnLink(_, identity, _) then
+        return identity
+    when Route.Ipv4Via(_, _, identity, _) then
+        return identity
+    when Route.Ipv6OnLink(_, identity, _) then
+        return identity
+    when Route.Ipv6Via(_, _, identity, _) then
+        return identity
+    end
+end
+
+--- <summary>
+--- Returns a route's captured metric.
+--- </summary>
+---
+--- <param name="route">
+--- The route to inspect.
+--- </param>
+--- <returns>
+--- The exact unsigned metric.
+--- </returns>
+--- <complexity time="O(1)" space="O(1)"/>
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function routeMetric(route: Route): UInt32
+    match route
+    when Route.Ipv4OnLink(_, _, metric) then
+        return metric
+    when Route.Ipv4Via(_, _, _, metric) then
+        return metric
+    when Route.Ipv6OnLink(_, _, metric) then
+        return metric
+    when Route.Ipv6Via(_, _, _, metric) then
+        return metric
+    end
+end

@@ -7,7 +7,9 @@ use pop_diagnostics::{resolution as resolution_diagnostics, types as type_diagno
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use pop_foundation::{BuiltinTypeId, ParameterId, ResultCaseId, SourceSpan, TypeId};
+use pop_foundation::{
+    BuiltinTypeId, ParameterId, ResultCaseId, SourceSpan, StandardFunctionId, TypeId,
+};
 use pop_resolve::SymbolSpace;
 use pop_syntax::{ExpressionSyntax, ExpressionSyntaxKind};
 
@@ -258,6 +260,61 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     .map(CheckedInvocation::Value);
             }
             if matches!(path.as_slice(), [namespace, operation]
+            if namespace == "Bytes"
+                && matches!(
+                    operation.as_str(),
+                    "create"
+                        | "withCapacity"
+                        | "reserve"
+                        | "clear"
+                        | "write"
+                        | "writeUInt16BigEndian"
+                        | "writeUInt16LittleEndian"
+                        | "writeUInt32BigEndian"
+                        | "writeUInt32LittleEndian"
+                        | "writeUInt64BigEndian"
+                        | "writeUInt64LittleEndian"
+                ))
+                && self.binding_by_name("Bytes").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_byte_buffer_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [namespace, operation]
+                if namespace == "Text"
+                    && matches!(operation.as_str(), "encodeUtf8" | "decodeUtf8"))
+                && self.binding_by_name("Text").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_utf8_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [namespace, operation]
                 if matches!(namespace.as_str(), "Bytes" | "Text")
                     && matches!(operation.as_str(), "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
                 && path
@@ -278,6 +335,27 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             {
                 return self
                     .check_view_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [namespace, operation]
+                if namespace == "Unicode"
+                    && matches!(operation.as_str(), "fromCodePoint" | "codePoint"))
+                && self.binding_by_name("Unicode").is_none()
+                && self
+                    .resolver
+                    .database()
+                    .resolve(
+                        self.module,
+                        &path.join("."),
+                        SymbolSpace::Value,
+                        callee.span(),
+                    )
+                    .symbols()
+                    .iter()
+                    .all(|symbol| !self.signatures.contains_key(symbol))
+            {
+                return self
+                    .check_rune_invocation(path, arguments, span)
                     .map(CheckedInvocation::Value);
             }
             if path.as_slice() == ["String"] {
@@ -345,6 +423,36 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             {
                 return self
                     .check_task_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [channel, operation]
+            if channel == "Channel"
+                && matches!(
+                    operation.as_str(),
+                    "trySend"
+                        | "tryReceive"
+                        | "close"
+                        | "closeReceiver"
+                        | "sendAccepted"
+                        | "sendFull"
+                        | "sendClosed"
+                        | "received"
+                        | "receiveEmpty"
+                        | "receiveClosed"
+                ))
+            {
+                return self
+                    .check_channel_invocation(path, arguments, span)
+                    .map(CheckedInvocation::Value);
+            }
+            if matches!(path.as_slice(), [actor, operation]
+                if actor == "Actor"
+                    && matches!(operation.as_str(),
+                        "reference" | "trySend" | "tryReceive" | "finish" | "release"
+                            | "sendAccepted" | "sendFull" | "sendClosed" | "sendStale"))
+            {
+                return self
+                    .check_actor_invocation(path, arguments, span)
                     .map(CheckedInvocation::Value);
             }
             if let Some(checked) = self.check_standard_invocation(path, arguments, span) {
@@ -573,10 +681,16 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             }
             "length" => {
                 self.require_view_arity(span, path, arguments, 1)?;
-                let view = self.check_expression_expected(
-                    &arguments[0],
-                    Some(ExpectedExpressionType::plain(view_type)),
-                )?;
+                let view = self.check_expression(&arguments[0])?;
+                if kind == crate::ViewKind::Bytes && view.type_id() == self.byte_buffer_type()? {
+                    return Some(TypedExpression {
+                        kind: TypedExpressionKind::ByteBufferLength {
+                            buffer: Box::new(view),
+                        },
+                        type_id: integer,
+                        span,
+                    });
+                }
                 self.require_same_type(view_type, view.type_id(), view.span(), span);
                 Some(TypedExpression {
                     kind: TypedExpressionKind::ViewLength {
@@ -610,8 +724,64 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                     span,
                 })
             }
+            "get" if kind == crate::ViewKind::Text => {
+                self.require_view_arity(span, path, arguments, 2)?;
+                let supplied = self.check_expression(&arguments[0])?;
+                let view = if supplied.type_id() == owner_type {
+                    let provenance = self.lender_for_expression(&supplied);
+                    let borrow = self.fresh_view_borrow(provenance);
+                    TypedExpression {
+                        kind: TypedExpressionKind::ViewCreate {
+                            kind,
+                            lender: Box::new(supplied),
+                            borrow,
+                        },
+                        type_id: view_type,
+                        span: arguments[0].span(),
+                    }
+                } else {
+                    self.require_same_type(view_type, supplied.type_id(), supplied.span(), span);
+                    supplied
+                };
+                let index = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(integer, index.type_id(), index.span(), span);
+                let rune = self.resolver.arena().source_type("Rune")?;
+                let result = self.resolver.arena_mut().optional(rune).ok()?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewGetRune {
+                        view: Box::new(view),
+                        index: Box::new(index),
+                    },
+                    type_id: result,
+                    span,
+                })
+            }
             "toBytes" if kind == crate::ViewKind::Bytes => {
-                self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
+                self.require_view_arity(span, path, arguments, 1)?;
+                let value = self.check_expression(&arguments[0])?;
+                if value.type_id() == self.byte_buffer_type()? {
+                    return Some(TypedExpression {
+                        kind: TypedExpressionKind::ByteBufferMaterialize {
+                            buffer: Box::new(value),
+                            allocation_site: self.fresh_allocation_site(),
+                        },
+                        type_id: owner_type,
+                        span,
+                    });
+                }
+                self.require_same_type(view_type, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ViewMaterialize {
+                        kind,
+                        view: Box::new(value),
+                        allocation_site: self.fresh_allocation_site(),
+                    },
+                    type_id: owner_type,
+                    span,
+                })
             }
             "toString" if kind == crate::ViewKind::Text => {
                 self.check_view_materialize(path, arguments, span, kind, view_type, owner_type)
@@ -624,6 +794,305 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 ));
                 None
             }
+        }
+    }
+
+    fn byte_buffer_type(&mut self) -> Option<TypeId> {
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::BYTES_BUFFER_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()
+    }
+
+    fn check_utf8_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let [_, operation] = path else {
+            return None;
+        };
+        self.require_view_arity(span, path, arguments, 1)?;
+        let supplied = self.check_expression(&arguments[0])?;
+        let text = self.resolver.arena().source_type("String")?;
+        let bytes = self.ffi_builtin_type("Bytes", Vec::new())?;
+        let text_view = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::TEXT_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()?;
+        let bytes_view = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: crate::BYTES_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            })
+            .ok()?;
+        let allocation_site = self.fresh_allocation_site();
+        match operation.as_str() {
+            "encodeUtf8" => {
+                let view = if supplied.type_id() == text {
+                    let provenance = self.lender_for_expression(&supplied);
+                    let borrow = self.fresh_view_borrow(provenance);
+                    TypedExpression {
+                        kind: TypedExpressionKind::ViewCreate {
+                            kind: crate::ViewKind::Text,
+                            lender: Box::new(supplied),
+                            borrow,
+                        },
+                        type_id: text_view,
+                        span: arguments[0].span(),
+                    }
+                } else {
+                    self.require_same_type(text_view, supplied.type_id(), supplied.span(), span);
+                    supplied
+                };
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::Utf8Encode {
+                        view: Box::new(view),
+                        allocation_site,
+                    },
+                    type_id: bytes,
+                    span,
+                })
+            }
+            "decodeUtf8" => {
+                let result = self.resolver.arena_mut().optional(text).ok()?;
+                let kind = if supplied.type_id() == self.byte_buffer_type()? {
+                    TypedExpressionKind::Utf8DecodeBuffer {
+                        buffer: Box::new(supplied),
+                        allocation_site,
+                    }
+                } else {
+                    self.require_same_type(bytes_view, supplied.type_id(), supplied.span(), span);
+                    TypedExpressionKind::Utf8DecodeView {
+                        view: Box::new(supplied),
+                        allocation_site,
+                    }
+                };
+                Some(TypedExpression {
+                    kind,
+                    type_id: result,
+                    span,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn check_byte_buffer_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let [_, operation] = path else {
+            return None;
+        };
+        let buffer_type = self.byte_buffer_type()?;
+        let integer = self.resolver.arena().source_type("Int")?;
+        let nil = self.resolver.arena().source_type("nil")?;
+        if matches!(operation.as_str(), "create" | "withCapacity") {
+            let expected = usize::from(operation == "withCapacity");
+            self.require_view_arity(span, path, arguments, expected)?;
+            let capacity = if operation == "withCapacity" {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(integer, value.type_id(), value.span(), span);
+                Some(Box::new(value))
+            } else {
+                None
+            };
+            return Some(TypedExpression {
+                kind: TypedExpressionKind::ByteBufferCreate {
+                    capacity,
+                    allocation_site: self.fresh_allocation_site(),
+                },
+                type_id: buffer_type,
+                span,
+            });
+        }
+
+        self.require_view_arity(
+            span,
+            path,
+            arguments,
+            2_usize.saturating_sub(usize::from(operation == "clear")),
+        )?;
+        let buffer = self.check_expression_expected(
+            &arguments[0],
+            Some(ExpectedExpressionType::plain(buffer_type)),
+        )?;
+        self.require_same_type(buffer_type, buffer.type_id(), buffer.span(), span);
+        match operation.as_str() {
+            "clear" => Some(TypedExpression {
+                kind: TypedExpressionKind::ByteBufferClear {
+                    buffer: Box::new(buffer),
+                },
+                type_id: nil,
+                span,
+            }),
+            "reserve" => {
+                let additional_capacity = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(integer)),
+                )?;
+                self.require_same_type(
+                    integer,
+                    additional_capacity.type_id(),
+                    additional_capacity.span(),
+                    span,
+                );
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ByteBufferReserve {
+                        buffer: Box::new(buffer),
+                        additional_capacity: Box::new(additional_capacity),
+                    },
+                    type_id: nil,
+                    span,
+                })
+            }
+            "write" => {
+                let byte = self.resolver.arena().source_type("Byte")?;
+                let value = if matches!(arguments[1].kind(), ExpressionSyntaxKind::Integer(_)) {
+                    self.check_expression_expected(
+                        &arguments[1],
+                        Some(ExpectedExpressionType::plain(byte)),
+                    )?
+                } else {
+                    self.check_expression(&arguments[1])?
+                };
+                let bytes = self.ffi_builtin_type("Bytes", Vec::new())?;
+                let view = self
+                    .resolver
+                    .arena_mut()
+                    .intern(SemanticType::Builtin {
+                        definition: crate::BYTES_VIEW_TYPE_ID,
+                        arguments: Vec::new(),
+                    })
+                    .ok()?;
+                let kind = if value.type_id() == byte {
+                    TypedExpressionKind::ByteBufferWriteByte {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                } else if value.type_id() == bytes {
+                    TypedExpressionKind::ByteBufferWriteBytes {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                } else {
+                    self.require_same_type(view, value.type_id(), value.span(), span);
+                    TypedExpressionKind::ByteBufferWriteView {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                    }
+                };
+                Some(TypedExpression {
+                    kind,
+                    type_id: nil,
+                    span,
+                })
+            }
+            name if name.starts_with("writeUInt") => {
+                let (kind, order) = match name {
+                    "writeUInt16BigEndian" => {
+                        (crate::IntegerKind::UInt16, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt16LittleEndian" => {
+                        (crate::IntegerKind::UInt16, crate::ByteOrder::LittleEndian)
+                    }
+                    "writeUInt32BigEndian" => {
+                        (crate::IntegerKind::UInt32, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt32LittleEndian" => {
+                        (crate::IntegerKind::UInt32, crate::ByteOrder::LittleEndian)
+                    }
+                    "writeUInt64BigEndian" => {
+                        (crate::IntegerKind::UInt64, crate::ByteOrder::BigEndian)
+                    }
+                    "writeUInt64LittleEndian" => {
+                        (crate::IntegerKind::UInt64, crate::ByteOrder::LittleEndian)
+                    }
+                    _ => return None,
+                };
+                let source_name = match kind {
+                    crate::IntegerKind::UInt16 => "UInt16",
+                    crate::IntegerKind::UInt32 => "UInt32",
+                    crate::IntegerKind::UInt64 => "UInt64",
+                    _ => return None,
+                };
+                let value_type = self.resolver.arena().source_type(source_name)?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(value_type)),
+                )?;
+                self.require_same_type(value_type, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ByteBufferWriteInteger {
+                        buffer: Box::new(buffer),
+                        value: Box::new(value),
+                        kind,
+                        order,
+                    },
+                    type_id: nil,
+                    span,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn check_rune_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        self.require_view_arity(span, path, arguments, 1)?;
+        let rune = self.resolver.arena().source_type("Rune")?;
+        let uint32 = self.resolver.arena().source_type("UInt32")?;
+        match path {
+            [namespace, operation] if namespace == "Unicode" && operation == "fromCodePoint" => {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(uint32)),
+                )?;
+                self.require_same_type(uint32, value.type_id(), value.span(), span);
+                let result = self.resolver.arena_mut().optional(rune).ok()?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::RuneFromCodePoint {
+                        value: Box::new(value),
+                    },
+                    type_id: result,
+                    span,
+                })
+            }
+            [namespace, operation] if namespace == "Unicode" && operation == "codePoint" => {
+                let value = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(rune)),
+                )?;
+                self.require_same_type(rune, value.type_id(), value.span(), span);
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::RuneCodePoint {
+                        value: Box::new(value),
+                    },
+                    type_id: uint32,
+                    span,
+                })
+            }
+            _ => None,
         }
     }
 
@@ -2359,6 +2828,9 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         let protocol = self.resolver.schema().iteration_protocol()?;
         match semantic {
             SemanticType::Array(element) => Some(*element),
+            SemanticType::Primitive(PrimitiveType::String) => {
+                self.resolver.arena().source_type("Rune")
+            }
             SemanticType::Table { key, value } => self
                 .resolver
                 .arena_mut()
@@ -2480,6 +2952,470 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
                 arguments,
             })
             .ok()
+    }
+
+    fn channel_builtin_type(&mut self, name: &str, arguments: Vec<TypeId>) -> Option<TypeId> {
+        let definition = self.resolver.schema().type_by_source_name(name)?.id();
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition,
+                arguments,
+            })
+            .ok()
+    }
+
+    fn actor_builtin_type(&mut self, name: &str, arguments: Vec<TypeId>) -> Option<TypeId> {
+        let definition = self.resolver.schema().type_by_source_name(name)?.id();
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition,
+                arguments,
+            })
+            .ok()
+    }
+
+    fn actor_element(
+        &mut self,
+        type_id: TypeId,
+        definition: BuiltinTypeId,
+        expected: &str,
+        span: SourceSpan,
+    ) -> Option<TypeId> {
+        self.channel_element(type_id, definition, expected, span)
+    }
+
+    fn require_actor_scalar_message(&mut self, element: TypeId, span: SourceSpan) -> Option<()> {
+        if matches!(
+            self.resolver.arena().get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        ) {
+            return Some(());
+        }
+        self.diagnostics.push(type_diagnostics::type_mismatch(
+            span,
+            "integer Actor message",
+            self.type_name(element),
+            span,
+        ));
+        None
+    }
+
+    fn actor_standard_value(
+        function: u32,
+        arguments: Vec<TypedExpression>,
+        type_id: TypeId,
+        span: SourceSpan,
+    ) -> TypedExpression {
+        TypedExpression {
+            kind: TypedExpressionKind::StandardCall {
+                function: StandardFunctionId::from_raw(function),
+                arguments,
+            },
+            type_id,
+            span,
+        }
+    }
+
+    pub(crate) fn check_actor_mailbox(
+        &mut self,
+        type_arguments: &[pop_syntax::TypeSyntax],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if type_arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_type_arity(
+                span,
+                "Actor.mailbox",
+                1,
+                type_arguments.len(),
+            ));
+            return None;
+        }
+        if arguments.len() != 3 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Actor.mailbox",
+                3,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let signature = self.signature_stack.last()?.clone();
+        let (resolved, diagnostics) =
+            self.resolver
+                .resolve_annotation(self.module, &type_arguments[0], &signature);
+        self.diagnostics.extend(diagnostics);
+        let element = resolved?.type_id()?;
+        self.require_actor_scalar_message(element, type_arguments[0].span())?;
+        let uint64 = self.resolver.arena().source_type("UInt64")?;
+        let mut checked_arguments = Vec::with_capacity(3);
+        for argument in arguments {
+            let typed = self
+                .check_expression_expected(argument, Some(ExpectedExpressionType::plain(uint64)))?;
+            self.require_same_type(uint64, typed.type_id(), typed.span(), argument.span());
+            checked_arguments.push(typed);
+        }
+        let inbox = self.actor_builtin_type("Actor.Inbox", vec![element])?;
+        let result = self.resolver.arena_mut().optional(inbox).ok()?;
+        Some(Self::actor_standard_value(
+            25,
+            checked_arguments,
+            result,
+            span,
+        ))
+    }
+
+    fn check_actor_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let operation = path.get(1)?.as_str();
+        let expected_arity = usize::from(operation == "trySend") + 1;
+        if arguments.len() != expected_arity {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                format!("Actor.{operation}"),
+                expected_arity,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let inbox_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Actor.Inbox")?
+            .id();
+        let reference_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Actor.Ref")?
+            .id();
+        let boolean = self.resolver.arena().source_type("Boolean")?;
+        let send_outcome = self.actor_builtin_type("Actor.SendOutcome", Vec::new())?;
+        match operation {
+            "reference" | "tryReceive" | "finish" | "release" => {
+                let inbox = self.check_expression(&arguments[0])?;
+                let element = self.actor_element(
+                    inbox.type_id(),
+                    inbox_definition,
+                    "Actor.Inbox<T>",
+                    arguments[0].span(),
+                )?;
+                self.require_actor_scalar_message(element, arguments[0].span())?;
+                let (function, result) = match operation {
+                    "reference" => (26, self.actor_builtin_type("Actor.Ref", vec![element])?),
+                    "tryReceive" => (28, self.resolver.arena_mut().optional(element).ok()?),
+                    "finish" => (29, boolean),
+                    _ => (30, boolean),
+                };
+                Some(Self::actor_standard_value(
+                    function,
+                    vec![inbox],
+                    result,
+                    span,
+                ))
+            }
+            "trySend" => {
+                let reference = self.check_expression(&arguments[0])?;
+                let element = self.actor_element(
+                    reference.type_id(),
+                    reference_definition,
+                    "Actor.Ref<T>",
+                    arguments[0].span(),
+                )?;
+                self.require_actor_scalar_message(element, arguments[1].span())?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(element)),
+                )?;
+                self.require_same_type(element, value.type_id(), value.span(), arguments[1].span());
+                Some(Self::actor_standard_value(
+                    27,
+                    vec![reference, value],
+                    send_outcome,
+                    span,
+                ))
+            }
+            "sendAccepted" | "sendFull" | "sendClosed" | "sendStale" => {
+                let outcome = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(send_outcome)),
+                )?;
+                self.require_same_type(
+                    send_outcome,
+                    outcome.type_id(),
+                    outcome.span(),
+                    arguments[0].span(),
+                );
+                let function = match operation {
+                    "sendAccepted" => 31,
+                    "sendFull" => 32,
+                    "sendClosed" => 33,
+                    _ => 34,
+                };
+                Some(Self::actor_standard_value(
+                    function,
+                    vec![outcome],
+                    boolean,
+                    span,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    fn channel_element(
+        &mut self,
+        type_id: TypeId,
+        definition: pop_foundation::BuiltinTypeId,
+        expected: &str,
+        span: SourceSpan,
+    ) -> Option<TypeId> {
+        let element = match self.resolver.arena().get(type_id) {
+            Some(SemanticType::Builtin {
+                definition: found,
+                arguments,
+            }) if *found == definition && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        };
+        if element.is_none() {
+            self.diagnostics.push(type_diagnostics::type_mismatch(
+                span,
+                expected,
+                self.type_name(type_id),
+                span,
+            ));
+        }
+        element
+    }
+
+    pub(crate) fn check_channel_bounded(
+        &mut self,
+        type_arguments: &[pop_syntax::TypeSyntax],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        if type_arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_type_arity(
+                span,
+                "Channel.bounded",
+                1,
+                type_arguments.len(),
+            ));
+            return None;
+        }
+        if arguments.len() != 1 {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                "Channel.bounded",
+                1,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let signature = self.signature_stack.last()?.clone();
+        let (resolved, diagnostics) =
+            self.resolver
+                .resolve_annotation(self.module, &type_arguments[0], &signature);
+        self.diagnostics.extend(diagnostics);
+        let element = resolved?.type_id()?;
+        let capacity_type = self.resolver.arena().source_type("UInt64")?;
+        let capacity = self.check_expression_expected(
+            &arguments[0],
+            Some(ExpectedExpressionType::plain(capacity_type)),
+        )?;
+        self.require_same_type(
+            capacity_type,
+            capacity.type_id(),
+            capacity.span(),
+            arguments[0].span(),
+        );
+        let sender = self.channel_builtin_type("Channel.Sender", vec![element])?;
+        let receiver = self.channel_builtin_type("Channel.Receiver", vec![element])?;
+        let endpoints = self
+            .resolver
+            .arena_mut()
+            .intern(SemanticType::Tuple(vec![sender, receiver]))
+            .ok()?;
+        let result = self.resolver.arena_mut().optional(endpoints).ok()?;
+        Some(TypedExpression {
+            kind: TypedExpressionKind::ChannelCreate {
+                capacity: Box::new(capacity),
+                element,
+            },
+            type_id: result,
+            span,
+        })
+    }
+
+    fn check_channel_invocation(
+        &mut self,
+        path: &[String],
+        arguments: &[ExpressionSyntax],
+        span: SourceSpan,
+    ) -> Option<TypedExpression> {
+        let operation = path.get(1)?.as_str();
+        let expected_arity = usize::from(operation == "trySend") + 1;
+        if arguments.len() != expected_arity {
+            self.diagnostics.push(type_diagnostics::wrong_value_arity(
+                span,
+                format!("Channel.{operation}"),
+                expected_arity,
+                arguments.len(),
+            ));
+            return None;
+        }
+        let boolean = self.resolver.arena().source_type("Boolean")?;
+        let sender_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Channel.Sender")?
+            .id();
+        let receiver_definition = self
+            .resolver
+            .schema()
+            .type_by_source_name("Channel.Receiver")?
+            .id();
+        let send_outcome = self.channel_builtin_type("Channel.SendOutcome", Vec::new())?;
+        match operation {
+            "trySend" => {
+                let sender = self.check_expression(&arguments[0])?;
+                let element = self.channel_element(
+                    sender.type_id(),
+                    sender_definition,
+                    "Channel.Sender<T>",
+                    arguments[0].span(),
+                )?;
+                let value = self.check_expression_expected(
+                    &arguments[1],
+                    Some(ExpectedExpressionType::plain(element)),
+                )?;
+                self.require_same_type(element, value.type_id(), value.span(), arguments[1].span());
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelTrySend {
+                        sender: Box::new(sender),
+                        value: Box::new(value),
+                        element,
+                    },
+                    type_id: send_outcome,
+                    span,
+                })
+            }
+            "tryReceive" | "closeReceiver" => {
+                let receiver = self.check_expression(&arguments[0])?;
+                let element = self.channel_element(
+                    receiver.type_id(),
+                    receiver_definition,
+                    "Channel.Receiver<T>",
+                    arguments[0].span(),
+                )?;
+                if operation == "closeReceiver" {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelClose {
+                            endpoint: Box::new(receiver),
+                            direction: crate::ChannelDirection::Receiver,
+                        },
+                        type_id: boolean,
+                        span,
+                    })
+                } else {
+                    let outcome =
+                        self.channel_builtin_type("Channel.ReceiveOutcome", vec![element])?;
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelTryReceive {
+                            receiver: Box::new(receiver),
+                            element,
+                        },
+                        type_id: outcome,
+                        span,
+                    })
+                }
+            }
+            "close" => {
+                let sender = self.check_expression(&arguments[0])?;
+                self.channel_element(
+                    sender.type_id(),
+                    sender_definition,
+                    "Channel.Sender<T>",
+                    arguments[0].span(),
+                )?;
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelClose {
+                        endpoint: Box::new(sender),
+                        direction: crate::ChannelDirection::Sender,
+                    },
+                    type_id: boolean,
+                    span,
+                })
+            }
+            "sendAccepted" | "sendFull" | "sendClosed" => {
+                let outcome = self.check_expression_expected(
+                    &arguments[0],
+                    Some(ExpectedExpressionType::plain(send_outcome)),
+                )?;
+                self.require_same_type(
+                    send_outcome,
+                    outcome.type_id(),
+                    outcome.span(),
+                    arguments[0].span(),
+                );
+                let expected = match operation {
+                    "sendAccepted" => crate::ChannelSendOutcomeKind::Accepted,
+                    "sendFull" => crate::ChannelSendOutcomeKind::Full,
+                    _ => crate::ChannelSendOutcomeKind::Closed,
+                };
+                Some(TypedExpression {
+                    kind: TypedExpressionKind::ChannelSendOutcomeTest {
+                        outcome: Box::new(outcome),
+                        expected,
+                    },
+                    type_id: boolean,
+                    span,
+                })
+            }
+            "received" | "receiveEmpty" | "receiveClosed" => {
+                let outcome = self.check_expression(&arguments[0])?;
+                let outcome_definition = self
+                    .resolver
+                    .schema()
+                    .type_by_source_name("Channel.ReceiveOutcome")?
+                    .id();
+                let element = self.channel_element(
+                    outcome.type_id(),
+                    outcome_definition,
+                    "Channel.ReceiveOutcome<T>",
+                    arguments[0].span(),
+                )?;
+                if operation == "received" {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelReceiveItem {
+                            outcome: Box::new(outcome),
+                            element,
+                        },
+                        type_id: self.resolver.arena_mut().optional(element).ok()?,
+                        span,
+                    })
+                } else {
+                    Some(TypedExpression {
+                        kind: TypedExpressionKind::ChannelReceiveOutcomeTest {
+                            outcome: Box::new(outcome),
+                            expected: if operation == "receiveEmpty" {
+                                crate::ChannelReceiveOutcomeKind::Empty
+                            } else {
+                                crate::ChannelReceiveOutcomeKind::Closed
+                            },
+                        },
+                        type_id: boolean,
+                        span,
+                    })
+                }
+            }
+            _ => None,
+        }
     }
 
     fn task_argument(
@@ -3173,16 +4109,17 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         arguments: &[ExpressionSyntax],
         span: SourceSpan,
     ) -> Option<CheckedCall> {
-        let [name] = path else {
+        let Some(root) = path.first() else {
             return None;
         };
-        if self.binding_by_name(name).is_some() {
+        if self.binding_by_name(root).is_some() {
             return None;
         }
+        let name = path.join(".");
         if !self
             .resolver
             .database()
-            .resolve(self.module, name, SymbolSpace::Value, span)
+            .resolve(self.module, &name, SymbolSpace::Value, span)
             .symbols()
             .is_empty()
         {
@@ -3191,7 +4128,7 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
         let entries: Vec<_> = self
             .resolver
             .schema()
-            .standard_functions_by_source_name(name)
+            .standard_functions_by_source_name(&name)
             .map(|entry| {
                 (
                     entry.id(),
@@ -3222,20 +4159,18 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             .iter()
             .map(TypedExpression::type_id)
             .collect();
-        let candidates: Vec<_> = arity_candidates
-            .into_iter()
-            .filter_map(|(function, parameter_names, result_names)| {
-                let parameter_types = parameter_names
-                    .iter()
-                    .map(|name| self.resolver.arena().source_type(name))
-                    .collect::<Option<Vec<_>>>()?;
-                let result_types = result_names
-                    .iter()
-                    .map(|name| self.resolver.arena().source_type(name))
-                    .collect::<Option<Vec<_>>>()?;
-                Some((*function, parameter_types, result_types))
-            })
-            .collect();
+        let mut candidates = Vec::new();
+        for (function, parameter_names, result_names) in arity_candidates {
+            let mut parameter_types = Vec::with_capacity(parameter_names.len());
+            for name in parameter_names {
+                parameter_types.push(self.standard_function_type(name, span)?);
+            }
+            let mut result_types = Vec::with_capacity(result_names.len());
+            for name in result_names {
+                result_types.push(self.standard_function_type(name, span)?);
+            }
+            candidates.push((*function, parameter_types, result_types));
+        }
         let Some((function, _, result_types)) = candidates
             .iter()
             .find(|(_, parameter_types, _)| *parameter_types == argument_types)
@@ -3259,6 +4194,39 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             },
             results: result_types.clone(),
         })
+    }
+
+    fn standard_function_type(&mut self, name: &str, span: SourceSpan) -> Option<TypeId> {
+        if let Some(inner) = name.strip_suffix('?') {
+            let inner = self.standard_function_type(inner, span)?;
+            return self.resolver.arena_mut().optional(inner).ok();
+        }
+        if let Some(type_id) = self.resolver.arena().source_type(name) {
+            return Some(type_id);
+        }
+        for candidate in [name.to_owned(), format!("Pop.{name}")] {
+            if let Some(symbol) = self
+                .resolver
+                .database()
+                .resolve(self.module, &candidate, SymbolSpace::Type, span)
+                .symbol()
+            {
+                if let Some(type_id) = self.resolver.declaration_type(symbol) {
+                    return Some(type_id);
+                }
+            }
+        }
+        let entry = *self.resolver.schema().type_by_source_name(name)?;
+        if entry.arity() != 0 {
+            return None;
+        }
+        self.resolver
+            .arena_mut()
+            .intern(SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+            .ok()
     }
 
     pub(crate) fn check_static_method_invocation(

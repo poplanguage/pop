@@ -28,13 +28,60 @@ ABI 1.21 adds only ADR 0102's two verified adjacent-operation adapters.
 ABI 1.22 adds
 `pop_rt_allocate_initialized_self_referential_object_at_site` and the closed
 `pop_rt_iteration_make` constructor from ADR 0104.
+ABI 1.23 adds the typed `pop_rt_text_view_get_rune` adapter from
+[ADR 0114](../../../architecture/decisions/0114-unicode-scalar-value-and-text-access.md).
+ABI 1.24 appends the closed `String = 4` native iteration kind from
+[ADR 0116](../../../architecture/decisions/0116-linear-string-rune-iteration.md).
+ABI 1.25 appends the distinct reusable byte-buffer construction, mutation,
+endian-write, and immutable-snapshot operations from
+[ADR 0117](../../../architecture/decisions/0117-reusable-byte-buffer-and-endian-writes.md).
+ABI 1.26 appends checked UTF-8 Text-view encoding, Bytes-view decoding, and
+direct reusable-buffer decoding from
+[ADR 0118](../../../architecture/decisions/0118-checked-utf8-transcoding.md).
+ABI 1.27 appends bounded-channel construction, directional endpoint lifetime,
+close, and closed non-suspending send/receive statuses from
+[ADR 0146](../../../architecture/decisions/0146-native-bounded-channel-abi.md).
+ABI 1.28 appends the closed nonblocking socket I/O status and separate
+byte-count outputs for TCP and UDP I/O from
+[ADR 0162](../../../architecture/decisions/0162-bounded-tcp-native-handles.md)
+and [ADR 0163](../../../architecture/decisions/0163-bounded-udp-native-handles.md).
+ABI 1.29 appends opaque local-Actor reference admission. The adapter recovers
+the exact stored actor identity and incarnation before bounded admission.
+ABI 1.30 appends typed Atomic integer add, subtract, and bitwise fetch
+operations with exact prior-value outputs.
+ABI 1.31 appends bounded owning-`Bytes` TCP/UDP send and receive operations
+with exact transferred counts and UDP source metadata.
+ABI 1.32 appends bounded TCP receive directly into a reusable `Bytes.Buffer`.
+ABI 1.33 appends bounded UDP receive directly into a reusable `Bytes.Buffer`.
+ABI 1.34 appends explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
+ABI 1.35 appends exact numeric-IPv6 TCP listen/connect and UDP bind endpoints
+with explicit scope IDs.
+ABI 1.36 appends explicit bounded system-resolver and family-preserving DNS
+answer handles.
+ABI 1.37 appends TCP half-close, no-delay configuration, and hop-limit
+configuration with typed scalar inspection.
+ABI 1.38 appends family-preserving TCP local/peer endpoint inspection.
+ABI 1.39 appends UDP endpoint facts, broadcast, hop-limit, and IPv4 multicast controls.
+ABI 1.40 appends Unix-domain listener, stream, transfer, half-close, and close capabilities.
+ABI 1.41 appends explicit live monotonic clocks and owned deadline capabilities.
+ABI 1.42 appends deadline- and cancellation-aware TCP, UDP, and Unix transfers.
+ABI 1.43 appends immutable host network-interface snapshots.
+ABI 1.44 appends immutable Linux route-table snapshots.
+ABI 1.45 appends typed IPv6 UDP multicast membership controls.
+ABI 1.46 appends TCP keepalive, keepalive-idle, and linger controls.
+ABI 1.47 appends owned TLS client/server configurations, bounded handshakes,
+managed-byte transfer, and stream closure.
 
 [ADR 0078](../../../architecture/decisions/0078-native-abi-2-writable-root-coexistence.md)
-adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ABI 2 owns the
+adds distinct immutable ABI 1.11 and ABI 2.0 descriptors. ADR 0114 adds the
+compatible ABI 2.1 descriptor for the same typed scalar-read adapter. ADR 0116
+adds the compatible ABI 2.2 closed String-iteration descriptor. ABI 2.3 adds
+the same reusable byte-buffer operations; ABI 2.4 adds checked UTF-8
+transcoding; ABI 2.5 adds the same bounded-channel operations. ABI 2 owns the
 separate `pop_rt_gc_safe_point_v2` writable-root spelling and the fixed
 `pop_rt_supports_abi` negotiation spelling; their presence never makes an
 incomplete facade advertise ABI 2 support. ADR 0103's separately built
-production facade is the complete ABI 2.0 composition; the default facade
+production facade is the complete ABI 2.5 composition; the default facade
 continues to reject it.
 
 It owns no heap, collector, exported function implementation, process-global

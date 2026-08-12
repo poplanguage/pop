@@ -150,6 +150,119 @@ fn standalone_analysis_receives_the_reserved_standard_reference() {
 }
 
 #[test]
+fn standard_library_sources_use_their_complete_source_bubble_without_a_self_reference() {
+    let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../libraries/standard/pop/src")
+        .canonicalize()
+        .expect("canonical Standard source root");
+    let mut server = LanguageServer::initialize(Some("en")).expect("server");
+    for name in [
+        "lib.pop",
+        "math.pop",
+        "bytes.pop",
+        "unicode.pop",
+        "text.pop",
+        "sequence.pop",
+        "random.pop",
+    ] {
+        let source_path = source_root.join(name);
+        let source = std::fs::read_to_string(&source_path).expect("Standard source");
+        let uri = DocumentUri::new(format!("file://{}", source_path.display())).expect("file URI");
+        let analysis = server
+            .open(
+                uri,
+                DocumentVersion::new(1),
+                source,
+                &CancellationToken::new(),
+            )
+            .expect("Standard source analysis");
+
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{name} must resolve the source Bubble without its published reference: {:?}",
+            analysis.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn internal_library_source_does_not_receive_the_standard_reference() {
+    let root = std::env::temp_dir().join(format!("PopLspInternalSource{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).expect("Internal source root");
+    std::fs::write(
+        root.join("bubble.toml"),
+        "[package]\nname = \"Pop.Internal\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .expect("Internal manifest");
+    let source = "namespace Pop.Internal.Editor\nusing Math = Pop.Math\nfunction invalid(): Int\n    return Math.abs(-1)\nend\n";
+    let source_path = root.join("src/lib.pop");
+    std::fs::write(&source_path, source).expect("Internal source");
+    let uri = DocumentUri::new(format!("file://{}", source_path.display())).expect("file URI");
+    let mut server = LanguageServer::initialize(Some("en")).expect("server");
+    let analysis = server
+        .open(
+            uri,
+            DocumentVersion::new(1),
+            source,
+            &CancellationToken::new(),
+        )
+        .expect("Internal source analysis");
+
+    assert!(
+        analysis
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == "POP1002"),
+        "Pop.Internal must not acquire the forbidden Pop.Standard dependency: {:?}",
+        analysis.diagnostics()
+    );
+    std::fs::remove_dir_all(root).expect("remove Internal fixture");
+}
+
+#[test]
+fn near_match_foundation_manifest_receives_no_source_graph_privilege() {
+    let root =
+        std::env::temp_dir().join(format!("PopLspFoundationNearMatch{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).expect("near-match source root");
+    std::fs::write(
+        root.join("bubble.toml"),
+        "[package]\nname = \"Pop.Standard\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n[dependencies]\nPopInternal = \"0.1.0\"\nExtra = \"1.0.0\"\n",
+    )
+    .expect("near-match manifest");
+    let source =
+        "namespace Pop.Standard.NearMatch\nfunction value(): Int\n    return helper()\nend\n";
+    let source_path = root.join("src/lib.pop");
+    std::fs::write(&source_path, source).expect("near-match active source");
+    std::fs::write(
+        root.join("src/helper.pop"),
+        "namespace Pop.Standard.NearMatch\nfunction helper(): Int\n    return 42\nend\n",
+    )
+    .expect("near-match sibling source");
+    let uri = DocumentUri::new(format!("file://{}", source_path.display())).expect("file URI");
+    let mut server = LanguageServer::initialize(Some("en")).expect("server");
+    let analysis = server
+        .open(
+            uri,
+            DocumentVersion::new(1),
+            source,
+            &CancellationToken::new(),
+        )
+        .expect("near-match analysis");
+
+    assert!(
+        analysis
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == "POP1002"),
+        "an extra dependency must prevent privileged foundation source analysis: {:?}",
+        analysis.diagnostics()
+    );
+    std::fs::remove_dir_all(root).expect("remove near-match fixture");
+}
+
+#[test]
 fn hover_uses_checked_compiler_documentation_and_exact_source_signature() {
     let mut server = LanguageServer::initialize(Some("en")).expect("server");
     let uri = DocumentUri::new("file:///workspace/math.pop").expect("URI");

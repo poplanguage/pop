@@ -89,6 +89,84 @@ fn standard_print_overloads_have_stable_typed_prelude_identities() {
 }
 
 #[test]
+fn atomic_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let atomic: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Atomic."))
+        .collect();
+
+    assert_eq!(atomic.len(), 28);
+    assert_eq!(atomic.first().expect("first Atomic function").id().raw(), 2);
+    assert_eq!(atomic.last().expect("last Atomic function").id().raw(), 63);
+    assert!(
+        atomic
+            .iter()
+            .all(|entry| { entry.owner_bubble() == "Pop.Standard" && !entry.is_in_prelude() })
+    );
+    assert_eq!(
+        schema
+            .standard_functions_by_source_name("Atomic.loadInt")
+            .next()
+            .expect("qualified Atomic load")
+            .parameter_types(),
+        ["Atomic.Int", "Atomic.LoadOrder"]
+    );
+    assert!(
+        schema
+            .standard_functions_by_source_name("loadInt")
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn actor_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let actor: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Actor."))
+        .collect();
+
+    assert_eq!(actor.len(), 10);
+    assert_eq!(actor.first().expect("first Actor function").id().raw(), 25);
+    assert_eq!(actor.last().expect("last Actor function").id().raw(), 34);
+    assert!(actor.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
+fn net_transport_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let net: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Net."))
+        .collect();
+
+    assert_eq!(net.len(), 138);
+    assert_eq!(net.first().expect("first Net function").id().raw(), 35);
+    assert_eq!(net.last().expect("last Net function").id().raw(), 182);
+    assert!(net.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
+fn live_time_standard_functions_are_typed_qualified_and_non_prelude() {
+    let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
+    let time: Vec<_> = schema
+        .standard_functions()
+        .iter()
+        .filter(|entry| entry.source_name().starts_with("Time."))
+        .collect();
+
+    assert_eq!(time.len(), 5);
+    assert_eq!(time.first().expect("first Time function").id().raw(), 123);
+    assert_eq!(time.last().expect("last Time function").id().raw(), 127);
+    assert!(time.iter().all(|entry| !entry.is_in_prelude()));
+}
+
+#[test]
 fn compile_time_attribute_has_a_stable_trusted_prelude_contract() {
     let schema = embedded_bootstrap_schema().expect("valid embedded bootstrap schema");
     let attributes = schema.compiler_attributes();

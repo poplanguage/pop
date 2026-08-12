@@ -327,7 +327,7 @@ fn public_foreign_layout_records_round_trip_into_consumer_mir() {
         metadata.records()[0]
             .fields()
             .iter()
-            .map(pop_driver::ReferenceRecordField::name)
+            .map(|field| field.name())
             .collect::<Vec<_>>(),
         ["zed", "aye"]
     );
@@ -692,7 +692,175 @@ fn dependency_metadata_keeps_visibility_types_and_edges_closed() {
 }
 
 #[test]
-fn unsupported_nominal_public_signature_types_fail_reference_emission() {
+fn ordinary_public_records_round_trip_into_dependent_hir_and_mir() {
+    let library_bubble = BubbleId::from_raw(2);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        library_bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/token.pop",
+            "namespace Pop.Values\n\
+             public record Token\n\
+                 value: Int\n\
+                 label: String\n\
+             end\n\
+             record InternalToken\n\
+                 value: Int\n\
+             end\n\
+             private record PrivateToken\n\
+                 value: Int\n\
+             end\n\
+             public function read(token: Token): Int\n\
+                 return token.value\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        library.diagnostics().is_empty(),
+        "{}",
+        library.diagnostic_snapshot()
+    );
+    let metadata = library
+        .reference_metadata()
+        .expect("ordinary public record metadata");
+    let [record] = metadata.records() else {
+        panic!("one public record");
+    };
+    assert_eq!(record.name(), "Token");
+    assert_eq!(
+        record
+            .fields()
+            .iter()
+            .map(pop_driver::ReferenceRecordField::name)
+            .collect::<Vec<_>>(),
+        ["value", "label"]
+    );
+    let encoded = encode_reference_metadata(metadata).expect("canonical record metadata");
+    let metadata = decode_reference_metadata(&encoded).expect("record metadata round trip");
+
+    let application = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(7),
+            NamespaceId::from_raw(7),
+            vec![library_bubble],
+            vec![module(
+                0,
+                "src/main.pop",
+                "namespace Application\n\
+                 using Pop.Values\n\
+                 public function run(): Int\n\
+                     local token: Token = { value = 20, label = \"Pop\" }\n\
+                     return read(token) + token.value + 2\n\
+                 end\n",
+            )],
+        )
+        .with_reference_metadata(vec![metadata]),
+    );
+    assert!(
+        application.diagnostics().is_empty(),
+        "{}",
+        application.diagnostic_snapshot()
+    );
+    let hir = application.hir().expect("record consumer HIR");
+    let dump = hir.dump(application.types());
+    assert!(dump.contains("record"), "{dump}");
+    let [record_reference] = hir.nominal_references().records() else {
+        panic!("one HIR record reference");
+    };
+    assert_eq!(record_reference.identity().bubble(), library_bubble);
+    let mir = lower_hir_bubble(hir, application.types()).expect("record consumer MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("recordMake"), "{dump}");
+    assert!(
+        dump.contains("nominal.record b2:"),
+        "producer record identity survives MIR:\n{dump}"
+    );
+    let parsed = parse_mir_dump(&dump).expect("record reference MIR round trip");
+    verify_mir_bubble(&parsed, application.types()).expect("round-tripped record reference MIR");
+    assert_eq!(
+        parsed.nominal_references().records()[0].identity().bubble(),
+        library_bubble
+    );
+}
+
+#[test]
+fn malformed_ordinary_public_record_metadata_fails_before_hir() {
+    let bubble = BubbleId::from_raw(2);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/token.pop",
+            "namespace Pop.Values\n\
+             public record Token\n\
+                 value: Int\n\
+                 label: String\n\
+             end\n\
+             public function read(token: Token): Int\n\
+                 return token.value\n\
+             end\n",
+        )],
+    ));
+    let metadata = library
+        .reference_metadata()
+        .expect("public record metadata");
+    let identity = metadata.records()[0].identity();
+    let encoded = encode_reference_metadata(metadata).expect("canonical record metadata");
+    let baseline: serde_json::Value =
+        serde_json::from_slice(&encoded).expect("metadata JSON value");
+    let decode_mutation = |value: serde_json::Value| {
+        let mut bytes = serde_json::to_vec(&value).expect("mutated metadata JSON");
+        bytes.push(b'\n');
+        decode_reference_metadata(&bytes)
+    };
+
+    let mut duplicate_field = baseline.clone();
+    duplicate_field["metadata"]["records"][0]["fields"][1]["name"] =
+        serde_json::Value::String("value".to_owned());
+    assert_eq!(
+        decode_mutation(duplicate_field),
+        Err(ReferenceMetadataDecodeError::InvalidRecordMetadata)
+    );
+
+    let mut wrong_owner = baseline.clone();
+    wrong_owner["metadata"]["records"][0]["identity"] = serde_json::to_value(SymbolIdentity::new(
+        BubbleId::from_raw(9),
+        identity.symbol(),
+    ))
+    .expect("wrong record identity");
+    assert_eq!(
+        decode_mutation(wrong_owner),
+        Err(ReferenceMetadataDecodeError::InvalidRecordMetadata)
+    );
+
+    let mut nominal_field = baseline.clone();
+    nominal_field["metadata"]["records"][0]["fields"][0]["field_type"] = serde_json::json!({
+        "Class": {
+            "definition": identity,
+            "arguments": []
+        }
+    });
+    assert_eq!(
+        decode_mutation(nominal_field),
+        Err(ReferenceMetadataDecodeError::InvalidRecordMetadata)
+    );
+
+    let mut recursive = baseline;
+    recursive["metadata"]["records"][0]["fields"][0]["field_type"] =
+        serde_json::to_value(pop_driver::ReferenceType::Record(identity))
+            .expect("recursive record type");
+    assert_eq!(
+        decode_mutation(recursive),
+        Err(ReferenceMetadataDecodeError::InvalidRecordMetadata)
+    );
+}
+
+#[test]
+fn unsupported_public_record_shapes_fail_reference_emission() {
     let bubble = BubbleId::from_raw(2);
     let result = analyze_bubble(FrontEndBubbleInput::new(
         bubble,
@@ -703,7 +871,7 @@ fn unsupported_nominal_public_signature_types_fail_reference_emission() {
             "src/unsupported.pop",
             "namespace Pop.Sequence\n\
              public record Token\n\
-                 value: Int\n\
+                 value: Int = 0\n\
              end\n\
              public function identity(value: Token): Token\n\
                  return value\n\
@@ -713,9 +881,40 @@ fn unsupported_nominal_public_signature_types_fail_reference_emission() {
     assert!(result.diagnostics().is_empty());
     assert!(matches!(
         result.reference_metadata(),
-        Err(ReferenceMetadataError::UnsupportedPublicType { function, .. })
-            if function == SymbolIdentity::new(bubble, pop_foundation::SymbolId::from_raw(1))
+        Err(ReferenceMetadataError::UnsupportedPublicRecord(identity))
+            if identity == SymbolIdentity::new(bubble, pop_foundation::SymbolId::from_raw(0))
     ));
+
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/unsupported_generic.pop",
+            "namespace Pop.Sequence\n\
+             public record Token<T>\n\
+                 value: T\n\
+             end\n\
+             public function identity<T>(value: Token<T>): Token<T>\n\
+                 return value\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let metadata = result.reference_metadata();
+    assert!(
+        matches!(
+            metadata,
+            Err(ReferenceMetadataError::UnsupportedPublicRecord(identity))
+                if identity.bubble() == bubble
+        ),
+        "{metadata:?}"
+    );
 }
 
 #[test]
@@ -867,6 +1066,148 @@ fn portable_generic_capsules_specialize_private_helpers_without_widening_visibil
     let dump = mir.dump();
     assert!(!dump.contains("callReference b2:"), "{dump}");
     assert_eq!(dump.matches("function s").count(), 3, "{dump}");
+}
+
+#[test]
+fn portable_generic_capsules_preserve_exhaustive_reserved_iteration_matching() {
+    let library_bubble = BubbleId::from_raw(2);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        library_bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/iteration.pop",
+            "namespace Pop.Sequence\n\
+             public function inspect<T>(step: Iteration<T>, fallback: T): T\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return value\n\
+                 when Iteration.End then\n\
+                     return fallback\n\
+                 end\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        library.diagnostics().is_empty(),
+        "{}",
+        library.diagnostic_snapshot()
+    );
+    let encoded = encode_reference_metadata(
+        library
+            .reference_metadata()
+            .expect("Iteration match generic metadata"),
+    )
+    .expect("encode Iteration match capsule");
+    let metadata =
+        decode_reference_metadata(&encoded).expect("decode Iteration match generic capsule");
+
+    let application = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(7),
+            NamespaceId::from_raw(7),
+            vec![library_bubble],
+            vec![module(
+                0,
+                "src/main.pop",
+                "namespace Application\n\
+                 using Pop.Sequence\n\
+                 public function run(): Int\n\
+                     local item: Iteration<Int> = Iteration.Item(42)\n\
+                     return inspect(item, 0)\n\
+                 end\n",
+            )],
+        )
+        .with_reference_metadata(vec![metadata]),
+    );
+    assert!(
+        application.diagnostics().is_empty(),
+        "{}",
+        application.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(
+        application.hir().expect("Iteration match consumer HIR"),
+        application.types(),
+    )
+    .expect("Iteration match capsule specializes");
+    let dump = mir.dump();
+    assert!(!dump.contains("callReference b2:"), "{dump}");
+    assert!(
+        dump.contains("iteration.isItem definition#113 case#0"),
+        "{dump}"
+    );
+    assert!(
+        dump.contains("iteration.getItem definition#113 case#0"),
+        "{dump}"
+    );
+}
+
+#[test]
+fn portable_generic_capsules_lower_only_helpers_reachable_from_consumer_calls() {
+    let library_bubble = BubbleId::from_raw(2);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        library_bubble,
+        NamespaceId::from_raw(2),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/generics.pop",
+            "namespace Pop.Sequence\n\
+             public class State\n\
+                 private value: Int = 0\n\
+                 public function State.new(value: Int): State\n\
+                     return State { value = value }\n\
+                 end\n\
+             end\n\
+             private function readState(state: State): Int\n\
+                 return state.value\n\
+             end\n\
+             public function unused<T>(state: State, value: T): T\n\
+                 local ignored = readState(state)\n\
+                 return value\n\
+             end\n\
+             public function identity<T>(value: T): T\n\
+                 return value\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        library.diagnostics().is_empty(),
+        "{}",
+        library.diagnostic_snapshot()
+    );
+    let metadata = library.reference_metadata().expect("generic metadata");
+
+    let application = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(7),
+            NamespaceId::from_raw(7),
+            vec![library_bubble],
+            vec![module(
+                0,
+                "src/main.pop",
+                "namespace Application\n\
+                 using Pop.Sequence\n\
+                 public function run(): Int\n\
+                     return identity(42)\n\
+                 end\n",
+            )],
+        )
+        .with_reference_metadata(vec![metadata.clone()]),
+    );
+    assert!(
+        application.diagnostics().is_empty(),
+        "{}",
+        application.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(
+        application.hir().expect("generic consumer HIR"),
+        application.types(),
+    )
+    .expect("only the called capsule is specialized");
+    let dump = mir.dump();
+    assert_eq!(dump.matches("function s").count(), 2, "{dump}");
 }
 
 #[test]

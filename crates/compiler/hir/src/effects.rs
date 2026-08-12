@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 
 use pop_foundation::{
     BuiltinTypeId, CaptureId, InterfaceId, InterfaceMethodId, IterationProtocolMethodId, LocalId,
-    MethodId, SymbolId, SymbolIdentity, TypeId,
+    MethodId, StandardFunctionId, SymbolId, SymbolIdentity, TypeId,
 };
 use pop_types::{
     Effect, EffectSummary, PrimitiveType, SemanticType, TypeArena, TypedBinaryOperator,
-    TypedCompoundOperator, TypedUnaryOperator,
+    TypedCompoundOperator, TypedUnaryOperator, embedded_bootstrap_schema,
 };
 
 use crate::*;
@@ -462,6 +462,7 @@ fn infer_statement(
                 HirIterationSource::Array
                 | HirIterationSource::List
                 | HirIterationSource::Range
+                | HirIterationSource::String
                 | HirIterationSource::Table => EffectSummary::empty(),
             };
             infer_expression(iterable, context, environment)
@@ -495,6 +496,19 @@ fn infer_statement(
             },
         ),
         HirStatementKind::ResultMatch {
+            scrutinee, arms, ..
+        } => arms.iter_mut().fold(
+            infer_expression(scrutinee, context, environment),
+            |summary, arm| {
+                let mut arm_environment = environment.clone();
+                summary.union(infer_statements(
+                    &mut arm.body,
+                    context,
+                    &mut arm_environment,
+                ))
+            },
+        ),
+        HirStatementKind::IterationMatch {
             scrutinee, arms, ..
         } => arms.iter_mut().fold(
             infer_expression(scrutinee, context, environment),
@@ -666,6 +680,7 @@ fn infer_expression(
         }
         HirExpressionKind::ArrayCreate { .. }
         | HirExpressionKind::ListCreate { .. }
+        | HirExpressionKind::ByteBufferCreate { .. }
         | HirExpressionKind::RangeCreate { .. } => {
             infer_expression_children(expression, context, environment)
                 .union(allocating_effects())
@@ -675,6 +690,36 @@ fn infer_expression(
             .union(infer_expression(value, context, environment))
             .union(allocating_effects())
             .union(managed_write_effect(value.type_id, context.arena)),
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(infer_expression(value, context, environment))
+                .with(Effect::Allocates)
+                .with(Effect::MayUnwind)
+                .with(Effect::MayTrap)
+        }
+        HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            infer_expression(view, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
+        HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            infer_expression(buffer, context, environment)
+                .union(allocating_effects())
+                .with(Effect::MayTrap)
+        }
         HirExpressionKind::ArrayGetChecked { .. }
         | HirExpressionKind::ListGetChecked { .. }
         | HirExpressionKind::FfiBufferLength { .. }
@@ -840,7 +885,7 @@ fn infer_call(
 ) -> EffectSummary {
     let mut effects = infer_expressions(arguments, context, environment);
     let callee_effects = match dispatch {
-        HirCallDispatch::Standard { .. } => EffectSummary::empty().with(Effect::AmbientIo),
+        HirCallDispatch::Standard { function } => standard_function_effects(*function),
         HirCallDispatch::Direct { function } => {
             context.functions.get(function).copied().unwrap_or_default()
         }
@@ -887,6 +932,38 @@ fn infer_call(
     } else {
         effects.union(callee_effects)
     }
+}
+
+fn standard_function_effects(function: StandardFunctionId) -> EffectSummary {
+    let Some(entry) = embedded_bootstrap_schema().ok().and_then(|schema| {
+        schema
+            .standard_functions()
+            .iter()
+            .find(|entry| entry.id() == function)
+            .cloned()
+    }) else {
+        return EffectSummary::empty();
+    };
+    entry
+        .effects()
+        .iter()
+        .filter_map(|name| match *name {
+            "Allocates" => Some(Effect::Allocates),
+            "WritesManagedReference" => Some(Effect::WritesManagedReference),
+            "Synchronizes" => Some(Effect::Synchronizes),
+            "MayTrap" => Some(Effect::MayTrap),
+            "MayUnwind" => Some(Effect::MayUnwind),
+            "Suspends" => Some(Effect::Suspends),
+            "Blocks" => Some(Effect::Blocks),
+            "UnsafeMemory" => Some(Effect::UnsafeMemory),
+            "ForeignFunction" => Some(Effect::ForeignFunction),
+            "AmbientIo" => Some(Effect::AmbientIo),
+            "CompilerQuery" => Some(Effect::CompilerQuery),
+            "GcSafePoint" => Some(Effect::GcSafePoint),
+            "Roots" => Some(Effect::Roots),
+            _ => None,
+        })
+        .fold(EffectSummary::empty(), EffectSummary::with)
 }
 
 fn callable_effects(
@@ -1111,6 +1188,14 @@ fn rewrite_statement_type(
                 rewrite_statement_types(&mut arm.body, functions, arena, &mut locals.clone());
             }
         }
+        HirStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => {
+            rewrite_expression_type(scrutinee, functions, arena, locals);
+            for arm in arms {
+                rewrite_statement_types(&mut arm.body, functions, arena, &mut locals.clone());
+            }
+        }
         HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
             rewrite_expression_type(scrutinee, functions, arena, locals);
             for arm in arms {
@@ -1264,6 +1349,16 @@ fn visit_expression_children_mut(
         HirExpressionKind::Field { base, .. }
         | HirExpressionKind::ArrayLength { array: base }
         | HirExpressionKind::ListLength { list: base }
+        | HirExpressionKind::ChannelCreate { capacity: base, .. }
+        | HirExpressionKind::ChannelTryReceive { receiver: base, .. }
+        | HirExpressionKind::ChannelClose { endpoint: base, .. }
+        | HirExpressionKind::ChannelSendOutcomeTest { outcome: base, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome: base, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome: base, .. }
+        | HirExpressionKind::ByteBufferLength { buffer: base }
+        | HirExpressionKind::ByteBufferClear { buffer: base }
+        | HirExpressionKind::ByteBufferMaterialize { buffer: base, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer: base, .. }
         | HirExpressionKind::OptionalNarrow { optional: base }
         | HirExpressionKind::Await { task: base }
         | HirExpressionKind::TaskCancelToken { source: base }
@@ -1284,18 +1379,24 @@ fn visit_expression_children_mut(
         | HirExpressionKind::InterfaceUpcast { value: base, .. }
         | HirExpressionKind::CheckedNominalCast { value: base, .. }
         | HirExpressionKind::NumericConvert { value: base, .. }
+        | HirExpressionKind::RuneFromCodePoint { value: base }
+        | HirExpressionKind::RuneCodePoint { value: base }
         | HirExpressionKind::StringFormat { value: base, .. }
         | HirExpressionKind::Unary { operand: base, .. }
         | HirExpressionKind::OptionalPropagate { optional: base, .. }
+        | HirExpressionKind::OptionalInject { value: base }
         | HirExpressionKind::ResultPropagate { result: base, .. } => visit(base),
         HirExpressionKind::ViewCreate { lender: base, .. }
         | HirExpressionKind::ViewLength { view: base, .. }
-        | HirExpressionKind::ViewMaterialize { view: base, .. } => visit(base),
+        | HirExpressionKind::ViewMaterialize { view: base, .. }
+        | HirExpressionKind::Utf8Encode { view: base, .. }
+        | HirExpressionKind::Utf8DecodeView { view: base, .. } => visit(base),
         HirExpressionKind::ArrayGet { array, index }
         | HirExpressionKind::ArrayGetChecked { array, index }
         | HirExpressionKind::ListGet { list: array, index }
         | HirExpressionKind::ListGetChecked { list: array, index }
         | HirExpressionKind::ViewGetByte { view: array, index }
+        | HirExpressionKind::ViewGetRune { view: array, index }
         | HirExpressionKind::TableGet {
             table: array,
             key: index,
@@ -1339,6 +1440,32 @@ fn visit_expression_children_mut(
             list: length,
             value: initial_value,
         }
+        | HirExpressionKind::ChannelTrySend {
+            sender: length,
+            value: initial_value,
+            ..
+        }
+        | HirExpressionKind::ByteBufferReserve {
+            buffer: length,
+            additional_capacity: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteBytes {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteView {
+            buffer: length,
+            value: initial_value,
+        }
+        | HirExpressionKind::ByteBufferWriteInteger {
+            buffer: length,
+            value: initial_value,
+            ..
+        }
         | HirExpressionKind::TaskGroup {
             cancel: length,
             body: initial_value,
@@ -1350,7 +1477,8 @@ fn visit_expression_children_mut(
             visit(length);
             visit(initial_value);
         }
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 visit(capacity);
             }

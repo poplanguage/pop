@@ -125,6 +125,16 @@ fn finalize_statement_captures(statement: &mut TypedStatement, written: &BTreeSe
                 }
             }
         }
+        TypedStatementKind::IterationMatch {
+            scrutinee, arms, ..
+        } => {
+            finalize_expression_captures(scrutinee, written);
+            for arm in arms {
+                for statement in &mut arm.body {
+                    finalize_statement_captures(statement, written);
+                }
+            }
+        }
         TypedStatementKind::CodecErrorMatch { scrutinee, arms } => {
             finalize_expression_captures(scrutinee, written);
             for arm in arms {
@@ -288,6 +298,29 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
                 finalize_expression_captures(capacity, written);
             }
         }
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            finalize_expression_captures(capacity, written);
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            finalize_expression_captures(sender, written);
+            finalize_expression_captures(value, written);
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            finalize_expression_captures(receiver, written);
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            finalize_expression_captures(endpoint, written);
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            finalize_expression_captures(outcome, written);
+        }
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                finalize_expression_captures(capacity, written);
+            }
+        }
         TypedExpressionKind::RangeCreate { first, last, step } => {
             finalize_expression_captures(first, written);
             finalize_expression_captures(last, written);
@@ -296,8 +329,25 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         TypedExpressionKind::ListLength { list } => {
             finalize_expression_captures(list, written);
         }
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            finalize_expression_captures(buffer, written);
+        }
         TypedExpressionKind::ListAdd { list, value } => {
             finalize_expression_captures(list, written);
+            finalize_expression_captures(value, written);
+        }
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            finalize_expression_captures(buffer, written);
             finalize_expression_captures(value, written);
         }
         TypedExpressionKind::ArrayFill { array, value } => {
@@ -454,6 +504,9 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         TypedExpressionKind::OptionalPropagate { optional, .. } => {
             finalize_expression_captures(optional, written);
         }
+        TypedExpressionKind::OptionalInject { value } => {
+            finalize_expression_captures(value, written);
+        }
         TypedExpressionKind::ResultPropagate { result, .. } => {
             finalize_expression_captures(result, written);
         }
@@ -530,7 +583,9 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
         }
         TypedExpressionKind::ViewCreate { lender: value, .. }
         | TypedExpressionKind::ViewLength { view: value, .. }
-        | TypedExpressionKind::ViewMaterialize { view: value, .. } => {
+        | TypedExpressionKind::ViewMaterialize { view: value, .. }
+        | TypedExpressionKind::Utf8Encode { view: value, .. }
+        | TypedExpressionKind::Utf8DecodeView { view: value, .. } => {
             finalize_expression_captures(value, written);
         }
         TypedExpressionKind::ViewSlice {
@@ -543,11 +598,14 @@ fn finalize_expression_captures(expression: &mut TypedExpression, written: &BTre
             finalize_expression_captures(start, written);
             finalize_expression_captures(length, written);
         }
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             finalize_expression_captures(view, written);
             finalize_expression_captures(index, written);
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => {
             finalize_expression_captures(value, written);
         }
     }

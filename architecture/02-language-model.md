@@ -13,7 +13,7 @@ typing.
 The initial type families include:
 
 - the `nil` literal/type case, `Boolean`, fixed-width integer types,
-  floating-point types, and `String`;
+  floating-point types, validated Unicode-scalar `Rune`, and `String`;
 - tuples and function types;
 - structural records;
 - nominal classes and interfaces;
@@ -94,6 +94,12 @@ conversions and float-to-integer conversions are checked and use the closed
 `<`, `<=`, `>`, and `>=`; IEEE ordering comparisons with NaN are false. See
 ADR 0040.
 
+`Rune` is a distinct nonnumeric primitive. It carries exactly one Unicode
+scalar, supports value equality, and does not participate in arithmetic,
+ordering, bit operations, numeric conversion, or FFI representation inference.
+`Unicode.fromCodePoint` validates a `UInt32`; `Unicode.codePoint` exposes the
+exact code point deliberately. See ADR 0114.
+
 ### String source semantics
 
 `String` is immutable UTF-8 text. The Luau `..` operator concatenates two
@@ -107,6 +113,11 @@ formatting is deterministic and locale-independent, while locale-sensitive or
 user-defined formatting remains an explicit typed library concern. String
 composition and non-identity formatting may allocate and are represented by
 backend-neutral typed HIR/MIR operations. See ADR 0041.
+
+`Text.get` reads one one-based Unicode scalar from an owned `String` or
+compiler-proven `Text.View` and returns `Rune?`. It returns absence for a
+nonpositive or out-of-range index and never returns a code unit, replacement
+value, or partial UTF-8 sequence. See ADR 0114.
 
 ## Luau-first syntax rule
 
@@ -389,7 +400,7 @@ Tuple and fixed-pack elements use one-based static projection such as
 `result[1]`. The index is a compile-time integer literal within the exact arity,
 so the result type and MIR slot are known without runtime tuple lookup.
 
-## Exhaustive tagged-union matching
+## Exhaustive closed-union matching
 
 The initial `match` is a statement whose arms use `when ... then` and must name
 every resolved case exactly once:
@@ -405,9 +416,11 @@ end
 
 The scrutinee is evaluated once. Payload bindings are statically typed and
 arm-local; `_` ignores one payload. Version one has no wildcard arm, guard,
-nested pattern, or expression-valued match. HIR retains `UnionCaseId`s and MIR
-uses a discriminant switch plus typed payload projections, never tag-name
-lookup. See ADR 0021.
+nested pattern, or expression-valued match. Ordinary tagged unions retain
+`UnionCaseId`s and use a discriminant switch. The reserved `Result<T, TError>`
+and `Iteration<T>` families retain their exact builtin case identities and
+lower to their existing typed presence and payload operations. None uses
+tag-name lookup. See ADRs 0021, 0052, and 0053.
 
 ## Functions, closures, and methods
 

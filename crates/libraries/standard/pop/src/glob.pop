@@ -1,0 +1,152 @@
+namespace Pop.Glob
+
+private const MAX_GLOB_PATTERN_BYTES = 1024
+private const MAX_GLOB_TEXT_BYTES = 4096
+private const STAR_TOKEN = -1
+private const QUESTION_TOKEN = -2
+
+--- <summary>
+--- Holds one immutable compiled bounded text glob.
+--- </summary>
+public class Pattern
+    --- <summary>
+    --- Holds closed scalar, star, and question tokens.
+    --- </summary>
+    private tokens: List<Int>
+end
+
+private function globByteLength(value: String): Int
+    return Bytes.length(Bytes.view(Text.encodeUtf8(value)))
+end
+
+--- <summary>
+--- Compiles a bounded Unicode-scalar text glob.
+--- </summary>
+---
+--- <param name="text">
+--- The complete pattern using star, question mark, and backslash escaping.
+--- </param>
+---
+--- <returns>
+--- The immutable pattern, or nil for trailing escape or oversized input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one Pattern and its bounded typed token list.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Glob
+---
+--- private function globExample(): Boolean?
+---     local pattern = compile("report-??-*.txt")?
+---     return matches(pattern, "report-en-final.txt")
+--- end
+--- </code>
+--- </example>
+public function compile(text: String): Pattern?
+    if globByteLength(text) > MAX_GLOB_PATTERN_BYTES then
+        return nil
+    end
+    local tokens = List.create<<Int>>()
+    local escaping = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if escaping then
+            List.add(tokens, point)
+            escaping = false
+        elseif point == 92 then
+            escaping = true
+        elseif point == 42 then
+            local length = List.length(tokens)
+            if length == 0 or List.get(tokens, length) ~= STAR_TOKEN then
+                List.add(tokens, STAR_TOKEN)
+            end
+        elseif point == 63 then
+            List.add(tokens, QUESTION_TOKEN)
+        else
+            List.add(tokens, point)
+        end
+    end
+    if escaping then
+        return nil
+    end
+    local pattern: Pattern = Pattern { tokens = tokens }
+    return pattern
+end
+
+--- <summary>
+--- Matches complete bounded text against a compiled glob.
+--- </summary>
+---
+--- <param name="pattern">
+--- The immutable compiled pattern.
+--- </param>
+---
+--- <param name="text">
+--- The complete Unicode text to match.
+--- </param>
+---
+--- <returns>
+--- True only when the complete text matches; false for oversized text.
+--- </returns>
+---
+--- <remarks>
+--- Matching is iterative and falls back only to the most recent star.
+--- </remarks>
+---
+--- <complexity time="O(nm)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one bounded scalar list for the input text.
+--- </allocation>
+public function matches(pattern: Pattern, text: String): Boolean
+    if globByteLength(text) > MAX_GLOB_TEXT_BYTES then
+        return false
+    end
+    local scalars = List.create<<Int>>()
+    for rune in text do
+        List.add(scalars, Int(Unicode.codePoint(rune)))
+    end
+
+    local patternIndex = 1
+    local textIndex = 1
+    local starIndex = 0
+    local starTextIndex = 0
+    local patternLength = List.length(pattern.tokens)
+    local textLength = List.length(scalars)
+
+    while textIndex <= textLength do
+        if patternIndex <= patternLength then
+            local token = List.get(pattern.tokens, patternIndex)
+            if token == STAR_TOKEN then
+                starIndex = patternIndex
+                starTextIndex = textIndex
+                patternIndex = patternIndex + 1
+            elseif token == QUESTION_TOKEN or token == List.get(scalars, textIndex) then
+                patternIndex = patternIndex + 1
+                textIndex = textIndex + 1
+            elseif starIndex ~= 0 then
+                starTextIndex = starTextIndex + 1
+                textIndex = starTextIndex
+                patternIndex = starIndex + 1
+            else
+                return false
+            end
+        elseif starIndex ~= 0 then
+            starTextIndex = starTextIndex + 1
+            textIndex = starTextIndex
+            patternIndex = starIndex + 1
+        else
+            return false
+        end
+    end
+
+    while patternIndex <= patternLength and List.get(pattern.tokens, patternIndex) == STAR_TOKEN do
+        patternIndex = patternIndex + 1
+    end
+    return patternIndex > patternLength
+end

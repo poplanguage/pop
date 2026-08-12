@@ -1,0 +1,249 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one IPv4 address and prefix length.
+--- </summary>
+public record Ipv4Prefix
+    address: Ipv4Address
+    length: Int
+end
+
+--- <summary>
+--- Holds one IPv4 address and numeric port.
+--- </summary>
+public record Ipv4SocketAddress
+    address: Ipv4Address
+    port: UInt16
+end
+
+private function ipv4BlockSize(length: Int): Int
+    if length <= 0 then
+        return 4294967296
+    end
+    if length >= 32 then
+        return 1
+    end
+    local size = 1
+    local remaining = 32 - length
+    while remaining > 0 do
+        size = size * 2
+        remaining = remaining - 1
+    end
+    return size
+end
+
+private function endpointDecimal(value: Int): String
+    local digits = Bytes.create()
+    local divisor = 10000
+    local started = false
+    while divisor > 0 do
+        local digit = (value / divisor) % 10
+        if digit ~= 0 or started or divisor == 1 then
+            Bytes.write(digits, Byte(48 + digit))
+            started = true
+        end
+        divisor = divisor / 10
+    end
+    return Text.decodeUtf8(digits) ?? ""
+end
+
+--- <summary>
+--- Creates a validated IPv4 prefix.
+--- </summary>
+---
+--- <param name="address">
+--- The address whose host bits are preserved.
+--- </param>
+---
+--- <param name="length">
+--- The prefix length from zero through 32.
+--- </param>
+---
+--- <returns>
+--- The prefix, or nil for an invalid length.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv4Prefix on success.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Net
+---
+--- private function prefixExample(): Boolean?
+---     local base = parseIpv4("10.20.30.40")?
+---     local prefix = ipv4Prefix(base, 16)?
+---     return formatIpv4(networkIpv4(prefix)) == "10.20.0.0"
+--- end
+--- </code>
+--- </example>
+public function ipv4Prefix(address: Ipv4Address, length: Int): Ipv4Prefix?
+    if length < 0 or length > 32 then
+        return nil
+    end
+    local prefix: Ipv4Prefix = { address = address, length = length }
+    return prefix
+end
+
+--- <summary>
+--- Returns the canonical network address of a prefix.
+--- </summary>
+---
+--- <param name="prefix">
+--- The prefix to project.
+--- </param>
+---
+--- <returns>
+--- The address with host bits cleared.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv4Address.
+--- </allocation>
+public function networkIpv4(prefix: Ipv4Prefix): Ipv4Address
+    local blockSize = ipv4BlockSize(prefix.length)
+    local bits = (Int(prefix.address.bits) / blockSize) * blockSize
+    local address: Ipv4Address = { bits = UInt32(bits) }
+    return address
+end
+
+--- <summary>
+--- Reports whether an address belongs to an IPv4 prefix.
+--- </summary>
+---
+--- <param name="prefix">
+--- The prefix to inspect.
+--- </param>
+---
+--- <param name="address">
+--- The candidate address.
+--- </param>
+---
+--- <returns>
+--- True when both addresses share all prefix bits.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function containsIpv4(prefix: Ipv4Prefix, address: Ipv4Address): Boolean
+    local blockSize = ipv4BlockSize(prefix.length)
+    return Int(prefix.address.bits) / blockSize == Int(address.bits) / blockSize
+end
+
+--- <summary>
+--- Creates an IPv4 socket address value.
+--- </summary>
+---
+--- <param name="address">
+--- The exact IPv4 address.
+--- </param>
+---
+--- <param name="port">
+--- The numeric port, including zero.
+--- </param>
+---
+--- <returns>
+--- The address-plus-port value.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Ipv4SocketAddress.
+--- </allocation>
+public function ipv4Socket(address: Ipv4Address, port: UInt16): Ipv4SocketAddress
+    local value: Ipv4SocketAddress = { address = address, port = port }
+    return value
+end
+
+--- <summary>
+--- Parses canonical IPv4-address and numeric-port text.
+--- </summary>
+---
+--- <param name="text">
+--- Complete address:port text.
+--- </param>
+---
+--- <returns>
+--- The socket address, or nil for malformed or noncanonical input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one address buffer and the parsed values.
+--- </allocation>
+public function parseIpv4Socket(text: String): Ipv4SocketAddress?
+    local addressBuffer = Bytes.create()
+    local addressBytes = 0
+    local sawColon = false
+    local port = 0
+    local portDigits = 0
+    local leadingZero = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if point == 58 then
+            if sawColon or addressBytes == 0 then
+                return nil
+            end
+            sawColon = true
+        elseif not sawColon then
+            if point > 127 then
+                return nil
+            end
+            Bytes.write(addressBuffer, Byte(point))
+            addressBytes = addressBytes + 1
+        elseif point >= 48 and point <= 57 then
+            if portDigits == 0 then
+                leadingZero = point == 48
+            elseif leadingZero then
+                return nil
+            end
+            if portDigits >= 5 then
+                return nil
+            end
+            port = port * 10 + point - 48
+            if port > 65535 then
+                return nil
+            end
+            portDigits = portDigits + 1
+        else
+            return nil
+        end
+    end
+    if not sawColon or portDigits == 0 then
+        return nil
+    end
+    local addressText = Text.decodeUtf8(addressBuffer) ?? ""
+    local address = parseIpv4(addressText)?
+    return ipv4Socket(address, UInt16(port))
+end
+
+--- <summary>
+--- Formats an IPv4 socket address canonically.
+--- </summary>
+---
+--- <param name="value">
+--- The address-plus-port value.
+--- </param>
+---
+--- <returns>
+--- Canonical address:port text.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates decimal port and result strings.
+--- </allocation>
+public function formatIpv4Socket(value: Ipv4SocketAddress): String
+    return formatIpv4(value.address) .. ":" .. endpointDecimal(Int(value.port))
+end

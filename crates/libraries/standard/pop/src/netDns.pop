@@ -1,0 +1,80 @@
+namespace Pop.Net
+
+--- <summary>
+--- Holds one strict canonical ASCII DNS name.
+--- </summary>
+public record DnsName
+    value: String
+end
+
+private function dnsNameValue(value: String): DnsName
+    local name: DnsName = { value = value }
+    return name
+end
+
+--- <summary>
+--- Parses a bounded canonical lowercase ASCII DNS name.
+--- </summary>
+---
+--- <returns>
+--- The name, or nil for malformed or unbounded input.
+--- </returns>
+--- <complexity time="O(n)" space="O(1)"/>
+public function parseDnsName(text: String): DnsName?
+    if text == "" or Text.length(Text.view(text)) > 253 then
+        return nil
+    end
+    local labelLength = 0
+    local atLabelStart = true
+    local previousHyphen = false
+    for rune in text do
+        local point = Int(Unicode.codePoint(rune))
+        if point == 46 then
+            if labelLength == 0 or previousHyphen then
+                return nil
+            end
+            labelLength = 0
+            atLabelStart = true
+            previousHyphen = false
+        elseif (point >= 97 and point <= 122) or (point >= 48 and point <= 57) then
+            if labelLength >= 63 then
+                return nil
+            end
+            labelLength = labelLength + 1
+            atLabelStart = false
+            previousHyphen = false
+        elseif point == 45 then
+            if atLabelStart or labelLength >= 63 then
+                return nil
+            end
+            labelLength = labelLength + 1
+            previousHyphen = true
+        else
+            return nil
+        end
+    end
+    if labelLength == 0 or previousHyphen then
+        return nil
+    end
+    return dnsNameValue(text)
+end
+
+--- <summary>
+--- Returns the canonical DNS spelling.
+--- </summary>
+public function formatDnsName(name: DnsName): String
+    return name.value
+end
+
+--- <summary>
+--- Returns the number of labels in a canonical DNS name.
+--- </summary>
+public function dnsNameLabelCount(name: DnsName): UInt32
+    local count = 1
+    for rune in name.value do
+        if Unicode.codePoint(rune) == UInt32(46) then
+            count = count + 1
+        end
+    end
+    return UInt32(count)
+end

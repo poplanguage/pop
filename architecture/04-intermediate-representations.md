@@ -82,7 +82,10 @@ HIR invariants:
   effect summary;
 - closures identify every capture, its type, owner, and value/cell mode;
 - interface calls identify the static interface and resolved member/slot;
-- matches name every case of one resolved tagged union exactly once;
+- matches name every case of one resolved ordinary or reserved closed union
+  exactly once, retaining `UnionCaseId` or the exact reserved builtin case ID;
+- an optional payload inside reserved `Iteration.Item` keeps separate outer
+  case, inner presence, and payload slots in the verified MIR object map;
 - implicit source conversions are explicit HIR conversion nodes;
 - source spans survive desugaring through origin chains;
 - no target word size is assumed for language-defined numeric types;
@@ -155,7 +158,7 @@ Collections:   arrayCreate, arrayLength, arrayGetOptional, arrayGetChecked,
                arraySet, arrayFill, listCreate, listWithCapacity, listLength,
                listGetOptional, listGetChecked, listSet, listAdd,
                tableGet, tableSet
-Optionals:     optionalIsPresent, optionalGet
+Optionals:     optionalMake, optionalIsPresent, optionalGet
 Results:       resultMake, resultIsOk, resultGetOk, resultGetError
 Errors:        errorMake, errorSwitch
 Cleanup:       cleanup{CleanupScopeId, exitReason}, resumeCurrentUnwind
@@ -278,10 +281,13 @@ by compiler-generated runtime transitions.
 
 Optional comparison narrowing, pattern binding, lazy `??`, and postfix `?`
 remain typed HIR concepts until canonical MIR lowers them to explicit branches
-and typed joins. `optionalGet` names the exact optional value and inner type and
-is verified only on paths dominated by the matching successful
-`optionalIsPresent`; it is never an unchecked fallback. Optional propagation's
-absent edge is an ordinary typed `return nil`. See ADR 0051.
+and typed joins. A present return injection remains an explicit
+`OptionalInject` HIR conversion and lowers to allocation-free `optionalMake`;
+an absent return is a `Nil` expression with the expected optional type.
+`optionalGet` names the exact optional value and inner type and is verified only
+on paths dominated by the matching successful `optionalIsPresent`; it is never
+an unchecked fallback. Optional propagation's absent edge is an ordinary typed
+`return nil`. See ADR 0051 and ADR 0112.
 
 `Result<T, TError>` construction, prefix `try`, error declarations, and
 `defer ... end` remain typed HIR concepts. Canonical MIR lowers propagation to

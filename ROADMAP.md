@@ -168,9 +168,10 @@ linking remain ordinary-workflow blockers in section 4.
     phase, and architecture conformance snapshot without adding either root to
     the frozen prelude or implemented API baseline.
 
-The broad catalog after the standard foundation remains planned work. It is not
-necessary to implement every format, network, media, data, tooling, or AI
-Package for the first release.
+ADR 0110 supersedes the earlier narrow release boundary for the modern
+foundation. Every standard-tier family plus explicit HTTP/WebSocket support is
+required as real tested behavior; empty namespaces and metadata-only stubs do
+not count.
 
 Post-baseline library work has begun without widening the release foundation:
 
@@ -192,10 +193,82 @@ Post-baseline library work has begun without widening the release foundation:
   reduction prototypes with exact callback and cross-backend coverage.
 - [x] Define and implement view lifetimes before exposing `Bytes.View` or
   `Text.View`.
-- Make reserved `Iteration<T>` exhaustively matchable in ordinary source
-  before adding no-fallback sequence inspection.
+- [x] Add ADR 0113 allocation-free `Bytes.View` comparison, byte search, and
+  checked `UInt16`/`UInt32`/`UInt64` endian-read prototypes with
+  interpreter/LLVM differential coverage; keep `Bytes` partial until reusable
+  buffers, writes, bit operations, and codecs pass their separate gates.
+- [x] Add ADR 0114 validated nonnumeric `Rune`, checked code-point conversion,
+  optional scalar-indexed `Text.get`, allocation-free ASCII helpers, and
+  interpreter/LLVM/native ABI 1.23/2.1 coverage; keep `Unicode` and `Text`
+  partial until their remaining generated data and algorithm gates pass.
+- [x] Implement ADR 0116 exact `String: Iterable<Rune>` specialization with
+  linear scalar decoding, generic Sequence consumption, interpreter/LLVM
+  agreement, fail-closed C behavior, and native ABI 1.24/2.2 coverage.
+- [x] Implement ADR 0117 distinct reusable `Bytes.Buffer` construction,
+  byte/owned/view appends, fixed-width endian writes, independent snapshots,
+  interpreter/LLVM execution, fail-closed C behavior, and native ABI 1.25/2.3
+  coverage; keep `Bytes` partial until bit operations and codecs pass.
+- [x] Implement ADR 0118 exact checked UTF-8 encode/decode overloads, direct
+  non-mutating buffer finish, malformed-data optional flow, interpreter/LLVM
+  execution, fail-closed C behavior, and native ABI 1.26/2.4 coverage.
+- [x] Implement ADR 0119 canonical lowercase hexadecimal encoding and complete
+  case-insensitive optional decoding as ordinary portable Pop, with
+  interpreter/LLVM execution and no compiler/native name recognition.
+- [x] Implement ADR 0120 canonical padded base64 encoding and strict complete
+  optional decoding, including padding/unused-bit rejection, in ordinary Pop
+  with interpreter/LLVM execution and no compiler/native name recognition.
+- [x] Implement ADR 0121 canonical padded uppercase base32 encoding and strict
+  complete optional decoding, including padding/unused-bit rejection, in
+  ordinary Pop with interpreter/LLVM execution and no compiler/native name
+  recognition.
+- [x] Implement ADR 0122 checked equal-length bytewise AND, OR, and XOR plus
+  complete bytewise NOT as ordinary Pop with interpreter/LLVM execution and no
+  compiler/native name recognition.
+- [x] Implement ADR 0123 Unicode whitespace, scalar-safe trim, buffered exact
+  replace/split/join, and checked complete-range integer parsing as ordinary
+  Pop with interpreter/LLVM execution and no compiler/native name recognition.
+- [x] Implement ADR 0124 exact prefix/suffix/containment and one-based
+  scalar-indexed search as ordinary Pop with interpreter/LLVM execution and no
+  compiler/native name recognition.
+- [x] Implement ADR 0125 whole-String ASCII lower/upper conversion and
+  ASCII-insensitive equality with byte-exact non-ASCII preservation in
+  ordinary Pop and interpreter/LLVM agreement.
+- [x] Implement ADR 0126 explicit deterministic random state, frozen next
+  values, unbiased byte fill, and unbiased in-place generic shuffle in ordinary
+  Pop with interpreter/LLVM agreement.
+- [x] Implement ADR 0127 unbiased bounded integer, deterministic unit-float,
+  and checked probability distributions with shared rejection sampling.
+- [x] Implement ADR 0128 stable materializing Sequence sort/sortBy/reverse and
+  explicit contains/equality search with interpreter/LLVM agreement.
+- [x] Implement ADR 0129 ordinary public record reference metadata with exact
+  producer identity, source-free dependent construction/projection/calls, and
+  verified HIR/MIR round trips.
+- [x] Make reserved `Iteration<T>` exhaustively matchable in ordinary source
+  with exact `Item`/`End` typing, missing/foreign/arity diagnostics, verified
+  HIR/MIR, portable generic capsules, and MIR-interpreter/LLVM agreement.
+- [ ] Implement ADR 0130 exact no-fallback `Sequence.first`/`last` inspection,
+  checked documentation, portable capsules, and interpreter/LLVM agreement.
+  Ordinary elements pass; the required optional-element native proof depends
+  on the aggregate-representation item below.
 - Complete LLVM aggregate representation for collections whose element is
   optional; MIR already preserves the typed optional item contract.
+
+#### Complete the modern essential libraries
+
+- [ ] Complete core values: `Math`, `Random`, `Guid`, `Version`, `Uri`, `Mime`,
+  `Sequence`, `Bytes`, `Unicode`, and `Text`.
+- [ ] Complete formats and deterministic data boundaries: `Codec`, `Metadata`,
+  `Json`, `Yaml`, `Xml`, `Csv`, `Toml`, `Regex`, `Glob`, `Locale`, `Resource`,
+  and `Time`.
+- [ ] Complete portable and target-qualified host foundations: `Io`, `Path`,
+  `Memory`, `File`, `Directory`, `Process`, `Environment`, `Platform`, and
+  `Terminal`.
+- [ ] Complete structured concurrency and secure network foundations: `Task`,
+  `Channel`, `Atomic`, `Actor`, `Crypto`, `Socket`, and `Net`.
+- [ ] Complete standard `Telemetry` contracts with deterministic no-op and test
+  sinks.
+- [ ] Build the independent `Pop.Http` Package with bounded HTTP/1.1 and
+  WebSocket client/server essentials over the typed standard network layer.
 
 ### 3. Make the runtime release-ready
 
@@ -488,12 +561,12 @@ Post-baseline library work has begun without widening the release foundation:
   performance and efficiency cores; these remain machine-local evidence, not
   portable performance promises.
 
-- [ ] Prove representative programs behave the same through canonical MIR, the
+- [x] Prove representative programs behave the same through canonical MIR, the
   MIR interpreter, optimized MIR, and LLVM native execution.
 
 ### 4. Complete the ordinary user workflow
 
-- [ ] Finish deterministic Package, Bubble, and Workspace discovery;
+- [x] Finish deterministic Package, Bubble, and Workspace discovery;
   `bubble.toml`; one `bubble.lock`; dependency resolution; features; target
   selection; and reproducible caching.
   - [x] Parse canonical Package manifests, structured registry/local/exact-Git
@@ -507,21 +580,21 @@ Post-baseline library work has begun without widening the release foundation:
     Package graphs, round-trip it fail-closed, write it atomically, and enforce
     `--locked`, `--offline`, and `--frozen` update policy.
   - [x] Use one shared Workspace `target/` root without widening visibility.
-- [ ] Make the supported `pop check`, `pop build`, `pop run`, `pop test`,
+- [x] Make the supported `pop check`, `pop build`, `pop run`, `pop test`,
   `pop documentation`, `pop format`, `pop lint`, and `pop fix` workflows operate
   on real Packages and Workspaces with structured machine output.
   - [x] Make `pop check`, `pop build`, and `pop run` operate on manifest-selected
     Packages and virtual Workspace default members.
   - [x] Make `pop documentation` emit checked deterministic public XML for
     selected library Bubbles.
-- [ ] Complete deterministic native linking, test/example/benchmark Bubbles,
+- [x] Complete deterministic native linking, test/example/benchmark Bubbles,
   public reference loading, initialization order, and clear capability errors.
   - [x] Link Package library and binary Bubbles by exact public
     `SymbolIdentity`, including generic consumer specialization.
-- [ ] Implement stable structured diagnostics with `POP####` codes, warning
+- [x] Implement stable structured diagnostics with `POP####` codes, warning
   policy, semantic fixes, atomic safe fix-all, JSON/LSP rendering, and bounded
   error recovery.
-- [ ] Accept or replace the still-proposed toolchain distribution design before
+- [x] Accept or replace the toolchain distribution design before
   shipping installers, update metadata, signing, or self-update behavior.
 
 ### 5. Pass the 0.1.0 release gates

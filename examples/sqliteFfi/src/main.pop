@@ -1,0 +1,11 @@
+@Ffi.Link("Sqlite")
+namespace Example.SqliteFfi.Unsafe
+
+@Ffi.Foreign("sqlite3_initialize")
+internal function sqliteInitialize(): Ffi.C.Int
+end
+
+function main(): Int
+    local result = sqliteInitialize()
+    return 0
+end

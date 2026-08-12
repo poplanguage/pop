@@ -7,6 +7,278 @@ use pop_mir::{MirDeclarationKind, MirVerificationError, lower_hir_bubble};
 use pop_source::SourceFile;
 
 #[test]
+fn checked_utf8_transcoding_reaches_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/utf8.pop",
+        "namespace Main\n\
+         public function roundTrip(text: String): String\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 1, Text.length(Text.view(text))))\n\
+             local decoded = Text.decodeUtf8(Bytes.view(encoded)) ?? \"\"\n\
+             local buffer = Bytes.withCapacity(Bytes.length(Bytes.view(selected)))\n\
+             Bytes.write(buffer, selected)\n\
+             local finished = Text.decodeUtf8(buffer) ?? \"\"\n\
+             return decoded .. finished\n\
+         end\n",
+    )
+    .expect("UTF-8 source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(result.hir().expect("UTF-8 HIR"), result.types())
+        .expect("verified UTF-8 MIR");
+    let dump = mir.dump();
+    for operation in ["utf8Encode", "utf8DecodeView", "utf8DecodeBuffer"] {
+        assert!(dump.contains(operation), "missing {operation} in:\n{dump}");
+    }
+}
+
+#[test]
+fn checked_utf8_transcoding_rejects_wrong_types_and_arities() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/invalidUtf8.pop",
+        "namespace Main\n\
+         public function invalid(bytes: Bytes): ()\n\
+             Text.encodeUtf8(bytes)\n\
+             Text.encodeUtf8()\n\
+             Text.decodeUtf8(bytes)\n\
+             Text.decodeUtf8(Bytes.view(bytes), Bytes.view(bytes))\n\
+         end\n",
+    )
+    .expect("invalid UTF-8 source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    let snapshot = result.diagnostic_snapshot();
+    assert_eq!(
+        snapshot
+            .lines()
+            .filter(|line| line.starts_with("POP2003"))
+            .count(),
+        2,
+        "{snapshot}"
+    );
+    assert_eq!(
+        snapshot
+            .lines()
+            .filter(|line| line.starts_with("POP2004"))
+            .count(),
+        2,
+        "{snapshot}"
+    );
+    assert!(
+        result.hir().is_none(),
+        "invalid overloads must not produce HIR"
+    );
+}
+
+#[test]
+fn reusable_byte_buffer_operations_reach_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/byteBuffer.pop",
+        "namespace Main\n\
+         public function build(source: Bytes, small: UInt16, medium: UInt32, large: UInt64): Bytes\n\
+             local buffer = Bytes.withCapacity(32)\n\
+             Bytes.reserve(buffer, 16)\n\
+             Bytes.write(buffer, 255)\n\
+             Bytes.write(buffer, source)\n\
+             Bytes.write(buffer, Bytes.slice(source, 1, 0))\n\
+             Bytes.writeUInt16BigEndian(buffer, small)\n\
+             Bytes.writeUInt16LittleEndian(buffer, small)\n\
+             Bytes.writeUInt32BigEndian(buffer, medium)\n\
+             Bytes.writeUInt32LittleEndian(buffer, medium)\n\
+             Bytes.writeUInt64BigEndian(buffer, large)\n\
+             Bytes.writeUInt64LittleEndian(buffer, large)\n\
+             local length = Bytes.length(buffer)\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             if length > 0 then\n\
+                 return snapshot\n\
+             end\n\
+             return Bytes.toBytes(Bytes.create())\n\
+         end\n",
+    )
+    .expect("byte-buffer source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let buffer = result
+        .types()
+        .find(&pop_types::SemanticType::Builtin {
+            definition: pop_types::BYTES_BUFFER_TYPE_ID,
+            arguments: Vec::new(),
+        })
+        .expect("Bytes.Buffer type");
+    assert!(
+        pop_mir::is_managed_reference_type_id(buffer, Some(result.types())),
+        "Bytes.Buffer must be a precise managed reference"
+    );
+    let mir = lower_hir_bubble(result.hir().expect("byte-buffer HIR"), result.types())
+        .expect("verified byte-buffer MIR");
+    let dump = mir.dump();
+    for operation in [
+        "byteBufferCreate",
+        "byteBufferReserve",
+        "byteBufferWriteByte",
+        "byteBufferWriteBytes",
+        "byteBufferWriteView",
+        "byteBufferWriteInteger",
+        "byteBufferLength",
+        "byteBufferMaterialize",
+        "byteBufferClear",
+    ] {
+        assert!(dump.contains(operation), "missing {operation} in:\n{dump}");
+    }
+}
+
+#[test]
+fn reusable_byte_buffer_overloads_reject_wrong_static_argument_types() {
+    for (statement, diagnostic) in [
+        ("local buffer = Bytes.withCapacity(true)", "POP2003"),
+        (
+            "local buffer = Bytes.create()\nBytes.reserve(buffer, true)",
+            "POP2003",
+        ),
+        (
+            "local buffer = Bytes.create()\nBytes.write(buffer, true)",
+            "POP2003",
+        ),
+        (
+            "local buffer = Bytes.create()\nlocal value: UInt32 = 1\nBytes.writeUInt16BigEndian(buffer, value)",
+            "POP2003",
+        ),
+    ] {
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            "src/invalidByteBuffer.pop",
+            format!(
+                "namespace Main\n\
+                 public function invalid(): Int\n\
+                     {statement}\n\
+                     return 0\n\
+                 end\n"
+            ),
+        )
+        .expect("invalid byte-buffer source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+
+        assert!(result.hir().is_none(), "{statement}");
+        assert!(
+            result.diagnostic_snapshot().contains(diagnostic),
+            "{}",
+            result.diagnostic_snapshot()
+        );
+    }
+}
+
+#[test]
+fn rune_validation_and_text_scalar_access_reach_verified_mir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/runes.pop",
+        "namespace Main\n\
+         public function inspect(text: String): UInt32?\n\
+             local first: Rune = Text.get(text, 1)?\n\
+             local view = Text.slice(text, 2, 2)\n\
+             local final: Rune = Text.get(view, 2)?\n\
+             local roundTrip: Rune = Unicode.fromCodePoint(Unicode.codePoint(final))?\n\
+             if first == roundTrip then\n\
+                 return Unicode.codePoint(first)\n\
+             end\n\
+             return Unicode.codePoint(final)\n\
+         end\n",
+    )
+    .expect("Rune source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let rune = result.types().source_type("Rune").expect("Rune type");
+    assert!(
+        !pop_mir::is_managed_reference_type_id(rune, Some(result.types())),
+        "Rune must remain scalar in precise GC/reference maps"
+    );
+    let mir = lower_hir_bubble(result.hir().expect("Rune HIR"), result.types())
+        .expect("verified Rune MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("runeFromCodePoint"), "{dump}");
+    assert!(dump.contains("runeCodePoint"), "{dump}");
+    assert!(dump.contains("viewGetRune"), "{dump}");
+}
+
+#[test]
+fn rune_rejects_arithmetic_ordering_and_numeric_conversion() {
+    for source_text in [
+        "namespace Main\n\
+         public function invalid(value: Rune): Rune\n\
+             return value + value\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: Rune): Boolean\n\
+             return value < value\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: Rune): UInt32\n\
+             return UInt32(value)\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(value: UInt32): Rune\n\
+             return Rune(value)\n\
+         end\n",
+    ] {
+        let source = SourceFile::new(FileId::from_raw(0), "src/runes.pop", source_text)
+            .expect("Rune source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+
+        assert!(result.hir().is_none(), "{source_text}");
+        assert!(!result.diagnostics().is_empty(), "{source_text}");
+    }
+}
+
+#[test]
 fn explicit_generic_functions_records_and_unions_reach_concrete_mir() {
     let source = SourceFile::new(
         FileId::from_raw(0),
@@ -274,6 +546,93 @@ fn generalized_for_uses_a_proven_generic_iterable_bound() {
     let mir = lower_hir_bubble(hir, result.types()).expect("specialized generic iteration MIR");
     assert!(mir.dump().contains("call.builtinInterface"));
     assert!(!mir.dump().contains("type-parameter"));
+}
+
+#[test]
+fn owned_string_specializes_an_exact_generic_rune_iterable_bound() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/stringIteration.pop",
+        "namespace Main\n\
+         private function scalarCount<TSource: Iterable<Rune>>(source: TSource): Int\n\
+             local count = 0\n\
+             for rune in source do\n\
+                 local checked: Rune = rune\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n\
+         public function run(text: String): Int\n\
+             return scalarCount(text)\n\
+         end\n",
+    )
+    .expect("source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let hir = result.hir().expect("String iteration HIR");
+    let scalar_count = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "scalarCount")
+        .expect("generic scalarCount");
+    assert!(matches!(
+        scalar_count.body()[1].kind(),
+        HirStatementKind::GeneralizedFor {
+            source: pop_hir::HirIterationSource::BoundIterable,
+            ..
+        }
+    ));
+    let mir = lower_hir_bubble(hir, result.types()).expect("specialized String iteration MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("call.builtinInterface"), "{dump}");
+    assert!(!dump.contains("type-parameter"), "{dump}");
+    assert!(!dump.contains("text.get"), "{dump}");
+}
+
+#[test]
+fn string_iteration_rejects_wrong_item_bounds_and_borrowed_views() {
+    for source_text in [
+        "namespace Main\n\
+         private function consume<TSource: Iterable<Int>>(source: TSource): Int\n\
+             return 0\n\
+         end\n\
+         public function invalid(text: String): Int\n\
+             return consume(text)\n\
+         end\n",
+        "namespace Main\n\
+         public function invalid(text: String): Int\n\
+             local count = 0\n\
+             for rune in Text.view(text) do\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    ] {
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            "src/invalidStringIteration.pop",
+            source_text,
+        )
+        .expect("source");
+        let result = analyze_bubble(FrontEndBubbleInput::new(
+            BubbleId::from_raw(0),
+            NamespaceId::from_raw(0),
+            Vec::new(),
+            vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+        ));
+        assert!(result.hir().is_none(), "{}", result.diagnostic_snapshot());
+        assert!(!result.diagnostics().is_empty());
+    }
 }
 
 #[test]
@@ -1110,6 +1469,53 @@ fn reserved_iteration_protocol_methods_are_statically_callable_from_exact_bounds
     let mir = lower_hir_bubble(result.hir().expect("protocol call HIR"), result.types())
         .expect("protocol call MIR");
     assert!(mir.dump().contains("call.builtinInterface"));
+}
+
+#[test]
+fn reserved_iteration_match_survives_verified_hir_and_mir_without_dynamic_dispatch() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/iterationMatch.pop",
+        "namespace Main\n\
+         public function inspect(step: Iteration<Int>): Int\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return 0\n\
+             end\n\
+         end\n",
+    )
+    .expect("source");
+    let result = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        result.diagnostics().is_empty(),
+        "{}",
+        result.diagnostic_snapshot()
+    );
+    let hir = result.hir().expect("Iteration match HIR");
+    let hir_dump = hir.dump(result.types());
+    assert!(
+        hir_dump.contains("iterationMatch builtin#113"),
+        "{hir_dump}"
+    );
+    let mir = lower_hir_bubble(hir, result.types()).expect("Iteration match MIR");
+    let mir_dump = mir.dump();
+    assert!(
+        mir_dump.contains("iteration.isItem definition#113 case#0"),
+        "{mir_dump}"
+    );
+    assert!(
+        mir_dump.contains("iteration.getItem definition#113 case#0"),
+        "{mir_dump}"
+    );
+    assert!(!mir_dump.contains("dynamic"), "{mir_dump}");
+    pop_mir::verify_mir_bubble(&mir, result.types()).expect("Iteration match MIR verifies");
 }
 
 #[test]

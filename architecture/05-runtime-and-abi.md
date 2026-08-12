@@ -547,8 +547,52 @@ cyclic object, and one closed iteration entry atomically constructs a native
 `Iteration<T>` result. Homogeneous and strided object-map formulas describe
 runtime-sized arrays and interleaved tables without per-element pointer maps.
 
-ADR 0103 keeps ABI 2.0 exact and makes its complete native facade selectable as
-a separate static build composition. That archive rejects ABI 1, uses the
+ADR 0114 advances the additive stable-token descriptor to ABI 1.23 and the
+production descriptor to ABI 2.1 with one exact
+`pop_rt_text_view_get_rune` entry. It consumes a managed string token plus a
+compiler-proven Text-view range and returns a one-byte presence status while
+writing one validated Unicode scalar through an explicit output pointer only
+on success. ABI 1.11 through 1.22 and ABI 2.0 remain immutable.
+The default facade supports ABI 1.11 through 1.23; the production facade
+supports ABI 2.0 and 2.1.
+
+ADR 0116 advances the additive stable-token descriptor to ABI 1.24 and the
+production descriptor to ABI 2.2. It appends the exact closed
+`IterationCollectionKind::String` identity to the existing native iteration
+operations. Acquisition validates one immutable managed `String`; each step
+decodes one scalar at the stored UTF-8 byte offset without allocation or an
+earlier-byte scan. ABI 1.11 through 1.23 and ABI 2.0 through 2.1 remain
+immutable. The default facade supports ABI 1.11 through 1.24; the production
+facade supports ABI 2.0 through 2.2.
+
+ADR 0117 advances the additive stable-token descriptor to ABI 1.25 and the
+production descriptor to ABI 2.3. It appends exact reusable byte-buffer
+construction, length/reserve/clear, byte/owned/view append, fixed-width endian
+write, and immutable-snapshot operations. Storage identity and metadata remain
+distinct from List and FFI buffers; invalid tokens, ranges, widths, or byte
+orders fail before partial mutation. ABI 1.11 through 1.24 and ABI 2.0 through
+2.2 remain immutable. The default facade supports ABI 1.11 through 1.25; the
+production facade supports ABI 2.0 through 2.3.
+
+ADR 0118 advances the additive stable-token descriptor to ABI 1.26 and the
+production descriptor to ABI 2.4. It appends checked Text-view UTF-8 encoding,
+Bytes-view decoding, and direct reusable-buffer decoding. Decode status
+distinguishes runtime failure, malformed input, and valid output; malformed
+input does not allocate or mutate the source. ABI 1.11 through 1.25 and ABI 2.0
+through 2.3 remain immutable. The default facade supports ABI 1.11 through
+1.26; the production facade supports ABI 2.0 through 2.4.
+
+ADR 0146 advances the additive stable-token descriptor to ABI 1.27 and the
+production descriptor to ABI 2.5. Eight distinct bounded-channel operations
+create storage, retain/release directional endpoints, close senders, and
+perform non-suspending typed send/receive admission with closed statuses.
+Queued managed payloads are precise strong roots until receive or
+last-receiver cleanup; scalar payloads are never roots. ABI 1.11 through 1.26
+and ABI 2.0 through 2.4 remain immutable. The default facade supports ABI 1.11
+through 1.27; the production facade supports ABI 2.0 through 2.5.
+
+ADR 0103 establishes the ABI 2 production facade as a separate static build
+composition. That archive rejects ABI 1, uses the
 mutator-overlapped production collector, and rewrites exact writable roots
 before managed execution resumes. The default archive continues to reject ABI
 2 and cannot move native tokens.

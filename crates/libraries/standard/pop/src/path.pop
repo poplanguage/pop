@@ -1,0 +1,306 @@
+namespace Pop.Path
+using Pop.Text
+
+private const MAX_PATH_LENGTH = 4096
+
+--- <summary>
+--- Holds one canonical portable lexical path.
+--- </summary>
+public record Value
+    --- <summary>
+    --- The canonical slash-separated spelling.
+    --- </summary>
+    text: String
+
+    --- <summary>
+    --- Whether the spelling begins at the portable root.
+    --- </summary>
+    absolute: Boolean
+end
+
+private function utf8Length(value: String): Int
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    return Bytes.length(view)
+end
+
+private function substring(value: String, start: Int, length: Int): String
+    return Text.toString(Text.slice(value, start, length))
+end
+
+--- <summary>
+--- Normalizes one bounded portable lexical path.
+--- </summary>
+---
+--- <param name="text">
+--- Slash-separated UTF-8 text without NUL or backslash.
+--- </param>
+---
+--- <returns>
+--- A canonical owned value, or nil for ambiguous or oversized input.
+--- </returns>
+---
+--- <remarks>
+--- Unmatched relative parent components are preserved. Traversal above an
+--- absolute root is clamped. This is not a filesystem containment check.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates split components, bounded stack storage, canonical text, and one
+--- Value.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Path
+---
+--- private function pathExample(): String?
+---     local value = normalize("assets/./images/../icon.png")?
+---     return format(value)
+--- end
+--- </code>
+--- </example>
+public function normalize(text: String): Value?
+    if utf8Length(text) > MAX_PATH_LENGTH then
+        return nil
+    end
+    for rune in text do
+        local point = Unicode.codePoint(rune)
+        if point == 0 or point == 92 then
+            return nil
+        end
+    end
+    local absolute = startsWith(text, "/")
+    local pieces = split(text, "/")
+    local stack = List.create<<String>>()
+    local count = 0
+    local index = 1
+    local piece = ""
+    while index <= List.length(pieces) do
+        piece = List.get(pieces, index)
+        if piece == ".." then
+            if count > 0 and List.get(stack, count) ~= ".." then
+                count = count - 1
+            elseif not absolute then
+                count = count + 1
+                if count <= List.length(stack) then
+                    stack[count] = piece
+                else
+                    List.add(stack, piece)
+                end
+            end
+        elseif piece ~= "" and piece ~= "." then
+            count = count + 1
+            if count <= List.length(stack) then
+                stack[count] = piece
+            else
+                List.add(stack, piece)
+            end
+        end
+        index = index + 1
+    end
+    local output = ""
+    if absolute then
+        output = "/"
+    end
+    index = 1
+    while index <= count do
+        if output ~= "" and output ~= "/" then
+            output = output .. "/"
+        end
+        output = output .. List.get(stack, index)
+        index = index + 1
+    end
+    if output == "" then
+        output = "."
+    end
+    local value: Value = { text = output, absolute = absolute }
+    return value
+end
+
+--- <summary>
+--- Returns the canonical portable spelling.
+--- </summary>
+---
+--- <param name="value">
+--- The lexical path value.
+--- </param>
+---
+--- <returns>
+--- The owned canonical String.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function format(value: Value): String
+    return value.text
+end
+
+--- <summary>
+--- Reports whether a value begins at the portable root.
+--- </summary>
+---
+--- <param name="value">
+--- The lexical path value.
+--- </param>
+---
+--- <returns>
+--- The exact absolute flag.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isAbsolute(value: Value): Boolean
+    return value.absolute
+end
+
+--- <summary>
+--- Appends and normalizes one relative lexical spelling.
+--- </summary>
+---
+--- <param name="base">
+--- The canonical base value.
+--- </param>
+---
+--- <param name="child">
+--- A relative portable spelling.
+--- </param>
+---
+--- <returns>
+--- The normalized composition, or nil for an invalid or absolute child.
+--- </returns>
+---
+--- <remarks>
+--- This operation does not prove that the result stays within a filesystem
+--- root capability.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates normalization storage and one result Value.
+--- </allocation>
+public function join(base: Value, child: String): Value?
+    local normalizedChild = normalize(child)?
+    if normalizedChild.absolute then
+        return nil
+    end
+    if normalizedChild.text == "." then
+        return base
+    end
+    if base.text == "." then
+        return normalizedChild
+    end
+    return normalize(base.text .. "/" .. normalizedChild.text)
+end
+
+--- <summary>
+--- Returns the lexical parent.
+--- </summary>
+---
+--- <param name="value">
+--- The canonical path value.
+--- </param>
+---
+--- <returns>
+--- The canonical parent, or nil for current and root values.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the parent spelling and one Value when present.
+--- </allocation>
+public function parent(value: Value): Value?
+    if value.text == "." or value.text == "/" then
+        return nil
+    end
+    local slash = 0
+    local position = 0
+    for rune in value.text do
+        position = position + 1
+        if Unicode.codePoint(rune) == 47 then
+            slash = position
+        end
+    end
+    if slash == 0 then
+        return normalize(".")
+    end
+    if slash == 1 then
+        return normalize("/")
+    end
+    return normalize(substring(value.text, 1, slash - 1))
+end
+
+--- <summary>
+--- Returns the final lexical component.
+--- </summary>
+---
+--- <param name="value">
+--- The canonical path value.
+--- </param>
+---
+--- <returns>
+--- The final component, or nil for current and root values.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned component when present.
+--- </allocation>
+public function name(value: Value): String?
+    if value.text == "." or value.text == "/" then
+        return nil
+    end
+    local slash = 0
+    local length = 0
+    for rune in value.text do
+        length = length + 1
+        if Unicode.codePoint(rune) == 47 then
+            slash = length
+        end
+    end
+    return substring(value.text, slash + 1, length - slash)
+end
+
+--- <summary>
+--- Returns the final nonempty lexical extension.
+--- </summary>
+---
+--- <param name="value">
+--- The canonical path value.
+--- </param>
+---
+--- <returns>
+--- Text after the final non-leading period, or nil when absent.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned extension when present.
+--- </allocation>
+public function extension(value: Value): String?
+    local finalName = name(value)?
+    local period = 0
+    local length = 0
+    for rune in finalName do
+        length = length + 1
+        if Unicode.codePoint(rune) == 46 then
+            period = length
+        end
+    end
+    if period <= 1 or period == length then
+        return nil
+    end
+    return substring(finalName, period + 1, length - period)
+end

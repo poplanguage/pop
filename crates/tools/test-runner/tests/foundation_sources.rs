@@ -240,6 +240,8 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         "all",
         "count",
         "isEmpty",
+        "first",
+        "last",
         "firstOr",
         "lastOr",
         "each",
@@ -276,12 +278,72 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
         assert!(standard_hir.public_symbols().contains(&function.symbol()));
         assert!(!function.type_parameters().is_empty());
     }
-    for function_name in ["min", "max", "abs", "gcd", "sign", "lcm", "coprime"] {
+    for function_name in [
+        "min",
+        "max",
+        "abs",
+        "gcd",
+        "sign",
+        "lcm",
+        "coprime",
+        "clamp",
+        "power",
+        "floorDivide",
+        "floorRemainder",
+    ] {
         let function = standard_hir
             .functions()
             .iter()
             .find(|function| function.name() == function_name)
             .unwrap_or_else(|| panic!("ordinary Pop Math.{function_name} implementation"));
+        assert!(standard_hir.public_symbols().contains(&function.symbol()));
+        assert!(function.type_parameters().is_empty());
+    }
+    for function_name in [
+        "isAscii",
+        "isAsciiLetter",
+        "isAsciiDigit",
+        "isAsciiAlphanumeric",
+        "isAsciiWhitespace",
+        "toAsciiLower",
+        "toAsciiUpper",
+    ] {
+        let function = standard_hir
+            .functions()
+            .iter()
+            .find(|function| function.name() == function_name)
+            .unwrap_or_else(|| panic!("ordinary Pop Unicode.{function_name} implementation"));
+        assert!(standard_hir.public_symbols().contains(&function.symbol()));
+        assert!(function.type_parameters().is_empty());
+    }
+    for function_name in ["parse", "format", "compare", "matches"] {
+        let function = standard_hir
+            .functions()
+            .iter()
+            .find(|function| function.name() == function_name)
+            .unwrap_or_else(|| panic!("ordinary Pop Version.{function_name} implementation"));
+        assert!(standard_hir.public_symbols().contains(&function.symbol()));
+        assert!(function.type_parameters().is_empty());
+    }
+    for function_name in [
+        "equals",
+        "compare",
+        "startsWith",
+        "endsWith",
+        "contains",
+        "indexOf",
+        "readUInt16BigEndian",
+        "readUInt16LittleEndian",
+        "readUInt32BigEndian",
+        "readUInt32LittleEndian",
+        "readUInt64BigEndian",
+        "readUInt64LittleEndian",
+    ] {
+        let function = standard_hir
+            .functions()
+            .iter()
+            .find(|function| function.name() == function_name)
+            .unwrap_or_else(|| panic!("ordinary Pop Bytes.{function_name} implementation"));
         assert!(standard_hir.public_symbols().contains(&function.symbol()));
         assert!(function.type_parameters().is_empty());
     }
@@ -297,7 +359,7 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
     let documentation = standard.checked_documentation();
     assert_eq!(
         documentation.len(),
-        42,
+        173,
         "every portable public API is documented"
     );
     let mut examples = Vec::new();
@@ -316,7 +378,19 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
                 function.name()
             );
         }
-        if ["map", "filter", "fold", "collect"].contains(&function.name()) {
+        if [
+            "map",
+            "filter",
+            "fold",
+            "collect",
+            "reverse",
+            "sort",
+            "sortBy",
+            "containsBy",
+            "equalsBy",
+        ]
+        .contains(&function.name())
+        {
             for required in [
                 "typeparam",
                 "param",
@@ -333,20 +407,64 @@ fn analyze_standard_foundation_contribution() -> FrontEndResult {
             }
         }
     }
-    assert_eq!(examples.len(), 4, "baseline examples remain compiled");
+    assert_eq!(examples.len(), 25, "baseline examples remain compiled");
 
-    let example_source = SourceFile::new(
-        FileId::from_raw(0),
-        "examples/sequence.pop",
-        format!("namespace StandardExamples\n{}\n", examples.join("\n")),
-    )
-    .expect("compiled documentation example source");
+    for (index, example) in examples.iter().enumerate() {
+        let raw = u32::try_from(index + 20).expect("documentation example identity");
+        let source = SourceFile::new(
+            FileId::from_raw(0),
+            format!("examples/sequence{index}.pop"),
+            format!("namespace StandardExample{index}\n{example}\n"),
+        )
+        .expect("individual documentation example source");
+        let compiled = analyze_bubble(
+            FrontEndBubbleInput::new(
+                BubbleId::from_raw(raw),
+                NamespaceId::from_raw(raw),
+                vec![STANDARD_BUBBLE],
+                vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+            )
+            .with_reference_metadata(vec![
+                standard
+                    .reference_metadata()
+                    .expect("portable Pop.Standard metadata")
+                    .clone(),
+            ]),
+        );
+        assert!(
+            compiled.diagnostics().is_empty(),
+            "documentation example {index} failed:\n{example}\n{}",
+            compiled.diagnostic_snapshot()
+        );
+        let hir = compiled
+            .hir()
+            .expect("individual documentation example HIR");
+        let dump = hir.dump(compiled.types());
+        pop_mir::lower_hir_bubble(hir, compiled.types()).unwrap_or_else(|error| {
+            panic!("documentation example {index} failed:\n{example}\n{error:?}\n{dump}")
+        });
+    }
+
+    let example_modules = examples
+        .iter()
+        .enumerate()
+        .map(|(index, example)| {
+            let raw = u32::try_from(index).expect("aggregate example identity");
+            let source = SourceFile::new(
+                FileId::from_raw(raw),
+                format!("examples/standardExample{index}.pop"),
+                format!("namespace StandardExampleAggregate{index}\n{example}\n"),
+            )
+            .expect("aggregate documentation example source");
+            FrontEndModule::new(ModuleId::from_raw(raw), source)
+        })
+        .collect();
     let compiled_examples = analyze_bubble(
         FrontEndBubbleInput::new(
             BubbleId::from_raw(8),
             NamespaceId::from_raw(8),
             vec![STANDARD_BUBBLE],
-            vec![FrontEndModule::new(ModuleId::from_raw(0), example_source)],
+            example_modules,
         )
         .with_reference_metadata(vec![
             standard
@@ -379,6 +497,14 @@ fn verify_sequence_consumer(standard: &FrontEndResult) {
         "src/main.pop",
         "namespace Application\n\
          using Pop.Sequence\n\
+         private function valueOr(step: Iteration<Int>, fallback: Int): Int\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return fallback\n\
+             end\n\
+         end\n\
          public function run(): Int\n\
              local values: {Int} = {1, 2, 3}\n\
              local total = fold(values, 0, function(state: Int, value: Int): Int\n\
@@ -446,10 +572,11 @@ fn verify_sequence_consumer(standard: &FrontEndResult) {
              local window = collect(take(drop(values, 1), 1))\n\
              local joined = collect(concat(window, values))\n\
              local numeric = sum(values) + product(values) + minOr(values, 0) + maxOr(values, 0)\n\
+             local boundaries = valueOr(first(values), 0) + valueOr(last(values), 0)\n\
              if not hasLarge or not allPositive or not noHuge then\n\
                  return -1\n\
              end\n\
-             return total + List.length(collected) + List.length(collectedLabels) + List.length(joined) + count(values) + selected + requested + lastMatch + lastPosition + reduced + firstOr(values, 0) + lastOr(values, 0) + numeric\n\
+             return total + List.length(collected) + List.length(collectedLabels) + List.length(joined) + count(values) + selected + requested + lastMatch + lastPosition + reduced + firstOr(values, 0) + lastOr(values, 0) + numeric + boundaries\n\
          end\n",
     )
     .expect("consumer source");

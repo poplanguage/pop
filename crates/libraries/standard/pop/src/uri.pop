@@ -1,0 +1,530 @@
+namespace Pop.Uri
+using Pop.Text
+using Pop.Unicode
+
+private const MAX_URI_LENGTH = 4096
+
+--- <summary>
+--- Holds one bounded ASCII URI reference with owned components.
+--- </summary>
+public record Value
+    --- <summary>
+    --- The lowercase scheme without its colon, or empty for a relative
+    --- reference.
+    --- </summary>
+    scheme: String
+
+    --- <summary>
+    --- The authority without leading slashes, or nil when absent.
+    --- </summary>
+    authority: String?
+
+    --- <summary>
+    --- The exact percent-encoded path.
+    --- </summary>
+    path: String
+
+    --- <summary>
+    --- The exact query without its question mark, or nil when absent.
+    --- </summary>
+    query: String?
+
+    --- <summary>
+    --- The exact fragment without its number sign, or nil when absent.
+    --- </summary>
+    fragment: String?
+end
+
+private function hexValue(byte: Int): Int?
+    if byte >= 48 and byte <= 57 then
+        return byte - 48
+    end
+    if byte >= 65 and byte <= 70 then
+        return byte - 55
+    end
+    if byte >= 97 and byte <= 102 then
+        return byte - 87
+    end
+    return nil
+end
+
+private function hexDigit(value: Int): Byte
+    if value < 10 then
+        return Byte(48 + value)
+    end
+    return Byte(55 + value)
+end
+
+private function textSubstring(value: String, start: Int, length: Int): String
+    return Text.toString(Text.slice(value, start, length))
+end
+
+private function utf8Length(value: String): Int
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    return Bytes.length(view)
+end
+
+private function asciiLower(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local output = Bytes.withCapacity(Bytes.length(view))
+    local index = 1
+    while index <= Bytes.length(view) do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 65 and byte <= 90 then
+            byte = byte + 32
+        end
+        Bytes.write(output, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+private function validScheme(value: String): Boolean
+    if value == "" then
+        return false
+    end
+    local position = 0
+    for rune in value do
+        position = position + 1
+        local point = Unicode.codePoint(rune)
+        local letter = (point >= 65 and point <= 90) or (point >= 97 and point <= 122)
+        if position == 1 and not letter then
+            return false
+        end
+        if not letter and not (point >= 48 and point <= 57) and point ~= 43 and point ~= 45 and point ~= 46 then
+            return false
+        end
+    end
+    return true
+end
+
+private function validEncodedText(value: String): Boolean
+    local characters = List.create<<Int>>()
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        if point < 33 or point > 126 then
+            return false
+        end
+        List.add(characters, Int(point))
+    end
+    local index = 1
+    while index <= List.length(characters) do
+        local byte = List.get(characters, index)
+        if byte == 37 then
+            if index + 2 > List.length(characters) then
+                return false
+            end
+            if hexValue(List.get(characters, index + 1)) == nil or hexValue(List.get(characters, index + 2)) == nil then
+                return false
+            end
+            index = index + 2
+        end
+        index = index + 1
+    end
+    return true
+end
+
+private function presentString(value: String): String?
+    return value
+end
+
+private function absentString(): String?
+    return nil
+end
+
+--- <summary>
+--- Parses one complete bounded ASCII URI reference.
+--- </summary>
+---
+--- <param name="text">
+--- Exact encoded URI text without surrounding whitespace.
+--- </param>
+---
+--- <returns>
+--- An owned component value, or nil for malformed, non-ASCII, or oversized
+--- input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates owned component Strings and bounded parser storage.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Uri
+---
+--- private function uriExample(): String?
+---     local value = parse("https://example.test/a?x=1#part")?
+---     return format(value)
+--- end
+--- </code>
+--- </example>
+public function parse(text: String): Value?
+    if not validEncodedText(text) and text ~= "" then
+        return nil
+    end
+    local characters = List.create<<Int>>()
+    for rune in text do
+        List.add(characters, Int(Unicode.codePoint(rune)))
+    end
+    local length = List.length(characters)
+    if length > MAX_URI_LENGTH then
+        return nil
+    end
+
+    local colon = 0
+    local querySeparator = 0
+    local fragmentSeparator = 0
+    local schemeCandidate = true
+    local index = 1
+    local byte = 0
+    while index <= length do
+        byte = List.get(characters, index)
+        if byte == 35 then
+            if fragmentSeparator ~= 0 then
+                return nil
+            end
+            fragmentSeparator = index
+            schemeCandidate = false
+        elseif byte == 63 and querySeparator == 0 and fragmentSeparator == 0 then
+            querySeparator = index
+            schemeCandidate = false
+        elseif byte == 47 and colon == 0 then
+            schemeCandidate = false
+        elseif byte == 58 and colon == 0 and schemeCandidate then
+            colon = index
+        end
+        index = index + 1
+    end
+
+    local scheme = ""
+    local contentStart = 1
+    if colon > 0 then
+        scheme = textSubstring(text, 1, colon - 1)
+        if not validScheme(scheme) then
+            return nil
+        end
+        scheme = asciiLower(scheme)
+        contentStart = colon + 1
+    end
+
+    local contentEnd = length
+    if querySeparator > 0 then
+        contentEnd = querySeparator - 1
+    elseif fragmentSeparator > 0 then
+        contentEnd = fragmentSeparator - 1
+    end
+
+    local authority = absentString()
+    local pathStart = contentStart
+    if contentStart + 1 <= contentEnd and List.get(characters, contentStart) == 47 and List.get(characters, contentStart + 1) == 47 then
+        local authorityStart = contentStart + 2
+        local authorityEnd = contentEnd
+        index = authorityStart
+        local searching = true
+        while index <= contentEnd and searching do
+            if List.get(characters, index) == 47 then
+                authorityEnd = index - 1
+                pathStart = index
+                searching = false
+            else
+                index = index + 1
+            end
+        end
+        if pathStart == contentStart then
+            pathStart = contentEnd + 1
+        end
+        authority = presentString(textSubstring(text, authorityStart, authorityEnd - authorityStart + 1))
+    end
+
+    local path = ""
+    if pathStart <= contentEnd then
+        path = textSubstring(text, pathStart, contentEnd - pathStart + 1)
+    end
+    local query = absentString()
+    if querySeparator > 0 then
+        local queryEnd = length
+        if fragmentSeparator > 0 then
+            queryEnd = fragmentSeparator - 1
+        end
+        query = presentString(textSubstring(text, querySeparator + 1, queryEnd - querySeparator))
+    end
+    local fragment = absentString()
+    if fragmentSeparator > 0 then
+        fragment = presentString(textSubstring(text, fragmentSeparator + 1, length - fragmentSeparator))
+    end
+
+    local value: Value = {
+        scheme = scheme,
+        authority = authority,
+        path = path,
+        query = query,
+        fragment = fragment,
+    }
+    return value
+end
+
+--- <summary>
+--- Formats one URI reference without changing encoded components.
+--- </summary>
+---
+--- <param name="value">
+--- The component value to format.
+--- </param>
+---
+--- <returns>
+--- One owned URI reference String.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String.
+--- </allocation>
+public function format(value: Value): String
+    local output = ""
+    if value.scheme ~= "" then
+        output = asciiLower(value.scheme) .. ":"
+    end
+    if value.authority ~= nil then
+        output = output .. "//" .. (value.authority ?? "")
+    end
+    output = output .. value.path
+    if value.query ~= nil then
+        output = output .. "?" .. (value.query ?? "")
+    end
+    if value.fragment ~= nil then
+        output = output .. "#" .. (value.fragment ?? "")
+    end
+    return output
+end
+
+private function isUnreserved(byte: Int): Boolean
+    return (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or byte == 45 or byte == 46 or byte == 95 or byte == 126
+end
+
+private function encodePercentBytes(encoded: Bytes): String
+    local view = Bytes.view(encoded)
+    local output = Bytes.withCapacity(Bytes.length(view) * 3)
+    local index = 1
+    while index <= Bytes.length(view) do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if isUnreserved(byte) then
+            Bytes.write(output, Byte(byte))
+        else
+            Bytes.write(output, Byte(37))
+            Bytes.write(output, hexDigit(byte / 16))
+            Bytes.write(output, hexDigit(byte % 16))
+        end
+        index = index + 1
+    end
+    return Text.decodeUtf8(output) ?? ""
+end
+
+--- <summary>
+--- Percent-encodes UTF-8 bytes except URI unreserved ASCII bytes.
+--- </summary>
+---
+--- <param name="value">
+--- The owned Unicode text to encode as one component.
+--- </param>
+---
+--- <returns>
+--- Uppercase percent escapes and unchanged unreserved bytes, or nil beyond
+--- the bounded component input.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, a reusable buffer, and the returned String.
+--- </allocation>
+public function percentEncode(value: String): String?
+    if utf8Length(value) > MAX_URI_LENGTH then
+        return nil
+    end
+    local encoded = Text.encodeUtf8(value)
+    return encodePercentBytes(encoded)
+end
+
+--- <summary>
+--- Decodes percent escapes and validates the resulting UTF-8.
+--- </summary>
+---
+--- <param name="value">
+--- Exact component text.
+--- </param>
+---
+--- <returns>
+--- Decoded owned Unicode text, or nil for malformed escapes or UTF-8.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, one reusable buffer, and the returned String.
+--- </allocation>
+public function percentDecode(value: String): String?
+    local length = 0
+    for _ in value do
+        length = length + 1
+    end
+    if length > MAX_URI_LENGTH then
+        return nil
+    end
+    local characters = List.create<<Int>>()
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        if point > 127 then
+            return nil
+        end
+        List.add(characters, Int(point))
+    end
+    local output = Bytes.withCapacity(List.length(characters))
+    local index = 1
+    while index <= List.length(characters) do
+        local byte = List.get(characters, index)
+        if byte == 37 then
+            if index + 2 > List.length(characters) then
+                return nil
+            end
+            local upper = hexValue(List.get(characters, index + 1))
+            local lower = hexValue(List.get(characters, index + 2))
+            if upper == nil or lower == nil then
+                return nil
+            end
+            Bytes.write(output, Byte((upper ?? 0) * 16 + (lower ?? 0)))
+            index = index + 2
+        else
+            Bytes.write(output, Byte(byte))
+        end
+        index = index + 1
+    end
+    return Text.decodeUtf8(output)
+end
+
+private function removeDotSegments(path: String): String
+    local leading = startsWith(path, "/")
+    local trailing = endsWith(path, "/") or endsWith(path, "/.") or endsWith(path, "/..")
+    local pieces = split(path, "/")
+    local stack = List.create<<String>>()
+    local count = 0
+    local index = 1
+    local piece = ""
+    while index <= List.length(pieces) do
+        piece = List.get(pieces, index)
+        if piece == ".." then
+            if count > 0 and List.get(stack, count) ~= "" then
+                count = count - 1
+            end
+        elseif piece ~= "." then
+            count = count + 1
+            if count <= List.length(stack) then
+                stack[count] = piece
+            else
+                List.add(stack, piece)
+            end
+        end
+        index = index + 1
+    end
+    local output = ""
+    index = 1
+    while index <= count do
+        if index > 1 then
+            output = output .. "/"
+        end
+        output = output .. List.get(stack, index)
+        index = index + 1
+    end
+    if leading and not startsWith(output, "/") then
+        output = "/" .. output
+    end
+    if trailing and not endsWith(output, "/") then
+        output = output .. "/"
+    end
+    return output
+end
+
+private function mergePath(base: Value, referencePath: String): String
+    if base.authority ~= nil and base.path == "" then
+        return "/" .. referencePath
+    end
+    local slash = 0
+    local position = 0
+    for rune in base.path do
+        position = position + 1
+        if Unicode.codePoint(rune) == 47 then
+            slash = position
+        end
+    end
+    if slash == 0 then
+        return referencePath
+    end
+    return Text.toString(Text.slice(base.path, 1, slash)) .. referencePath
+end
+
+--- <summary>
+--- Resolves one URI reference against a base value.
+--- </summary>
+---
+--- <param name="base">
+--- The base URI components.
+--- </param>
+---
+--- <param name="reference">
+--- The relative or absolute reference.
+--- </param>
+---
+--- <returns>
+--- Deterministically merged owned components with lexical dot segments
+--- removed.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates merged path and component records.
+--- </allocation>
+public function resolve(base: Value, reference: Value): Value
+    if reference.scheme ~= "" then
+        return {
+            scheme = asciiLower(reference.scheme),
+            authority = reference.authority,
+            path = removeDotSegments(reference.path),
+            query = reference.query,
+            fragment = reference.fragment,
+        }
+    end
+    if reference.authority ~= nil then
+        return {
+            scheme = asciiLower(base.scheme),
+            authority = reference.authority,
+            path = removeDotSegments(reference.path),
+            query = reference.query,
+            fragment = reference.fragment,
+        }
+    end
+    local path = reference.path
+    local query = reference.query
+    if path == "" then
+        path = base.path
+        if query == nil then
+            query = base.query
+        end
+    elseif startsWith(path, "/") then
+        path = removeDotSegments(path)
+    else
+        path = removeDotSegments(mergePath(base, path))
+    end
+    return {
+        scheme = asciiLower(base.scheme),
+        authority = base.authority,
+        path = path,
+        query = query,
+        fragment = reference.fragment,
+    }
+end

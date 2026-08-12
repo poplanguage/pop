@@ -1,0 +1,1180 @@
+namespace Pop.Bytes
+
+private function hexadecimalValue(value: UInt32): Int?
+    if value >= 48 and value <= 57 then
+        return Int(value - 48)
+    end
+    if value >= 65 and value <= 70 then
+        return Int(value - 55)
+    end
+    if value >= 97 and value <= 102 then
+        return Int(value - 87)
+    end
+    return nil
+end
+
+private function base64Value(value: UInt32): Int?
+    if value >= 65 and value <= 90 then
+        return Int(value - 65)
+    end
+    if value >= 97 and value <= 122 then
+        return Int(value - 71)
+    end
+    if value >= 48 and value <= 57 then
+        return Int(value + 4)
+    end
+    if value == 43 then
+        return 62
+    end
+    if value == 47 then
+        return 63
+    end
+    return nil
+end
+
+private function base32Value(value: UInt32): Int?
+    if value >= 65 and value <= 90 then
+        return Int(value - 65)
+    end
+    if value >= 50 and value <= 55 then
+        return Int(value - 24)
+    end
+    return nil
+end
+
+--- <summary>
+--- Encodes bytes as canonical lowercase hexadecimal text.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Two lowercase ASCII hexadecimal digits for each input byte.
+--- </returns>
+---
+--- <remarks>
+--- Empty input produces the empty String. The returned String owns storage independent of the input.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function hexEncode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    for index = 1, length do
+        local byte = Int(Bytes.get(value, index) ?? 0)
+        local high = byte / 16
+        local low = byte % 16
+        if high < 10 then
+            Bytes.write(buffer, Byte(high + 48))
+        else
+            Bytes.write(buffer, Byte(high + 87))
+        end
+        if low < 10 then
+            Bytes.write(buffer, Byte(low + 48))
+        else
+            Bytes.write(buffer, Byte(low + 87))
+        end
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete hexadecimal text into immutable bytes.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing hexadecimal digits.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not hexadecimal.
+--- </returns>
+---
+--- <remarks>
+--- Uppercase and lowercase ASCII digits are accepted. Odd lengths, prefixes, separators, whitespace, and non-ASCII text are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function hexDecode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local waiting = false
+    local high = 0
+    for rune in value do
+        local digit = hexadecimalValue(Unicode.codePoint(rune))?
+        if waiting then
+            Bytes.write(buffer, Byte(high * 16 + digit))
+            waiting = false
+        else
+            high = digit
+            waiting = true
+        end
+    end
+    if waiting then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Encodes bytes with the canonical padded base64 alphabet.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Standard-alphabet base64 text with required equals-sign padding.
+--- </returns>
+---
+--- <remarks>
+--- The output contains no whitespace or line breaks. Empty input produces the empty String.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function base64Encode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local remaining = length - index
+        local first = Int(Bytes.get(value, index) ?? 0)
+        local second = 0
+        local third = 0
+        if remaining >= 1 then
+            second = Int(Bytes.get(value, index + 1) ?? 0)
+        end
+        if remaining >= 2 then
+            third = Int(Bytes.get(value, index + 2) ?? 0)
+        end
+        local firstDigit = first / 4
+        local secondDigit = (first % 4) * 16 + second / 16
+        local thirdDigit = (second % 16) * 4 + third / 64
+        local fourthDigit = third % 64
+        if firstDigit < 26 then
+            Bytes.write(buffer, Byte(firstDigit + 65))
+        elseif firstDigit < 52 then
+            Bytes.write(buffer, Byte(firstDigit + 71))
+        elseif firstDigit < 62 then
+            Bytes.write(buffer, Byte(firstDigit - 4))
+        elseif firstDigit == 62 then
+            Bytes.write(buffer, 43)
+        else
+            Bytes.write(buffer, 47)
+        end
+        if secondDigit < 26 then
+            Bytes.write(buffer, Byte(secondDigit + 65))
+        elseif secondDigit < 52 then
+            Bytes.write(buffer, Byte(secondDigit + 71))
+        elseif secondDigit < 62 then
+            Bytes.write(buffer, Byte(secondDigit - 4))
+        elseif secondDigit == 62 then
+            Bytes.write(buffer, 43)
+        else
+            Bytes.write(buffer, 47)
+        end
+        if remaining == 0 then
+            Bytes.write(buffer, 61)
+            Bytes.write(buffer, 61)
+        else
+            if thirdDigit < 26 then
+                Bytes.write(buffer, Byte(thirdDigit + 65))
+            elseif thirdDigit < 52 then
+                Bytes.write(buffer, Byte(thirdDigit + 71))
+            elseif thirdDigit < 62 then
+                Bytes.write(buffer, Byte(thirdDigit - 4))
+            elseif thirdDigit == 62 then
+                Bytes.write(buffer, 43)
+            else
+                Bytes.write(buffer, 47)
+            end
+            if remaining == 1 then
+                Bytes.write(buffer, 61)
+            elseif fourthDigit < 26 then
+                Bytes.write(buffer, Byte(fourthDigit + 65))
+            elseif fourthDigit < 52 then
+                Bytes.write(buffer, Byte(fourthDigit + 71))
+            elseif fourthDigit < 62 then
+                Bytes.write(buffer, Byte(fourthDigit - 4))
+            elseif fourthDigit == 62 then
+                Bytes.write(buffer, 43)
+            else
+                Bytes.write(buffer, 47)
+            end
+        end
+        index = index + 3
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete canonical padded base64 text.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing standard-alphabet base64 text.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not canonical base64.
+--- </returns>
+---
+--- <remarks>
+--- Whitespace, URL-safe digits, missing or misplaced padding, trailing data, and nonzero unused bits are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function base64Decode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local position = 0
+    local first = 0
+    local second = 0
+    local third = 0
+    local fourth = 0
+    local finished = false
+    for rune in value do
+        if finished then
+            return nil
+        end
+        local point = Unicode.codePoint(rune)
+        local digit = -1
+        if point ~= 61 then
+            digit = base64Value(point)?
+        end
+        if position == 0 then
+            first = digit
+        elseif position == 1 then
+            second = digit
+        elseif position == 2 then
+            third = digit
+        else
+            fourth = digit
+        end
+        position = position + 1
+        if position == 4 then
+            if first < 0 or second < 0 then
+                return nil
+            end
+            Bytes.write(buffer, Byte(first * 4 + second / 16))
+            if third < 0 then
+                if third ~= -1 or fourth ~= -1 or second % 16 ~= 0 then
+                    return nil
+                end
+                finished = true
+            else
+                Bytes.write(buffer, Byte((second % 16) * 16 + third / 4))
+                if fourth < 0 then
+                    if fourth ~= -1 or third % 4 ~= 0 then
+                        return nil
+                    end
+                    finished = true
+                else
+                    Bytes.write(buffer, Byte((third % 4) * 64 + fourth))
+                end
+            end
+            position = 0
+        end
+    end
+    if position ~= 0 then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Encodes bytes with the canonical padded base32 alphabet.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to encode.
+--- </param>
+---
+--- <returns>
+--- Uppercase standard-alphabet base32 text with required equals-sign padding.
+--- </returns>
+---
+--- <remarks>
+--- The output contains no whitespace or line breaks. Empty input produces the empty String.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable String result.
+--- </allocation>
+public function base32Encode(value: Bytes.View): String
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local remaining = length - index
+        local first = Int(Bytes.get(value, index) ?? 0)
+        local second = 0
+        local third = 0
+        local fourth = 0
+        local fifth = 0
+        if remaining >= 1 then
+            second = Int(Bytes.get(value, index + 1) ?? 0)
+        end
+        if remaining >= 2 then
+            third = Int(Bytes.get(value, index + 2) ?? 0)
+        end
+        if remaining >= 3 then
+            fourth = Int(Bytes.get(value, index + 3) ?? 0)
+        end
+        if remaining >= 4 then
+            fifth = Int(Bytes.get(value, index + 4) ?? 0)
+        end
+        local digitPosition = 1
+        while digitPosition <= 8 do
+            local digit = 0
+            local padding = false
+            if digitPosition == 1 then
+                digit = first / 8
+            elseif digitPosition == 2 then
+                digit = (first % 8) * 4 + second / 64
+            elseif digitPosition == 3 then
+                if remaining == 0 then
+                    padding = true
+                else
+                    digit = (second % 64) / 2
+                end
+            elseif digitPosition == 4 then
+                if remaining == 0 then
+                    padding = true
+                else
+                    digit = (second % 2) * 16 + third / 16
+                end
+            elseif digitPosition == 5 then
+                if remaining <= 1 then
+                    padding = true
+                else
+                    digit = (third % 16) * 2 + fourth / 128
+                end
+            elseif digitPosition == 6 then
+                if remaining <= 2 then
+                    padding = true
+                else
+                    digit = (fourth % 128) / 4
+                end
+            elseif digitPosition == 7 then
+                if remaining <= 2 then
+                    padding = true
+                else
+                    digit = (fourth % 4) * 8 + fifth / 32
+                end
+            else
+                if remaining <= 3 then
+                    padding = true
+                else
+                    digit = fifth % 32
+                end
+            end
+            if padding then
+                Bytes.write(buffer, 61)
+            elseif digit < 26 then
+                Bytes.write(buffer, Byte(digit + 65))
+            else
+                Bytes.write(buffer, Byte(digit + 24))
+            end
+            digitPosition = digitPosition + 1
+        end
+        index = index + 5
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Decodes complete canonical padded base32 text.
+--- </summary>
+---
+--- <param name="value">
+--- The String containing uppercase standard-alphabet base32 text.
+--- </param>
+---
+--- <returns>
+--- Independently owned decoded Bytes, or nil when the complete String is not canonical base32.
+--- </returns>
+---
+--- <remarks>
+--- Lowercase or extended alphabets, whitespace, malformed padding, trailing data, and nonzero unused bits are malformed. Empty input produces empty Bytes.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function base32Decode(value: String): Bytes?
+    local buffer = Bytes.create()
+    local position = 0
+    local first = 0
+    local second = 0
+    local third = 0
+    local fourth = 0
+    local fifth = 0
+    local sixth = 0
+    local seventh = 0
+    local eighth = 0
+    local finished = false
+    for rune in value do
+        if finished then
+            return nil
+        end
+        local point = Unicode.codePoint(rune)
+        local digit = -1
+        if point ~= 61 then
+            digit = base32Value(point)?
+        end
+        if position == 0 then
+            first = digit
+        elseif position == 1 then
+            second = digit
+        elseif position == 2 then
+            third = digit
+        elseif position == 3 then
+            fourth = digit
+        elseif position == 4 then
+            fifth = digit
+        elseif position == 5 then
+            sixth = digit
+        elseif position == 6 then
+            seventh = digit
+        else
+            eighth = digit
+        end
+        position = position + 1
+        if position == 8 then
+            if first < 0 or second < 0 then
+                return nil
+            end
+            Bytes.write(buffer, Byte(first * 8 + second / 4))
+            if third < 0 then
+                if fourth ~= -1 or fifth ~= -1 or sixth ~= -1 or seventh ~= -1 or eighth ~= -1 or second % 4 ~= 0 then
+                    return nil
+                end
+                finished = true
+            else
+                if fourth < 0 then
+                    return nil
+                end
+                Bytes.write(buffer, Byte((second % 4) * 64 + third * 2 + fourth / 16))
+                if fifth < 0 then
+                    if sixth ~= -1 or seventh ~= -1 or eighth ~= -1 or fourth % 16 ~= 0 then
+                        return nil
+                    end
+                    finished = true
+                else
+                    Bytes.write(buffer, Byte((fourth % 16) * 16 + fifth / 2))
+                    if sixth < 0 then
+                        if seventh ~= -1 or eighth ~= -1 or fifth % 2 ~= 0 then
+                            return nil
+                        end
+                        finished = true
+                    else
+                        if seventh < 0 then
+                            return nil
+                        end
+                        Bytes.write(buffer, Byte((fifth % 2) * 128 + sixth * 4 + seventh / 8))
+                        if eighth < 0 then
+                            if seventh % 8 ~= 0 then
+                                return nil
+                            end
+                            finished = true
+                        else
+                            Bytes.write(buffer, Byte((seventh % 8) * 32 + eighth))
+                        end
+                    end
+                end
+            end
+            position = 0
+        end
+    end
+    if position ~= 0 then
+        return nil
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Combines equal-length byte views with bitwise AND.
+--- </summary>
+---
+--- <param name="left">
+--- The left byte view.
+--- </param>
+---
+--- <param name="right">
+--- The right byte view.
+--- </param>
+---
+--- <returns>
+--- Independently owned combined Bytes, or nil when the lengths differ.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function bitwiseAnd(left: Bytes.View, right: Bytes.View): Bytes?
+    local length = Bytes.length(left)
+    if length ~= Bytes.length(right) then
+        return nil
+    end
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local leftByte = Int(Bytes.get(left, index) ?? 0)
+        local rightByte = Int(Bytes.get(right, index) ?? 0)
+        local result = 0
+        local weight = 1
+        local bit = 0
+        while bit < 8 do
+            if leftByte % 2 == 1 and rightByte % 2 == 1 then
+                result = result + weight
+            end
+            leftByte = leftByte / 2
+            rightByte = rightByte / 2
+            weight = weight * 2
+            bit = bit + 1
+        end
+        Bytes.write(buffer, Byte(result))
+        index = index + 1
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Combines equal-length byte views with bitwise OR.
+--- </summary>
+---
+--- <param name="left">
+--- The left byte view.
+--- </param>
+---
+--- <param name="right">
+--- The right byte view.
+--- </param>
+---
+--- <returns>
+--- Independently owned combined Bytes, or nil when the lengths differ.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function bitwiseOr(left: Bytes.View, right: Bytes.View): Bytes?
+    local length = Bytes.length(left)
+    if length ~= Bytes.length(right) then
+        return nil
+    end
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local leftByte = Int(Bytes.get(left, index) ?? 0)
+        local rightByte = Int(Bytes.get(right, index) ?? 0)
+        local result = 0
+        local weight = 1
+        local bit = 0
+        while bit < 8 do
+            if leftByte % 2 == 1 or rightByte % 2 == 1 then
+                result = result + weight
+            end
+            leftByte = leftByte / 2
+            rightByte = rightByte / 2
+            weight = weight * 2
+            bit = bit + 1
+        end
+        Bytes.write(buffer, Byte(result))
+        index = index + 1
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Combines equal-length byte views with bitwise exclusive OR.
+--- </summary>
+---
+--- <param name="left">
+--- The left byte view.
+--- </param>
+---
+--- <param name="right">
+--- The right byte view.
+--- </param>
+---
+--- <returns>
+--- Independently owned combined Bytes, or nil when the lengths differ.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and, on success, one immutable Bytes result.
+--- </allocation>
+public function bitwiseXor(left: Bytes.View, right: Bytes.View): Bytes?
+    local length = Bytes.length(left)
+    if length ~= Bytes.length(right) then
+        return nil
+    end
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local leftByte = Int(Bytes.get(left, index) ?? 0)
+        local rightByte = Int(Bytes.get(right, index) ?? 0)
+        local result = 0
+        local weight = 1
+        local bit = 0
+        while bit < 8 do
+            if leftByte % 2 ~= rightByte % 2 then
+                result = result + weight
+            end
+            leftByte = leftByte / 2
+            rightByte = rightByte / 2
+            weight = weight * 2
+            bit = bit + 1
+        end
+        Bytes.write(buffer, Byte(result))
+        index = index + 1
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Flips every bit in a byte view.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to invert.
+--- </param>
+---
+--- <returns>
+--- Independently owned Bytes containing the inverted bytes.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable byte buffer and one immutable Bytes result.
+--- </allocation>
+public function bitwiseNot(value: Bytes.View): Bytes
+    local length = Bytes.length(value)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local byte = Int(Bytes.get(value, index) ?? 0)
+        Bytes.write(buffer, Byte(255 - byte))
+        index = index + 1
+    end
+    return Bytes.toBytes(buffer)
+end
+
+--- <summary>
+--- Tests whether two byte views contain the same bytes.
+--- </summary>
+---
+--- <param name="left">
+--- The first byte view.
+--- </param>
+---
+--- <param name="right">
+--- The second byte view.
+--- </param>
+---
+--- <returns>
+--- True when both views have the same length and byte values; otherwise false.
+--- </returns>
+---
+--- <remarks>
+--- Comparison stops at the first mismatch and does not materialize either view.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function equals(left: Bytes.View, right: Bytes.View): Boolean
+    local length = Bytes.length(left)
+    if length ~= Bytes.length(right) then
+        return false
+    end
+    for index = 1, length do
+        if (Bytes.get(left, index) ?? 0) ~= (Bytes.get(right, index) ?? 0) then
+            return false
+        end
+    end
+    return true
+end
+
+--- <summary>
+--- Compares two byte views in unsigned-byte lexicographic order.
+--- </summary>
+---
+--- <param name="left">
+--- The first byte view.
+--- </param>
+---
+--- <param name="right">
+--- The second byte view.
+--- </param>
+---
+--- <returns>
+--- Negative one when left sorts first, zero when equal, or positive one when left sorts after right.
+--- </returns>
+---
+--- <remarks>
+--- Comparison stops at the first decisive byte. A proper prefix sorts before the longer view.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function compare(left: Bytes.View, right: Bytes.View): Int
+    local leftLength = Bytes.length(left)
+    local rightLength = Bytes.length(right)
+    local commonLength = leftLength
+    if rightLength < commonLength then
+        commonLength = rightLength
+    end
+    for index = 1, commonLength do
+        local leftByte = Bytes.get(left, index) ?? 0
+        local rightByte = Bytes.get(right, index) ?? 0
+        if leftByte < rightByte then
+            return -1
+        end
+        if leftByte > rightByte then
+            return 1
+        end
+    end
+    if leftLength < rightLength then
+        return -1
+    end
+    if leftLength > rightLength then
+        return 1
+    end
+    return 0
+end
+
+--- <summary>
+--- Tests whether a byte view begins with a prefix.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to inspect.
+--- </param>
+---
+--- <param name="prefix">
+--- The prefix to match.
+--- </param>
+---
+--- <returns>
+--- True when every prefix byte matches at the start of value; otherwise false.
+--- </returns>
+---
+--- <remarks>
+--- An empty prefix matches every value, including an empty value.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function startsWith(value: Bytes.View, prefix: Bytes.View): Boolean
+    local prefixLength = Bytes.length(prefix)
+    if prefixLength > Bytes.length(value) then
+        return false
+    end
+    for index = 1, prefixLength do
+        if (Bytes.get(value, index) ?? 0) ~= (Bytes.get(prefix, index) ?? 0) then
+            return false
+        end
+    end
+    return true
+end
+
+--- <summary>
+--- Tests whether a byte view ends with a suffix.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to inspect.
+--- </param>
+---
+--- <param name="suffix">
+--- The suffix to match.
+--- </param>
+---
+--- <returns>
+--- True when every suffix byte matches at the end of value; otherwise false.
+--- </returns>
+---
+--- <remarks>
+--- An empty suffix matches every value, including an empty value.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function endsWith(value: Bytes.View, suffix: Bytes.View): Boolean
+    local valueLength = Bytes.length(value)
+    local suffixLength = Bytes.length(suffix)
+    if suffixLength > valueLength then
+        return false
+    end
+    local start = valueLength - suffixLength + 1
+    for offset = 0, suffixLength - 1 do
+        if (Bytes.get(value, start + offset) ?? 0) ~= (Bytes.get(suffix, offset + 1) ?? 0) then
+            return false
+        end
+    end
+    return true
+end
+
+--- <summary>
+--- Tests whether a byte view contains a byte value.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to search.
+--- </param>
+---
+--- <param name="byte">
+--- The byte value to find.
+--- </param>
+---
+--- <returns>
+--- True when the byte occurs in the view; otherwise false.
+--- </returns>
+---
+--- <remarks>
+--- Search proceeds from the first byte and stops at the first match.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function contains(value: Bytes.View, byte: Byte): Boolean
+    local length = Bytes.length(value)
+    for index = 1, length do
+        if (Bytes.get(value, index) ?? 0) == byte then
+            return true
+        end
+    end
+    return false
+end
+
+--- <summary>
+--- Finds the first byte at or after a one-based start index.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to search.
+--- </param>
+---
+--- <param name="byte">
+--- The byte value to find.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index at which search begins.
+--- </param>
+---
+--- <returns>
+--- The first matching one-based index, or nil for an invalid start or no match.
+--- </returns>
+---
+--- <remarks>
+--- Search stops at the first match and never raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function indexOf(value: Bytes.View, byte: Byte, start: Int): Int?
+    local length = Bytes.length(value)
+    if start < 1 or start > length then
+        return nil
+    end
+    for index = start, length do
+        local current = Bytes.get(value, index)?
+        if current == byte then
+            return index
+        end
+    end
+    return nil
+end
+
+--- <summary>
+--- Reads a two-byte unsigned integer in big-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when two consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is most significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt16BigEndian(value: Bytes.View, start: Int): UInt16?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 1 > length - start then
+        return nil
+    end
+    local first = UInt16(Bytes.get(value, start)?)
+    local second = UInt16(Bytes.get(value, start + 1)?)
+    return first * 256 + second
+end
+
+--- <summary>
+--- Reads a two-byte unsigned integer in little-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when two consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is least significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt16LittleEndian(value: Bytes.View, start: Int): UInt16?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 1 > length - start then
+        return nil
+    end
+    local first = UInt16(Bytes.get(value, start)?)
+    local second = UInt16(Bytes.get(value, start + 1)?)
+    return second * 256 + first
+end
+
+--- <summary>
+--- Reads a four-byte unsigned integer in big-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when four consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is most significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt32BigEndian(value: Bytes.View, start: Int): UInt32?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 3 > length - start then
+        return nil
+    end
+    local first = UInt32(Bytes.get(value, start)?)
+    local second = UInt32(Bytes.get(value, start + 1)?)
+    local third = UInt32(Bytes.get(value, start + 2)?)
+    local fourth = UInt32(Bytes.get(value, start + 3)?)
+    return ((first * 256 + second) * 256 + third) * 256 + fourth
+end
+
+--- <summary>
+--- Reads a four-byte unsigned integer in little-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when four consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is least significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt32LittleEndian(value: Bytes.View, start: Int): UInt32?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 3 > length - start then
+        return nil
+    end
+    local first = UInt32(Bytes.get(value, start)?)
+    local second = UInt32(Bytes.get(value, start + 1)?)
+    local third = UInt32(Bytes.get(value, start + 2)?)
+    local fourth = UInt32(Bytes.get(value, start + 3)?)
+    return ((fourth * 256 + third) * 256 + second) * 256 + first
+end
+
+--- <summary>
+--- Reads an eight-byte unsigned integer in big-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when eight consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is most significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt64BigEndian(value: Bytes.View, start: Int): UInt64?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 7 > length - start then
+        return nil
+    end
+    local first = UInt64(Bytes.get(value, start)?)
+    local second = UInt64(Bytes.get(value, start + 1)?)
+    local third = UInt64(Bytes.get(value, start + 2)?)
+    local fourth = UInt64(Bytes.get(value, start + 3)?)
+    local fifth = UInt64(Bytes.get(value, start + 4)?)
+    local sixth = UInt64(Bytes.get(value, start + 5)?)
+    local seventh = UInt64(Bytes.get(value, start + 6)?)
+    local eighth = UInt64(Bytes.get(value, start + 7)?)
+    return ((((((first * 256 + second) * 256 + third) * 256 + fourth) * 256 + fifth) * 256 + sixth) * 256 + seventh) * 256 + eighth
+end
+
+--- <summary>
+--- Reads an eight-byte unsigned integer in little-endian order.
+--- </summary>
+---
+--- <param name="value">
+--- The byte view to read.
+--- </param>
+---
+--- <param name="start">
+--- The one-based index of the first byte.
+--- </param>
+---
+--- <returns>
+--- The decoded value, or nil when eight consecutive bytes are unavailable.
+--- </returns>
+---
+--- <remarks>
+--- The first byte is least significant. The read never pads input or raises a bounds trap.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate or copy byte storage.
+--- </allocation>
+public function readUInt64LittleEndian(value: Bytes.View, start: Int): UInt64?
+    if start < 1 then
+        return nil
+    end
+    local length = Bytes.length(value)
+    if start > length or 7 > length - start then
+        return nil
+    end
+    local first = UInt64(Bytes.get(value, start)?)
+    local second = UInt64(Bytes.get(value, start + 1)?)
+    local third = UInt64(Bytes.get(value, start + 2)?)
+    local fourth = UInt64(Bytes.get(value, start + 3)?)
+    local fifth = UInt64(Bytes.get(value, start + 4)?)
+    local sixth = UInt64(Bytes.get(value, start + 5)?)
+    local seventh = UInt64(Bytes.get(value, start + 6)?)
+    local eighth = UInt64(Bytes.get(value, start + 7)?)
+    return ((((((eighth * 256 + seventh) * 256 + sixth) * 256 + fifth) * 256 + fourth) * 256 + third) * 256 + second) * 256 + first
+end

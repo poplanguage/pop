@@ -51,7 +51,8 @@ use crate::compile_time::{
 };
 use crate::reference::{
     define_reference_records, emit_reference_metadata, hir_function_references,
-    hir_reference_ffi_layout_catalog, invalid_reference_capsule, reference_signatures,
+    hir_reference_ffi_layout_catalog, hir_reference_record_declarations, invalid_reference_capsule,
+    reference_signatures,
 };
 use crate::work::*;
 
@@ -219,6 +220,12 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
     }
     let reference_record_types =
         define_reference_records(&input.reference_metadata, &database, &mut resolver);
+    let reference_record_declarations = hir_reference_record_declarations(
+        &input.reference_metadata,
+        &database,
+        &resolver,
+        input.bubble,
+    );
     let reference_generated_codec_adapters =
         crate::retained_metadata::generate_reference_codec_adapter_hir(
             &input.reference_metadata,
@@ -241,6 +248,7 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
         &mut resolver,
         &mut diagnostics,
     );
+    declarations.extend(reference_record_declarations);
     let (constant_work, mut constant_attributes) =
         define_constants(&parsed, &database, &mut diagnostics);
     declaration_attributes.append(&mut constant_attributes);
@@ -472,6 +480,7 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
         &mut resolver,
         &reference_nominal_types,
         &reference_record_types,
+        &database,
     );
     let referenced_call_instances = hir_functions
         .iter()
@@ -1468,6 +1477,46 @@ fn statement_proves_no_view_retention(statement: &StatementSyntax) -> bool {
                 && then_body.iter().all(statement_proves_no_view_retention)
                 && else_body.iter().all(statement_proves_no_view_retention)
         }
+        StatementSyntaxKind::OptionalIf {
+            initializer,
+            then_body,
+            else_body,
+            ..
+        } => {
+            expression_proves_no_view_retention(initializer)
+                && then_body.iter().all(statement_proves_no_view_retention)
+                && else_body.iter().all(statement_proves_no_view_retention)
+        }
+        StatementSyntaxKind::While { condition, body }
+        | StatementSyntaxKind::RepeatUntil { condition, body } => {
+            expression_proves_no_view_retention(condition)
+                && body.iter().all(statement_proves_no_view_retention)
+        }
+        StatementSyntaxKind::OptionalWhile {
+            initializer, body, ..
+        } => {
+            expression_proves_no_view_retention(initializer)
+                && body.iter().all(statement_proves_no_view_retention)
+        }
+        StatementSyntaxKind::NumericFor {
+            first,
+            last,
+            step,
+            body,
+            ..
+        } => {
+            expression_proves_no_view_retention(first)
+                && expression_proves_no_view_retention(last)
+                && step
+                    .as_ref()
+                    .is_none_or(expression_proves_no_view_retention)
+                && body.iter().all(statement_proves_no_view_retention)
+        }
+        StatementSyntaxKind::Assignment { target, value, .. } => {
+            matches!(target.kind(), ExpressionSyntaxKind::Name(_))
+                && expression_proves_no_view_retention(value)
+        }
+        StatementSyntaxKind::Break | StatementSyntaxKind::Continue => true,
         StatementSyntaxKind::Expression(expression) => {
             expression_proves_no_view_retention(expression)
         }
@@ -1490,7 +1539,9 @@ fn expression_proves_no_view_retention(expression: &ExpressionSyntax) -> bool {
                     if matches!(path.as_slice(), [namespace, operation]
                         if matches!(namespace.as_str(), "Bytes" | "Text")
                             && matches!(operation.as_str(),
-                                "view" | "slice" | "length" | "get" | "toBytes" | "toString"))
+                                "view" | "slice" | "length" | "get" | "toBytes" | "toString"
+                                    | "create" | "withCapacity" | "write" | "decodeUtf8"))
+                        || is_scalar_numeric_conversion(path)
             ) && arguments.iter().all(expression_proves_no_view_retention)
         }
         ExpressionSyntaxKind::Unary { operand, .. }
@@ -1512,6 +1563,27 @@ fn expression_proves_no_view_retention(expression: &ExpressionSyntax) -> bool {
         }
         _ => false,
     }
+}
+
+fn is_scalar_numeric_conversion(path: &[String]) -> bool {
+    matches!(
+        path,
+        [name] if matches!(
+            name.as_str(),
+            "Byte"
+                | "Int"
+                | "Int8"
+                | "Int16"
+                | "Int32"
+                | "Int64"
+                | "UInt8"
+                | "UInt16"
+                | "UInt32"
+                | "UInt64"
+                | "Float32"
+                | "Float64"
+        )
+    )
 }
 
 fn define_declarations(
@@ -1666,6 +1738,12 @@ fn define_records_and_unions(
 ) -> (Vec<HirDeclaration>, Vec<DeclarationAttributeWork>) {
     let mut declarations = Vec::new();
     let mut attribute_work = Vec::new();
+    let mut pending = Vec::new();
+
+    // Data declarations are indexed globally, but their field/payload types
+    // must also be resolved before their definitions can be published. Retry
+    // unresolved declarations so a Module can use a record/union declared in
+    // a later Module; source filename order is not a semantic dependency.
     for module in modules {
         let mut pending_attributes = Vec::new();
         for node in module.syntax.root().children() {
@@ -1676,51 +1754,133 @@ fn define_records_and_unions(
                 }
                 continue;
             }
+            if matches!(
+                node.kind(),
+                NodeKind::RecordDeclaration
+                    | NodeKind::UnionDeclaration
+                    | NodeKind::ErrorDeclaration
+                    | NodeKind::EnumDeclaration
+            ) {
+                pending.push((
+                    module,
+                    node.clone(),
+                    std::mem::take(&mut pending_attributes),
+                ));
+            } else {
+                pending_attributes.clear();
+            }
+        }
+    }
+
+    while !pending.is_empty() {
+        let mut deferred = Vec::new();
+        let mut progress = false;
+        for (module, node, attributes) in pending {
+            let mut attempt_diagnostics = Vec::new();
+            let retry_attributes = attributes.clone();
             let (declaration, work) = match node.kind() {
                 NodeKind::RecordDeclaration => define_record(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::UnionDeclaration => define_union(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::ErrorDeclaration => define_error(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
                 NodeKind::EnumDeclaration => define_enum(
                     module,
-                    node,
+                    &node,
                     bubble,
                     database,
                     resolver,
-                    diagnostics,
-                    std::mem::take(&mut pending_attributes),
+                    &mut attempt_diagnostics,
+                    attributes,
                 ),
-                _ => {
-                    pending_attributes.clear();
-                    continue;
-                }
+                _ => continue,
             };
-            declarations.extend(declaration);
-            attribute_work.extend(work);
+            if let Some(declaration) = declaration {
+                progress = true;
+                declarations.push(declaration);
+                attribute_work.extend(work);
+            } else {
+                deferred.push((module, node, retry_attributes));
+                // Keep the diagnostics from the final attempt below. A
+                // successful retry must not leak an intermediate unknown-name
+                // diagnostic, while a genuinely malformed declaration still
+                // needs its ordinary diagnostic.
+                if attempt_diagnostics.is_empty() {
+                    diagnostics.extend(attempt_diagnostics);
+                }
+            }
         }
+        if !progress {
+            // Re-run the remaining declarations once to publish their real
+            // diagnostics, rather than silently dropping unresolved source.
+            for (module, node, attributes) in deferred {
+                let (declaration, work) = match node.kind() {
+                    NodeKind::RecordDeclaration => define_record(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::UnionDeclaration => define_union(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::ErrorDeclaration => define_error(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    NodeKind::EnumDeclaration => define_enum(
+                        module,
+                        &node,
+                        bubble,
+                        database,
+                        resolver,
+                        diagnostics,
+                        attributes,
+                    ),
+                    _ => continue,
+                };
+                declarations.extend(declaration);
+                attribute_work.extend(work);
+            }
+            break;
+        }
+        pending = deferred;
     }
     (declarations, attribute_work)
 }

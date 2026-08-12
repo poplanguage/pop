@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use pop_diagnostics::types as type_diagnostics;
+use pop_diagnostics::{resolution as resolution_diagnostics, types as type_diagnostics};
 use pop_foundation::{
     BuiltinTypeId, ClassId, Diagnostic, EnumCaseId, ErrorCaseId, ErrorId, FieldId, InterfaceId,
     MethodId, ModuleId, ParameterId, SourceSpan, SymbolId, TypeId, UnionCaseId,
@@ -1633,6 +1633,10 @@ impl<'index> SignatureResolver<'index> {
                 continue;
             };
             let Some(field_type) = resolved.type_id() else {
+                diagnostics.push(resolution_diagnostics::unknown_name(
+                    field.field_type().span(),
+                    "unresolved type",
+                ));
                 continue;
             };
             if self.arena.contains_view(field_type) {
@@ -1936,6 +1940,10 @@ impl<'index> SignatureResolver<'index> {
                     continue;
                 };
                 let Some(type_id) = resolved.type_id() else {
+                    diagnostics.push(resolution_diagnostics::unknown_name(
+                        parameter.parameter_type().span(),
+                        "unresolved type",
+                    ));
                     continue;
                 };
                 parameters.push((parameter.name().to_owned(), type_id, parameter.span()));
@@ -2016,6 +2024,10 @@ impl<'index> SignatureResolver<'index> {
                     continue;
                 };
                 let Some(type_id) = resolved.type_id() else {
+                    diagnostics.push(resolution_diagnostics::unknown_name(
+                        parameter.parameter_type().span(),
+                        "unresolved type",
+                    ));
                     continue;
                 };
                 parameters.push((parameter.name().to_owned(), type_id, parameter.span()));

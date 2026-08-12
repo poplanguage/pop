@@ -237,7 +237,7 @@ Minimum traceability matrix:
 | Native classes | type checker, HIR/MIR, runtime | resolved field/method IDs; no table lookup |
 | Bubbles/Packages/Workspaces | project resolver, manifest, driver, loader | identity/init/lock/target-selection tests |
 | Lock and `.poplib` encoding | project resolver, artifact emitter/loader, reference metadata, linker | canonical-byte, SHA-256, malformed-input, source-free round-trip tests |
-| Unified `pop` tooling | CLI, language server, formatter, docs, package manager | command/JSON/selection/reproducibility tests; verified implicit Standard and exact generated-FFI preflight editor tests |
+| Unified `pop` tooling | CLI, language server, formatter, docs, package manager | command/JSON/selection/reproducibility tests; verified implicit Standard, exact foundation source graph, and exact generated-FFI preflight editor tests |
 | Ratatui terminal presentation | driver presentation/orchestration | explicit activation, plain/JSON equivalence, color-policy, accessibility, terminal restoration, and dependency-confinement tests |
 | Default internal visibility | parser, resolver, HIR, metadata | default/access/public-surface tests |
 | Complete public names | formatter, analyzers, libraries | naming baseline and truncation diagnostics |
@@ -307,6 +307,60 @@ Architecture CI should eventually verify:
 - ADR 0104's ABI 1.22 exact cyclic initialization, immutable self-slot
   constants, closed iteration constructor, and constant-size
   homogeneous/strided map proofs;
+- ADR 0114's ABI 1.23/2.1 exact Unicode-scalar Text-view adapter, immutable
+  prior descriptors, and default/production profile negotiation;
+- ADR 0116's exact `String: Iterable<Rune>` specialization, linear UTF-8
+  traversal, non-iterable `Text.View` boundary, backend-neutral reserved
+  protocol lowering, fail-closed C behavior, and immutable ABI 1.24/2.2
+  descriptors;
+- ADR 0117's exact `Bytes.Buffer` identity and overloads, atomic append/endian
+  writes, independent snapshots, lender/root proofs, interpreter/LLVM
+  differential execution, fail-closed C behavior, and immutable ABI 1.25/2.3
+  descriptors;
+- ADR 0118's exact checked UTF-8 overloads, malformed-data optional result,
+  non-mutating direct buffer decode, interpreter/LLVM agreement, fail-closed C
+  behavior, and immutable ABI 1.27/2.5 descriptors;
+- ADR 0119's lowercase hexadecimal encoding, complete case-insensitive checked
+  decoding, ordinary portable Pop implementation, reference metadata, and
+  interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0120's canonical padded standard base64 alphabet, strict complete
+  decoding including unused-bit validation, ordinary Pop implementation, and
+  interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0121's canonical padded uppercase standard base32 alphabet, strict
+  complete decoding including unused-bit validation, ordinary Pop
+  implementation, and interpreter/LLVM agreement without compiler or native
+  name recognition;
+- ADR 0122's checked equal-length bytewise AND, OR, and XOR, complete bytewise
+  NOT, owned outputs, ordinary Pop implementation, and interpreter/LLVM
+  agreement without compiler or native name recognition;
+- ADR 0123's Unicode whitespace, scalar-safe trim, exact buffered
+  replace/split/join, checked complete-range integer parsing, and
+  interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0124's exact case-sensitive prefix/suffix/containment, one-based
+  scalar-indexed search boundaries, empty-pattern policy, and
+  interpreter/LLVM agreement without compiler or native name recognition;
+- ADR 0125's ASCII-only whole-String casing, byte-exact non-ASCII preservation,
+  ASCII-insensitive equality, and interpreter/LLVM agreement without compiler
+  or native name recognition;
+- ADR 0126's frozen explicit random stream, total UInt32 seed normalization,
+  unbiased byte filling and shuffling, managed-array identity across calls, and
+  interpreter/LLVM agreement without global state or native name recognition;
+- ADR 0127's unbiased one-/two-sample bounded integers, complete signed-width
+  rejection, deterministic unit floats, checked probability endpoints/NaN, and
+  no-consumption rejection paths across interpreter and LLVM;
+- ADR 0128's stable comparator/key ordering, once-per-item key selection,
+  independent reverse storage, explicit equality short-circuiting, documented
+  materialization, and interpreter/LLVM agreement;
+- ADR 0130's exact `Sequence.first`/`last` identities, `Iteration<T>` results,
+  at-most-one/complete traversal boundaries, portable capsules, and absence of
+  compiler/runtime/backend name recognition;
+- ADR 0129's sorted public-only ordinary record schemas, ordered closed fields,
+  exact producer identity through canonical metadata and verified HIR/MIR,
+  source-free dependent construction/projection/calls, malformed-input
+  rejection, and separation from target FFI layout evidence;
+- reserved `Iteration<T>` exhaustive source matching with exact `Item`/`End`
+  payload typing, missing/foreign/arity diagnostics, verified HIR/MIR,
+  portable generic capsule specialization, and interpreter/LLVM agreement;
 - verified allocation-site/lifetime/region identities, closed retention
   summaries, every-exit static reclamation, precise region roots, conservative
   managed fallback, and no backend-only escape/free contract;

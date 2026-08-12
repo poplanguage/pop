@@ -20,6 +20,7 @@ pub enum MirValue {
     Boolean(bool),
     Integer(IntegerValue),
     Float(FloatValue),
+    Rune(u32),
     String(String),
     Tuple(Vec<Self>),
     Array(Vec<Self>),
@@ -39,9 +40,65 @@ pub enum MirValue {
     CancellationSource(SymbolId),
     CancellationToken(SymbolId),
     TaskGroup(SymbolId),
+    ChannelSender(SymbolId),
+    ChannelReceiver(SymbolId),
+    ChannelSendOutcome(pop_types::ChannelSendOutcomeKind),
+    ChannelReceiveOutcome {
+        value: Option<Box<Self>>,
+        closed: bool,
+    },
+    ActorRef(SymbolId),
+    ActorInbox(SymbolId),
+    ActorSendOutcome(pop_types::ActorSendOutcomeKind),
+    NetTcpListener(SymbolId),
+    NetTcpStream(SymbolId),
+    NetUdpSocket(SymbolId),
+    NetDnsResolver(SymbolId),
+    NetDnsAnswers(SymbolId),
+    NetInterfacesSnapshot(SymbolId),
+    NetRoutesSnapshot(SymbolId),
+    NetTlsClientConfig(SymbolId),
+    NetTlsServerConfig(SymbolId),
+    NetTlsStream(SymbolId),
+    NetUnixListener(SymbolId),
+    NetUnixStream(SymbolId),
+    TimeMonotonicClock(SymbolId),
+    TimeLiveDeadline(SymbolId),
+    NetSocketIoOutcome(pop_types::SocketIoOutcomeKind),
+    NetTransfer {
+        kind: pop_types::SocketIoOutcomeKind,
+        count: u64,
+    },
+    NetWaitTransfer {
+        kind: u8,
+        count: u64,
+    },
+    NetUdpWaitTransfer {
+        kind: u8,
+        address: u32,
+        port: u16,
+        count: u64,
+    },
+    NetUdpTransfer {
+        address: u32,
+        port: u16,
+        count: u16,
+    },
+    NetTcpReceive {
+        kind: pop_types::TcpReceiveKind,
+        value: Option<u8>,
+    },
+    NetUdpDatagram {
+        address: u32,
+        port: u16,
+        value: u8,
+    },
+    AtomicInt(SymbolId),
+    AtomicBoolean(SymbolId),
     FfiHandle(u64),
     FfiBuffer(ManagedReference),
     Bytes(ManagedReference),
+    ByteBuffer(ManagedReference),
     View(MirViewValue),
     FfiPointer(ForeignAddress),
     FfiFunction(u64),
@@ -225,6 +282,7 @@ impl MirClassValue {
 pub(crate) struct RuntimeValue {
     pub(crate) visible: MirValue,
     pub(crate) reference: Option<ManagedReference>,
+    pub(crate) shared_visible: Option<Rc<RefCell<MirValue>>>,
 }
 
 impl RuntimeValue {
@@ -233,6 +291,7 @@ impl RuntimeValue {
             MirValue::Class(class) => Some(class.reference),
             MirValue::FfiBuffer(reference)
             | MirValue::Bytes(reference)
+            | MirValue::ByteBuffer(reference)
             | MirValue::FfiRegisteredCallback { reference, .. } => Some(*reference),
             MirValue::View(MirViewValue {
                 lender: MirViewLenderValue::Bytes(reference),
@@ -240,14 +299,34 @@ impl RuntimeValue {
             }) => Some(*reference),
             _ => None,
         };
-        Self { visible, reference }
+        Self {
+            visible,
+            reference,
+            shared_visible: None,
+        }
     }
 
     pub(crate) const fn managed(visible: MirValue, reference: ManagedReference) -> Self {
         Self {
             visible,
             reference: Some(reference),
+            shared_visible: None,
         }
+    }
+
+    pub(crate) fn managed_array(elements: Vec<MirValue>, reference: ManagedReference) -> Self {
+        let visible = MirValue::Array(elements);
+        Self {
+            visible: visible.clone(),
+            reference: Some(reference),
+            shared_visible: Some(Rc::new(RefCell::new(visible))),
+        }
+    }
+
+    pub(crate) fn observed_visible(&self) -> MirValue {
+        self.shared_visible
+            .as_ref()
+            .map_or_else(|| self.visible.clone(), |value| value.borrow().clone())
     }
 
     pub(crate) fn install_relocated_reference(
@@ -261,7 +340,9 @@ impl RuntimeValue {
         if let Some(reference) = relocated {
             match &mut self.visible {
                 MirValue::Class(class) => class.reference = reference,
-                MirValue::FfiBuffer(found) | MirValue::Bytes(found) => *found = reference,
+                MirValue::FfiBuffer(found)
+                | MirValue::Bytes(found)
+                | MirValue::ByteBuffer(found) => *found = reference,
                 MirValue::FfiRegisteredCallback {
                     reference: found, ..
                 } => *found = reference,

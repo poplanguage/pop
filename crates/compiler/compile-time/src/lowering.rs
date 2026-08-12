@@ -433,7 +433,9 @@ fn unsupported_statement_error(statement: &TypedStatement) -> Option<CompileTime
         | TypedStatementKind::ListSet { .. }
         | TypedStatementKind::TableSet { .. }
         | TypedStatementKind::CompoundArraySet { .. } => UnsupportedCompileTimeConstruct::Mutation,
-        TypedStatementKind::Match { .. } => UnsupportedCompileTimeConstruct::Match,
+        TypedStatementKind::Match { .. } | TypedStatementKind::IterationMatch { .. } => {
+            UnsupportedCompileTimeConstruct::Match
+        }
         TypedStatementKind::ErrorMatch { .. }
         | TypedStatementKind::ResultMatch { .. }
         | TypedStatementKind::CodecErrorMatch { .. } => {
@@ -504,6 +506,15 @@ fn unsupported_compile_time_construct(
             UnsupportedCompileTimeConstruct::ArrayAccess
         }
         TypedExpressionKind::ListAdd { .. } => UnsupportedCompileTimeConstruct::Mutation,
+        TypedExpressionKind::ChannelCreate { .. }
+        | TypedExpressionKind::ChannelTrySend { .. }
+        | TypedExpressionKind::ChannelTryReceive { .. }
+        | TypedExpressionKind::ChannelClose { .. }
+        | TypedExpressionKind::ChannelSendOutcomeTest { .. }
+        | TypedExpressionKind::ChannelReceiveItem { .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
         TypedExpressionKind::Record { .. } => UnsupportedCompileTimeConstruct::Record,
         TypedExpressionKind::ClassConstruct { .. } => {
             UnsupportedCompileTimeConstruct::ClassConstruction
@@ -560,7 +571,26 @@ fn unsupported_compile_time_construct(
         | TypedExpressionKind::ViewSlice { .. }
         | TypedExpressionKind::ViewLength { .. }
         | TypedExpressionKind::ViewGetByte { .. }
+        | TypedExpressionKind::ViewGetRune { .. }
         | TypedExpressionKind::ViewMaterialize { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
+        TypedExpressionKind::ByteBufferCreate { .. }
+        | TypedExpressionKind::ByteBufferLength { .. }
+        | TypedExpressionKind::ByteBufferReserve { .. }
+        | TypedExpressionKind::ByteBufferClear { .. }
+        | TypedExpressionKind::ByteBufferWriteByte { .. }
+        | TypedExpressionKind::ByteBufferWriteBytes { .. }
+        | TypedExpressionKind::ByteBufferWriteView { .. }
+        | TypedExpressionKind::ByteBufferWriteInteger { .. }
+        | TypedExpressionKind::ByteBufferMaterialize { .. }
+        | TypedExpressionKind::Utf8Encode { .. }
+        | TypedExpressionKind::Utf8DecodeView { .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { .. } => {
+            UnsupportedCompileTimeConstruct::ResultlessCall
+        }
+        TypedExpressionKind::RuneFromCodePoint { .. }
+        | TypedExpressionKind::RuneCodePoint { .. } => {
             UnsupportedCompileTimeConstruct::ResultlessCall
         }
         TypedExpressionKind::EnumCase { .. } => UnsupportedCompileTimeConstruct::UnionCase,
@@ -583,7 +613,8 @@ fn unsupported_compile_time_construct(
         }
         TypedExpressionKind::OptionalDefault { .. }
         | TypedExpressionKind::OptionalPropagate { .. }
-        | TypedExpressionKind::OptionalNarrow { .. } => {
+        | TypedExpressionKind::OptionalNarrow { .. }
+        | TypedExpressionKind::OptionalInject { .. } => {
             UnsupportedCompileTimeConstruct::OptionalFlow
         }
         TypedExpressionKind::Integer(_)

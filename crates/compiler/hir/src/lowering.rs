@@ -389,6 +389,11 @@ fn collect_view_locals(
                     collect_view_locals(arm.body(), locals);
                 }
             }
+            TypedStatementKind::IterationMatch { arms, .. } => {
+                for arm in arms {
+                    collect_view_locals(arm.body(), locals);
+                }
+            }
             TypedStatementKind::CodecErrorMatch { arms, .. } => {
                 for arm in arms {
                     collect_view_locals(arm.body(), locals);
@@ -453,6 +458,11 @@ fn collect_view_returns(
                 }
             }
             TypedStatementKind::ResultMatch { arms, .. } => {
+                for arm in arms {
+                    collect_view_returns(arm.body(), locals, returned);
+                }
+            }
+            TypedStatementKind::IterationMatch { arms, .. } => {
                 for arm in arms {
                     collect_view_returns(arm.body(), locals, returned);
                 }
@@ -708,6 +718,7 @@ fn lower_statement(
                 TypedIterationSource::Array => HirIterationSource::Array,
                 TypedIterationSource::List => HirIterationSource::List,
                 TypedIterationSource::Range => HirIterationSource::Range,
+                TypedIterationSource::String => HirIterationSource::String,
                 TypedIterationSource::Table => HirIterationSource::Table,
                 TypedIterationSource::Iterable => HirIterationSource::Iterable,
                 TypedIterationSource::Iterator => HirIterationSource::Iterator,
@@ -793,6 +804,31 @@ fn lower_statement(
             arms: arms
                 .iter()
                 .map(|arm| HirResultMatchArm {
+                    case: arm.case(),
+                    bindings: arm.bindings().iter().map(lower_match_binding).collect(),
+                    body: arm
+                        .body()
+                        .iter()
+                        .map(|statement| lower_statement(statement, interface_slots))
+                        .collect(),
+                    span: arm.span(),
+                })
+                .collect(),
+        },
+        TypedStatementKind::IterationMatch {
+            scrutinee,
+            iteration,
+            iteration_type,
+            item_type,
+            arms,
+        } => HirStatementKind::IterationMatch {
+            scrutinee: lower_expression(scrutinee, interface_slots),
+            iteration: *iteration,
+            iteration_type: *iteration_type,
+            item_type: *item_type,
+            arms: arms
+                .iter()
+                .map(|arm| HirIterationMatchArm {
                     case: arm.case(),
                     bindings: arm.bindings().iter().map(lower_match_binding).collect(),
                     body: arm
@@ -1138,6 +1174,131 @@ fn lower_expression(
             list: Box::new(lower_expression(list, interface_slots)),
             value: Box::new(lower_expression(value, interface_slots)),
         },
+        TypedExpressionKind::ChannelCreate { capacity, element } => {
+            HirExpressionKind::ChannelCreate {
+                capacity: Box::new(lower_expression(capacity, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => HirExpressionKind::ChannelTrySend {
+            sender: Box::new(lower_expression(sender, interface_slots)),
+            value: Box::new(lower_expression(value, interface_slots)),
+            element: *element,
+        },
+        TypedExpressionKind::ChannelTryReceive { receiver, element } => {
+            HirExpressionKind::ChannelTryReceive {
+                receiver: Box::new(lower_expression(receiver, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => HirExpressionKind::ChannelClose {
+            endpoint: Box::new(lower_expression(endpoint, interface_slots)),
+            direction: *direction,
+        },
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            HirExpressionKind::ChannelSendOutcomeTest {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                expected: *expected,
+            }
+        }
+        TypedExpressionKind::ChannelReceiveItem { outcome, element } => {
+            HirExpressionKind::ChannelReceiveItem {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                element: *element,
+            }
+        }
+        TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            HirExpressionKind::ChannelReceiveOutcomeTest {
+                outcome: Box::new(lower_expression(outcome, interface_slots)),
+                expected: *expected,
+            }
+        }
+        TypedExpressionKind::ByteBufferCreate {
+            capacity,
+            allocation_site,
+        } => HirExpressionKind::ByteBufferCreate {
+            capacity: capacity
+                .as_ref()
+                .map(|capacity| Box::new(lower_expression(capacity, interface_slots))),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::ByteBufferLength { buffer } => HirExpressionKind::ByteBufferLength {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => HirExpressionKind::ByteBufferReserve {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            additional_capacity: Box::new(lower_expression(additional_capacity, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferClear { buffer } => HirExpressionKind::ByteBufferClear {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+        },
+        TypedExpressionKind::ByteBufferWriteByte { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteByte {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteBytes {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteView { buffer, value } => {
+            HirExpressionKind::ByteBufferWriteView {
+                buffer: Box::new(lower_expression(buffer, interface_slots)),
+                value: Box::new(lower_expression(value, interface_slots)),
+            }
+        }
+        TypedExpressionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => HirExpressionKind::ByteBufferWriteInteger {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            value: Box::new(lower_expression(value, interface_slots)),
+            kind: *kind,
+            order: *order,
+        },
+        TypedExpressionKind::ByteBufferMaterialize {
+            buffer,
+            allocation_site,
+        } => HirExpressionKind::ByteBufferMaterialize {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::Utf8Encode {
+            view,
+            allocation_site,
+        } => HirExpressionKind::Utf8Encode {
+            view: Box::new(lower_expression(view, interface_slots)),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::Utf8DecodeView {
+            view,
+            allocation_site,
+        } => HirExpressionKind::Utf8DecodeView {
+            view: Box::new(lower_expression(view, interface_slots)),
+            allocation_site: *allocation_site,
+        },
+        TypedExpressionKind::Utf8DecodeBuffer {
+            buffer,
+            allocation_site,
+        } => HirExpressionKind::Utf8DecodeBuffer {
+            buffer: Box::new(lower_expression(buffer, interface_slots)),
+            allocation_site: *allocation_site,
+        },
         TypedExpressionKind::RangeCreate { first, last, step } => HirExpressionKind::RangeCreate {
             first: Box::new(lower_expression(first, interface_slots)),
             last: Box::new(lower_expression(last, interface_slots)),
@@ -1292,6 +1453,9 @@ fn lower_expression(
         } => HirExpressionKind::OptionalPropagate {
             optional: Box::new(lower_expression(optional, interface_slots)),
             enclosing_result: *enclosing_result,
+        },
+        TypedExpressionKind::OptionalInject { value } => HirExpressionKind::OptionalInject {
+            value: Box::new(lower_expression(value, interface_slots)),
         },
         TypedExpressionKind::ResultPropagate {
             result,
@@ -1608,6 +1772,10 @@ fn lower_expression(
             view: Box::new(lower_expression(view, interface_slots)),
             index: Box::new(lower_expression(index, interface_slots)),
         },
+        TypedExpressionKind::ViewGetRune { view, index } => HirExpressionKind::ViewGetRune {
+            view: Box::new(lower_expression(view, interface_slots)),
+            index: Box::new(lower_expression(index, interface_slots)),
+        },
         TypedExpressionKind::ViewMaterialize {
             kind,
             view,
@@ -1623,6 +1791,12 @@ fn lower_expression(
                 conversion: *conversion,
             }
         }
+        TypedExpressionKind::RuneFromCodePoint { value } => HirExpressionKind::RuneFromCodePoint {
+            value: Box::new(lower_expression(value, interface_slots)),
+        },
+        TypedExpressionKind::RuneCodePoint { value } => HirExpressionKind::RuneCodePoint {
+            value: Box::new(lower_expression(value, interface_slots)),
+        },
     };
     HirExpression {
         kind,
@@ -1942,6 +2116,12 @@ fn first_unknown_interface_call(
                 arms.iter()
                     .find_map(|arm| first_unknown_interface_call(arm.body(), slots))
             }),
+            TypedStatementKind::IterationMatch {
+                scrutinee, arms, ..
+            } => first_unknown_interface_expression(scrutinee, slots).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| first_unknown_interface_call(arm.body(), slots))
+            }),
             TypedStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 first_unknown_interface_expression(scrutinee, slots).or_else(|| {
                     arms.iter()
@@ -2143,9 +2323,51 @@ fn first_unknown_interface_expression(
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            first_unknown_interface_expression(capacity, slots)
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            first_unknown_interface_expression(sender, slots)
+                .or_else(|| first_unknown_interface_expression(value, slots))
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            first_unknown_interface_expression(receiver, slots)
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            first_unknown_interface_expression(endpoint, slots)
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            first_unknown_interface_expression(outcome, slots)
+        }
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
+            .as_deref()
+            .and_then(|capacity| first_unknown_interface_expression(capacity, slots)),
         TypedExpressionKind::ListLength { list } => first_unknown_interface_expression(list, slots),
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            first_unknown_interface_expression(buffer, slots)
+        }
+        TypedExpressionKind::Utf8Encode { view, .. }
+        | TypedExpressionKind::Utf8DecodeView { view, .. } => {
+            first_unknown_interface_expression(view, slots)
+        }
         TypedExpressionKind::ListAdd { list, value } => {
             first_unknown_interface_expression(list, slots)
+                .or_else(|| first_unknown_interface_expression(value, slots))
+        }
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            first_unknown_interface_expression(buffer, slots)
                 .or_else(|| first_unknown_interface_expression(value, slots))
         }
         TypedExpressionKind::RangeCreate { first, last, step } => {
@@ -2248,7 +2470,8 @@ fn first_unknown_interface_expression(
                 .or_else(|| first_unknown_interface_expression(fallback, slots))
         }
         TypedExpressionKind::OptionalPropagate { optional, .. }
-        | TypedExpressionKind::OptionalNarrow { optional } => {
+        | TypedExpressionKind::OptionalNarrow { optional }
+        | TypedExpressionKind::OptionalInject { value: optional } => {
             first_unknown_interface_expression(optional, slots)
         }
         TypedExpressionKind::ResultPropagate { result, .. } => {
@@ -2291,7 +2514,9 @@ fn first_unknown_interface_expression(
         | TypedExpressionKind::CheckedNominalCast { value, .. } => {
             first_unknown_interface_expression(value, slots)
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => {
             first_unknown_interface_expression(value, slots)
         }
         TypedExpressionKind::ViewCreate { lender, .. }
@@ -2307,7 +2532,8 @@ fn first_unknown_interface_expression(
         } => first_unknown_interface_expression(view, slots)
             .or_else(|| first_unknown_interface_expression(start, slots))
             .or_else(|| first_unknown_interface_expression(length, slots)),
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             first_unknown_interface_expression(view, slots)
                 .or_else(|| first_unknown_interface_expression(index, slots))
         }
@@ -2401,6 +2627,12 @@ fn first_compile_time_only_statement(statements: &[TypedStatement]) -> Option<So
                     .find_map(|arm| first_compile_time_only_statement(arm.body()))
             }),
             TypedStatementKind::ResultMatch {
+                scrutinee, arms, ..
+            } => first_compile_time_only_expression(scrutinee).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| first_compile_time_only_statement(arm.body()))
+            }),
+            TypedStatementKind::IterationMatch {
                 scrutinee, arms, ..
             } => first_compile_time_only_expression(scrutinee).or_else(|| {
                 arms.iter()
@@ -2561,9 +2793,51 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         TypedExpressionKind::ListCreate { capacity } => capacity
             .as_deref()
             .and_then(first_compile_time_only_expression),
+        TypedExpressionKind::ChannelCreate { capacity, .. } => {
+            first_compile_time_only_expression(capacity)
+        }
+        TypedExpressionKind::ChannelTrySend { sender, value, .. } => {
+            first_compile_time_only_expression(sender)
+                .or_else(|| first_compile_time_only_expression(value))
+        }
+        TypedExpressionKind::ChannelTryReceive { receiver, .. } => {
+            first_compile_time_only_expression(receiver)
+        }
+        TypedExpressionKind::ChannelClose { endpoint, .. } => {
+            first_compile_time_only_expression(endpoint)
+        }
+        TypedExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveItem { outcome, .. }
+        | TypedExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            first_compile_time_only_expression(outcome)
+        }
+        TypedExpressionKind::ByteBufferCreate { capacity, .. } => capacity
+            .as_deref()
+            .and_then(first_compile_time_only_expression),
         TypedExpressionKind::ListLength { list } => first_compile_time_only_expression(list),
+        TypedExpressionKind::ByteBufferLength { buffer }
+        | TypedExpressionKind::ByteBufferClear { buffer }
+        | TypedExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | TypedExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            first_compile_time_only_expression(buffer)
+        }
+        TypedExpressionKind::Utf8Encode { view, .. }
+        | TypedExpressionKind::Utf8DecodeView { view, .. } => {
+            first_compile_time_only_expression(view)
+        }
         TypedExpressionKind::ListAdd { list, value } => first_compile_time_only_expression(list)
             .or_else(|| first_compile_time_only_expression(value)),
+        TypedExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | TypedExpressionKind::ByteBufferWriteByte { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteView { buffer, value }
+        | TypedExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            first_compile_time_only_expression(buffer)
+                .or_else(|| first_compile_time_only_expression(value))
+        }
         TypedExpressionKind::RangeCreate { first, last, step } => {
             first_compile_time_only_expression(first)
                 .or_else(|| first_compile_time_only_expression(last))
@@ -2660,7 +2934,8 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
                 .or_else(|| first_compile_time_only_expression(fallback))
         }
         TypedExpressionKind::OptionalPropagate { optional, .. }
-        | TypedExpressionKind::OptionalNarrow { optional } => {
+        | TypedExpressionKind::OptionalNarrow { optional }
+        | TypedExpressionKind::OptionalInject { value: optional } => {
             first_compile_time_only_expression(optional)
         }
         TypedExpressionKind::ResultPropagate { result, .. } => {
@@ -2717,9 +2992,9 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         | TypedExpressionKind::CheckedNominalCast { value, .. } => {
             first_compile_time_only_expression(value)
         }
-        TypedExpressionKind::NumericConvert { value, .. } => {
-            first_compile_time_only_expression(value)
-        }
+        TypedExpressionKind::NumericConvert { value, .. }
+        | TypedExpressionKind::RuneFromCodePoint { value }
+        | TypedExpressionKind::RuneCodePoint { value } => first_compile_time_only_expression(value),
         TypedExpressionKind::ViewCreate { lender, .. }
         | TypedExpressionKind::ViewLength { view: lender, .. }
         | TypedExpressionKind::ViewMaterialize { view: lender, .. } => {
@@ -2733,7 +3008,8 @@ fn first_compile_time_only_expression(expression: &TypedExpression) -> Option<So
         } => first_compile_time_only_expression(view)
             .or_else(|| first_compile_time_only_expression(start))
             .or_else(|| first_compile_time_only_expression(length)),
-        TypedExpressionKind::ViewGetByte { view, index } => {
+        TypedExpressionKind::ViewGetByte { view, index }
+        | TypedExpressionKind::ViewGetRune { view, index } => {
             first_compile_time_only_expression(view)
                 .or_else(|| first_compile_time_only_expression(index))
         }

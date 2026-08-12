@@ -1,7 +1,11 @@
 //! Versioned backend-neutral Pop Lang Runtime Interface contracts.
 
+mod abi_signature;
+mod actor;
 mod adapter;
 mod allocation;
+mod atomic;
+mod channel;
 mod contract;
 mod failure;
 mod ffi;
@@ -12,8 +16,12 @@ mod reference;
 mod scheduler;
 mod task;
 
+pub use abi_signature::*;
+pub use actor::*;
 pub use adapter::*;
 pub use allocation::*;
+pub use atomic::*;
+pub use channel::*;
 pub use contract::*;
 pub use failure::*;
 pub use ffi::*;

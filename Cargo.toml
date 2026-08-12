@@ -55,6 +55,10 @@ ratatui = { version = "=0.30.2", default-features = false, features = ["crosster
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.11.0"
+libc = "0.2.186"
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = { version = "=0.7.0", default-features = false }
+rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "ring"] }
 toml = "0.9.8"
 pop-foundation = { path = "crates/compiler/foundation" }
 pop-source = { path = "crates/compiler/source" }

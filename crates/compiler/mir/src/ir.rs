@@ -20,8 +20,8 @@ use pop_runtime_interface::{
     PanicPayload, SafePointId, StackMap, Trap, UnwindReason,
 };
 use pop_types::{
-    CallableLifetimeSummary, FloatKind, FloatValue, IntegerKind, IntegerValue, SemanticType,
-    TypeArena,
+    ByteOrder, CallableLifetimeSummary, FloatKind, FloatValue, IntegerKind, IntegerValue,
+    SemanticType, TypeArena,
 };
 
 use crate::render::{
@@ -222,6 +222,39 @@ impl MirInterfaceReference {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MirRecordReference {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) symbol: SymbolId,
+    pub(crate) type_id: TypeId,
+}
+
+impl MirRecordReference {
+    #[must_use]
+    pub const fn new(identity: SymbolIdentity, symbol: SymbolId, type_id: TypeId) -> Self {
+        Self {
+            identity,
+            symbol,
+            type_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MirClassReference {
     pub(crate) identity: MirNominalIdentity,
     pub(crate) declaration: MirClassDeclaration,
@@ -307,17 +340,28 @@ impl MirClassReference {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MirNominalReferenceCatalog {
+    pub(crate) records: Vec<MirRecordReference>,
     pub(crate) interfaces: Vec<MirInterfaceReference>,
     pub(crate) classes: Vec<MirClassReference>,
 }
 
 impl MirNominalReferenceCatalog {
     #[must_use]
-    pub fn new(interfaces: Vec<MirInterfaceReference>, classes: Vec<MirClassReference>) -> Self {
+    pub fn new(
+        records: Vec<MirRecordReference>,
+        interfaces: Vec<MirInterfaceReference>,
+        classes: Vec<MirClassReference>,
+    ) -> Self {
         Self {
+            records,
             interfaces,
             classes,
         }
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[MirRecordReference] {
+        &self.records
     }
 
     #[must_use]
@@ -616,6 +660,16 @@ impl MirBubble {
                 adapter.schema_version,
                 adapter.projection_sha256,
                 members,
+            );
+        }
+        for reference in self.nominal_references.records() {
+            let _ = writeln!(
+                output,
+                "nominal.record b{}:s{} s{} t{}",
+                reference.identity().bubble().raw(),
+                reference.identity().symbol().raw(),
+                reference.symbol().raw(),
+                reference.type_id().raw(),
             );
         }
         for reference in self.nominal_references.interfaces() {
@@ -1792,6 +1846,9 @@ pub enum MirInstructionKind {
     },
     BooleanConstant(bool),
     NilConstant,
+    OptionalMake {
+        value: ValueId,
+    },
     OptionalIsPresent {
         optional: ValueId,
     },
@@ -1963,6 +2020,88 @@ pub enum MirInstructionKind {
         list: ValueId,
         value: ValueId,
         element_map: ArrayElementMap,
+    },
+    ChannelCreate {
+        capacity: ValueId,
+        element: TypeId,
+        endpoints: TypeId,
+        allocation_site: AllocationSiteId,
+    },
+    ChannelTrySend {
+        sender: ValueId,
+        value: ValueId,
+        element: TypeId,
+        element_map: ArrayElementMap,
+    },
+    ChannelTryReceive {
+        receiver: ValueId,
+        element: TypeId,
+        element_map: ArrayElementMap,
+        allocation_site: AllocationSiteId,
+    },
+    ChannelClose {
+        endpoint: ValueId,
+        direction: pop_types::ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: ValueId,
+        expected: pop_types::ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: ValueId,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: ValueId,
+        expected: pop_types::ChannelReceiveOutcomeKind,
+    },
+    ByteBufferCreate {
+        capacity: Option<ValueId>,
+        allocation_site: AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: ValueId,
+    },
+    ByteBufferReserve {
+        buffer: ValueId,
+        additional_capacity: ValueId,
+    },
+    ByteBufferClear {
+        buffer: ValueId,
+    },
+    ByteBufferWriteByte {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteBytes {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteView {
+        buffer: ValueId,
+        value: ValueId,
+    },
+    ByteBufferWriteInteger {
+        buffer: ValueId,
+        value: ValueId,
+        kind: IntegerKind,
+        order: ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: ValueId,
+        allocation_site: AllocationSiteId,
+    },
+    Utf8Encode {
+        view: ValueId,
+        allocation_site: AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: ValueId,
+        allocation_site: AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
+        buffer: ValueId,
+        allocation_site: AllocationSiteId,
     },
     RangeCreate {
         first: ValueId,
@@ -2294,6 +2433,10 @@ pub enum MirInstructionKind {
         view: ValueId,
         index: ValueId,
     },
+    ViewGetRune {
+        view: ValueId,
+        index: ValueId,
+    },
     ViewMaterialize {
         kind: MirViewKind,
         view: ValueId,
@@ -2301,6 +2444,12 @@ pub enum MirInstructionKind {
     },
     ViewEnd {
         borrow_lifetime: LifetimeId,
+    },
+    RuneFromCodePoint {
+        value: ValueId,
+    },
+    RuneCodePoint {
+        value: ValueId,
     },
     CaptureCellAllocate {
         binding: BindingId,

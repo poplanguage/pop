@@ -13,6 +13,7 @@ fn view_types() -> TypeArena {
     let mut types = TypeArena::new();
     let integer = types.source_type("Int").expect("Int");
     let byte = types.source_type("Byte").expect("Byte");
+    let rune = types.source_type("Rune").expect("Rune");
     let string = types.source_type("String").expect("String");
     let bytes = types
         .intern(SemanticType::Builtin {
@@ -33,8 +34,52 @@ fn view_types() -> TypeArena {
         })
         .expect("Text.View");
     let _ = types.optional(byte).expect("Byte?");
+    let _ = types.optional(rune).expect("Rune?");
     let _ = (integer, string, bytes, bytes_view, text_view);
     types
+}
+
+fn rune_operations_text(types: &TypeArena) -> String {
+    let integer = types.source_type("Int").expect("Int");
+    let rune = types.source_type("Rune").expect("Rune");
+    let uint32 = types.source_type("UInt32").expect("UInt32");
+    let string = types.source_type("String").expect("String");
+    let nil = types.source_type("nil").expect("nil");
+    let text_view = types
+        .find(&SemanticType::Builtin {
+            definition: TEXT_VIEW_TYPE_ID,
+            arguments: Vec::new(),
+        })
+        .expect("Text.View");
+    let optional_rune = types
+        .find(&SemanticType::Union(vec![nil, rune]))
+        .expect("Rune?");
+    format!(
+        concat!(
+            "mir bubble b0 namespace n0\n",
+            "dependencies\n",
+            "function s0 f0(t{uint32}) -> (t{optional_rune})\n",
+            "  b0(v0:t{uint32}):\n",
+            "    v1:t{optional_rune} = runeFromCodePoint v0\n",
+            "    return (v1)\n",
+            "function s1 f1(t{rune}) -> (t{uint32})\n",
+            "  b0(v0:t{rune}):\n",
+            "    v1:t{uint32} = runeCodePoint v0\n",
+            "    return (v1)\n",
+            "function s2 f2(t{string}, t{integer}) -> (t{optional_rune})\n",
+            "  b0(v0:t{string}, v1:t{integer}):\n",
+            "    v2:t{text_view} = viewCreate text v0 lender parameter#0 unit scalars boundary utf8 lifetime#1\n",
+            "    v3:t{optional_rune} = viewGetRune v2 v1\n",
+            "    do v4 viewEnd lifetime#1\n",
+            "    return (v3)\n",
+        ),
+        integer = integer.raw(),
+        rune = rune.raw(),
+        uint32 = uint32.raw(),
+        string = string.raw(),
+        text_view = text_view.raw(),
+        optional_rune = optional_rune.raw(),
+    )
 }
 
 fn bytes_view_text(types: &TypeArena) -> String {
@@ -125,6 +170,134 @@ fn verifier_rejects_corrupt_view_contracts_and_escape() {
         parse_mir_dump(&text.replace(" trap BoundsViolation", " trap none")).is_err(),
         "the closed view trap vocabulary accepted an invented fallback"
     );
+}
+
+#[test]
+fn rune_operations_round_trip_and_reject_type_drift() {
+    let types = view_types();
+    let valid = rune_operations_text(&types);
+    let bubble = parse_mir_dump(&valid).expect("Rune operation MIR");
+    assert_eq!(verify_mir_bubble(&bubble, &types), Ok(()));
+    assert_eq!(
+        parse_mir_dump(&bubble.dump()).expect("Rune round trip"),
+        bubble
+    );
+
+    let rune = types.source_type("Rune").expect("Rune");
+    let uint32 = types.source_type("UInt32").expect("UInt32");
+    let byte = types.source_type("Byte").expect("Byte");
+    let nil = types.source_type("nil").expect("nil");
+    let optional_rune = types
+        .find(&SemanticType::Union(vec![nil, rune]))
+        .expect("Rune?");
+    let optional_byte = types
+        .find(&SemanticType::Union(vec![nil, byte]))
+        .expect("Byte?");
+    let wrong_constructor_operand = valid
+        .replacen(
+            &format!("function s0 f0(t{})", uint32.raw()),
+            &format!("function s0 f0(t{})", rune.raw()),
+            1,
+        )
+        .replacen(
+            &format!("b0(v0:t{}):", uint32.raw()),
+            &format!("b0(v0:t{}):", rune.raw()),
+            1,
+        );
+    let wrong_projection_operand = valid
+        .replacen(
+            &format!("function s1 f1(t{})", rune.raw()),
+            &format!("function s1 f1(t{})", uint32.raw()),
+            1,
+        )
+        .replacen(
+            &format!(
+                "b0(v0:t{}):\n    v1:t{} = runeCodePoint",
+                rune.raw(),
+                uint32.raw()
+            ),
+            &format!(
+                "b0(v0:t{}):\n    v1:t{} = runeCodePoint",
+                uint32.raw(),
+                uint32.raw()
+            ),
+            1,
+        );
+    let corruptions = [
+        wrong_constructor_operand,
+        valid.replacen(
+            &format!("v1:t{} = runeFromCodePoint", optional_rune.raw()),
+            &format!("v1:t{} = runeFromCodePoint", optional_byte.raw()),
+            1,
+        ),
+        wrong_projection_operand,
+        valid.replacen(
+            &format!("v1:t{} = runeCodePoint", uint32.raw()),
+            &format!("v1:t{} = runeCodePoint", rune.raw()),
+            1,
+        ),
+        valid.replacen(
+            &format!("v3:t{} = viewGetRune", optional_rune.raw()),
+            &format!("v3:t{} = viewGetRune", optional_byte.raw()),
+            1,
+        ),
+    ];
+    for corrupt in corruptions {
+        let bubble = parse_mir_dump(&corrupt).expect("structurally valid corrupt Rune MIR");
+        assert!(
+            verify_mir_bubble(&bubble, &types).is_err(),
+            "corrupt Rune MIR was accepted:\n{corrupt}"
+        );
+    }
+}
+
+#[test]
+fn parameter_lender_provenance_survives_exact_block_argument_joins() {
+    let types = view_types();
+    let string = types.source_type("String").expect("String");
+    let boolean = types.source_type("Boolean").expect("Boolean");
+    let integer = types.source_type("Int").expect("Int");
+    let view = types
+        .find(&SemanticType::Builtin {
+            definition: TEXT_VIEW_TYPE_ID,
+            arguments: Vec::new(),
+        })
+        .expect("Text.View");
+    let valid = format!(
+        concat!(
+            "mir bubble b0 namespace n0\n",
+            "dependencies\n",
+            "function s0 f0(t{string}, t{boolean}, t{string}) -> (t{integer})\n",
+            "  b0(v0:t{string}, v1:t{boolean}, v2:t{string}):\n",
+            "    condBranch v1 b1 b2\n",
+            "  b1():\n",
+            "    branch b3 (v0)\n",
+            "  b2():\n",
+            "    branch b3 (v0)\n",
+            "  b3(v3:t{string}):\n",
+            "    v4:t{view} = viewCreate text v3 lender parameter#0 unit scalars boundary utf8 lifetime#1\n",
+            "    v5:t{integer} = viewLength text v4\n",
+            "    do v6 viewEnd lifetime#1\n",
+            "    return (v5)\n",
+        ),
+        string = string.raw(),
+        boolean = boolean.raw(),
+        integer = integer.raw(),
+        view = view.raw(),
+    );
+    let joined = parse_mir_dump(&valid).expect("joined parameter lender MIR");
+    assert_eq!(verify_mir_bubble(&joined, &types), Ok(()));
+
+    let mixed = parse_mir_dump(&valid.replacen("    branch b3 (v0)\n", "    branch b3 (v2)\n", 1))
+        .expect("mixed lender join MIR");
+    assert!(matches!(
+        verify_mir_bubble(&mixed, &types),
+        Err(errors) if errors.iter().any(|error| matches!(
+            error,
+            MirVerificationError::InvalidViewOperation { instruction }
+                if instruction.raw() == 4
+        ))
+    ));
 }
 
 #[test]

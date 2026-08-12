@@ -100,6 +100,81 @@ fn experimental_c_backend_rejects_complete_view_mir_before_emission() {
 }
 
 #[test]
+fn experimental_c_backend_rejects_reusable_byte_buffers_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function build(): Bytes\n\
+             local buffer = Bytes.withCapacity(8)\n\
+             Bytes.writeUInt32BigEndian(buffer, 16909060)\n\
+             return Bytes.toBytes(buffer)\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("byteBufferCreate"), "{dump}");
+    assert!(dump.contains("byteBufferWriteInteger"), "{dump}");
+    assert!(dump.contains("byteBufferMaterialize"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
+fn experimental_c_backend_rejects_directional_channels_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function create(): (Channel.Sender<Int>, Channel.Receiver<Int>)?\n\
+             return Channel.bounded<<Int>>(UInt64(1))\n\
+         end\n",
+    );
+    assert!(mir.dump().contains("channelCreate"));
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
+fn experimental_c_backend_rejects_checked_utf8_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function decode(text: String): String?\n\
+             local bytes = Text.encodeUtf8(text)\n\
+             return Text.decodeUtf8(Bytes.view(bytes))\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("utf8Encode"), "{dump}");
+    assert!(dump.contains("utf8DecodeView"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
+fn experimental_c_backend_rejects_rune_and_text_scalar_mir_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         public function inspect(text: String): UInt32?\n\
+             local value = Text.get(text, 1)?\n\
+             return Unicode.codePoint(value)\n\
+         end\n",
+    );
+    let dump = mir.dump();
+    assert!(dump.contains("viewGetRune"), "{dump}");
+    assert!(dump.contains("runeCodePoint"), "{dump}");
+
+    assert!(matches!(
+        lower_mir_to_c(&mir, &types, CLoweringOptions::default()),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
 fn experimental_c_backend_rejects_generated_codec_operations_without_a_fallback() {
     let source = SourceFile::new(
         FileId::from_raw(0),
@@ -819,6 +894,34 @@ fn runtime_free_c_rejects_nominal_iteration_without_a_fallback() {
          end\n",
     );
 
+    assert!(matches!(
+        lower_mir_to_c(
+            &mir,
+            &types,
+            CLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+        ),
+        Err(CBackendError::UnsupportedInstruction { .. })
+    ));
+}
+
+#[test]
+fn runtime_free_c_rejects_string_iteration_without_a_fallback() {
+    let (mir, types) = lower(
+        "namespace Main\n\
+         function main(): Int\n\
+             local count = 0\n\
+             for rune in \"Pop 🫧\" do\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    );
+
+    let dump = mir.dump();
+    assert!(
+        dump.contains("call.builtinInterface"),
+        "optimized MIR must retain String iteration for fail-closed validation:\n{dump}"
+    );
     assert!(matches!(
         lower_mir_to_c(
             &mir,

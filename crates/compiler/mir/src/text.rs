@@ -33,9 +33,9 @@ use super::{
     MirInstructionKind, MirInterfaceDeclaration, MirInterfaceImplementation, MirInterfaceMethod,
     MirInterfaceMethodImplementation, MirInterfaceReference, MirLiveFrame, MirMethod,
     MirNestedFunction, MirNominalIdentity, MirNominalReferenceCatalog, MirRecordDeclaration,
-    MirSuspendOperation, MirTaskDispatch, MirTerminator, MirUnionCase, MirUnionDeclaration,
-    MirUnionSwitchArm, MirUnwindAction, MirViewBoundaryProof, MirViewKind, MirViewLender,
-    MirViewRangeUnit, MirViewTrap, local_instruction_effects,
+    MirRecordReference, MirSuspendOperation, MirTaskDispatch, MirTerminator, MirUnionCase,
+    MirUnionDeclaration, MirUnionSwitchArm, MirUnwindAction, MirViewBoundaryProof, MirViewKind,
+    MirViewLender, MirViewRangeUnit, MirViewTrap, local_instruction_effects,
 };
 use crate::MirFfiLayoutCatalog;
 
@@ -97,12 +97,19 @@ pub fn parse_mir_dump(text: &str) -> Result<MirBubble, MirParseError> {
     let mut methods = Vec::new();
     let mut nested_functions = Vec::new();
     let mut function_references = Vec::new();
+    let mut nominal_records = Vec::new();
     let mut nominal_interfaces = Vec::new();
     let mut nominal_classes = Vec::new();
     let mut generated_codec_adapters = Vec::new();
     while position < lines.len() {
         if lines[position].starts_with("codec.schema ") {
             generated_codec_adapters.push(parse_generated_codec_adapter(
+                lines[position],
+                position + 1,
+            )?);
+            position += 1;
+        } else if lines[position].starts_with("nominal.record ") {
+            nominal_records.push(parse_nominal_record_reference(
                 lines[position],
                 position + 1,
             )?);
@@ -167,7 +174,11 @@ pub fn parse_mir_dump(text: &str) -> Result<MirBubble, MirParseError> {
         methods,
         nested_functions,
         function_references,
-        nominal_references: MirNominalReferenceCatalog::new(nominal_interfaces, nominal_classes),
+        nominal_references: MirNominalReferenceCatalog::new(
+            nominal_records,
+            nominal_interfaces,
+            nominal_classes,
+        ),
         ffi_layouts: MirFfiLayoutCatalog::empty(
             &TargetSpec::for_triple("x86_64-unknown-linux-gnu")
                 .expect("the accepted native FFI target is part of the target inventory"),
@@ -263,6 +274,21 @@ fn parse_generated_codec_adapter(
         projection_sha256: parts[19].to_owned(),
         members,
     })
+}
+
+fn parse_nominal_record_reference(
+    line: &str,
+    number: usize,
+) -> Result<MirRecordReference, MirParseError> {
+    let parts = line.split_whitespace().collect::<Vec<_>>();
+    if parts.len() != 4 || parts[0] != "nominal.record" {
+        return Err(error(number, "malformed nominal record reference"));
+    }
+    Ok(MirRecordReference::new(
+        parse_nominal_identity(parts[1], number)?,
+        SymbolId::from_raw(parse_prefixed(parts[2], 's', number)?),
+        TypeId::from_raw(parse_prefixed(parts[3], 't', number)?),
+    ))
 }
 
 fn parse_nominal_interface_reference(
@@ -2124,6 +2150,192 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
             element_map: parse_array_element_map(element_map, line)?,
         });
     }
+    if let Some(rest) = text.strip_prefix("channelCreate ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel creation"));
+        }
+        return Ok(MirInstructionKind::ChannelCreate {
+            allocation_site: AllocationSiteId::from_raw(parse_hash(parts[0], "site#", line)?),
+            element: TypeId::from_raw(parse_prefixed(parts[1], 't', line)?),
+            endpoints: TypeId::from_raw(parse_prefixed(parts[2], 't', line)?),
+            capacity: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelTrySend ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel send"));
+        }
+        return Ok(MirInstructionKind::ChannelTrySend {
+            element_map: parse_array_element_map(parts[0], line)?,
+            element: TypeId::from_raw(parse_prefixed(parts[1], 't', line)?),
+            sender: ValueId::from_raw(parse_prefixed(parts[2], 'v', line)?),
+            value: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelTryReceive ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "channel receive"));
+        }
+        return Ok(MirInstructionKind::ChannelTryReceive {
+            allocation_site: AllocationSiteId::from_raw(parse_hash(parts[0], "site#", line)?),
+            element_map: parse_array_element_map(parts[1], line)?,
+            element: TypeId::from_raw(parse_prefixed(parts[2], 't', line)?),
+            receiver: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelClose ") {
+        let (direction, endpoint) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel close"))?;
+        let direction = match direction {
+            "sender" => pop_types::ChannelDirection::Sender,
+            "receiver" => pop_types::ChannelDirection::Receiver,
+            _ => return Err(error(line, "channel direction")),
+        };
+        return Ok(MirInstructionKind::ChannelClose {
+            endpoint: ValueId::from_raw(parse_prefixed(endpoint, 'v', line)?),
+            direction,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelSendOutcomeTest ") {
+        let (expected, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel send outcome test"))?;
+        let expected = match expected {
+            "accepted" => pop_types::ChannelSendOutcomeKind::Accepted,
+            "full" => pop_types::ChannelSendOutcomeKind::Full,
+            "closed" => pop_types::ChannelSendOutcomeKind::Closed,
+            _ => return Err(error(line, "channel send outcome")),
+        };
+        return Ok(MirInstructionKind::ChannelSendOutcomeTest {
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+            expected,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelReceiveItem ") {
+        let (element, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel received item"))?;
+        return Ok(MirInstructionKind::ChannelReceiveItem {
+            element: TypeId::from_raw(parse_prefixed(element, 't', line)?),
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("channelReceiveOutcomeTest ") {
+        let (expected, outcome) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "channel receive outcome test"))?;
+        let expected = match expected {
+            "empty" => pop_types::ChannelReceiveOutcomeKind::Empty,
+            "closed" => pop_types::ChannelReceiveOutcomeKind::Closed,
+            _ => return Err(error(line, "channel receive outcome")),
+        };
+        return Ok(MirInstructionKind::ChannelReceiveOutcomeTest {
+            outcome: ValueId::from_raw(parse_prefixed(outcome, 'v', line)?),
+            expected,
+        });
+    }
+    if let Some(rest) = text.strip_prefix("byteBufferCreate ") {
+        let (site, capacity) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "byte buffer creation"))?;
+        let capacity = if capacity == "none" {
+            None
+        } else {
+            Some(ValueId::from_raw(parse_prefixed(capacity, 'v', line)?))
+        };
+        return Ok(MirInstructionKind::ByteBufferCreate {
+            capacity,
+            allocation_site: AllocationSiteId::from_raw(parse_hash(site, "site#", line)?),
+        });
+    }
+    if let Some(buffer) = text.strip_prefix("byteBufferLength ") {
+        return Ok(MirInstructionKind::ByteBufferLength {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+        });
+    }
+    if let Some(operands) = text.strip_prefix("byteBufferReserve ") {
+        let (buffer, additional_capacity) = parse_two_values(operands, line)?;
+        return Ok(MirInstructionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        });
+    }
+    if let Some(buffer) = text.strip_prefix("byteBufferClear ") {
+        return Ok(MirInstructionKind::ByteBufferClear {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+        });
+    }
+    for (prefix, operation) in [
+        ("byteBufferWriteByte ", 0_u8),
+        ("byteBufferWriteBytes ", 1),
+        ("byteBufferWriteView ", 2),
+    ] {
+        if let Some(operands) = text.strip_prefix(prefix) {
+            let (buffer, value) = parse_two_values(operands, line)?;
+            return Ok(match operation {
+                0 => MirInstructionKind::ByteBufferWriteByte { buffer, value },
+                1 => MirInstructionKind::ByteBufferWriteBytes { buffer, value },
+                _ => MirInstructionKind::ByteBufferWriteView { buffer, value },
+            });
+        }
+    }
+    if let Some(rest) = text.strip_prefix("byteBufferWriteInteger ") {
+        let parts = rest.split_ascii_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return Err(error(line, "byte buffer integer write"));
+        }
+        let order = match parts[1] {
+            "BigEndian" => pop_types::ByteOrder::BigEndian,
+            "LittleEndian" => pop_types::ByteOrder::LittleEndian,
+            _ => return Err(error(line, "byte buffer integer byte order")),
+        };
+        return Ok(MirInstructionKind::ByteBufferWriteInteger {
+            kind: parse_integer_kind(parts[0], line)?,
+            order,
+            buffer: ValueId::from_raw(parse_prefixed(parts[2], 'v', line)?),
+            value: ValueId::from_raw(parse_prefixed(parts[3], 'v', line)?),
+        });
+    }
+    if let Some(rest) = text.strip_prefix("byteBufferMaterialize ") {
+        let (site, buffer) = rest
+            .split_once(' ')
+            .ok_or_else(|| error(line, "byte buffer materialization"))?;
+        return Ok(MirInstructionKind::ByteBufferMaterialize {
+            buffer: ValueId::from_raw(parse_prefixed(buffer, 'v', line)?),
+            allocation_site: AllocationSiteId::from_raw(parse_hash(site, "site#", line)?),
+        });
+    }
+    for (prefix, operation) in [
+        ("utf8Encode ", 0_u8),
+        ("utf8DecodeView ", 1),
+        ("utf8DecodeBuffer ", 2),
+    ] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            let (site, value) = rest
+                .split_once(' ')
+                .ok_or_else(|| error(line, "UTF-8 transcoding"))?;
+            let value = ValueId::from_raw(parse_prefixed(value, 'v', line)?);
+            let allocation_site = AllocationSiteId::from_raw(parse_hash(site, "site#", line)?);
+            return Ok(match operation {
+                0 => MirInstructionKind::Utf8Encode {
+                    view: value,
+                    allocation_site,
+                },
+                1 => MirInstructionKind::Utf8DecodeView {
+                    view: value,
+                    allocation_site,
+                },
+                _ => MirInstructionKind::Utf8DecodeBuffer {
+                    buffer: value,
+                    allocation_site,
+                },
+            });
+        }
+    }
     if let Some(operands) = text.strip_prefix("rangeCreate ") {
         let (first, last, step) = parse_three_values(operands, line)?;
         return Ok(MirInstructionKind::RangeCreate { first, last, step });
@@ -2131,6 +2343,11 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
     if let Some(optional) = text.strip_prefix("optionalIsPresent ") {
         return Ok(MirInstructionKind::OptionalIsPresent {
             optional: ValueId::from_raw(parse_prefixed(optional, 'v', line)?),
+        });
+    }
+    if let Some(value) = text.strip_prefix("optionalMake ") {
+        return Ok(MirInstructionKind::OptionalMake {
+            value: ValueId::from_raw(parse_prefixed(value, 'v', line)?),
         });
     }
     if let Some(optional) = text.strip_prefix("optionalGet ") {
@@ -2371,6 +2588,10 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
         let (view, index) = parse_two_values(rest, line)?;
         return Ok(MirInstructionKind::ViewGetByte { view, index });
     }
+    if let Some(rest) = text.strip_prefix("viewGetRune ") {
+        let (view, index) = parse_two_values(rest, line)?;
+        return Ok(MirInstructionKind::ViewGetRune { view, index });
+    }
     if let Some(rest) = text.strip_prefix("viewMaterialize ") {
         let parts = rest.split_whitespace().collect::<Vec<_>>();
         let [kind, view, allocation] = parts.as_slice() else {
@@ -2389,6 +2610,16 @@ fn parse_operation(text: &str, line: usize) -> Result<MirInstructionKind, MirPar
     if let Some(lifetime) = text.strip_prefix("viewEnd ") {
         return Ok(MirInstructionKind::ViewEnd {
             borrow_lifetime: LifetimeId::from_raw(parse_hash(lifetime, "lifetime#", line)?),
+        });
+    }
+    if let Some(value) = text.strip_prefix("runeFromCodePoint ") {
+        return Ok(MirInstructionKind::RuneFromCodePoint {
+            value: ValueId::from_raw(parse_prefixed(value, 'v', line)?),
+        });
+    }
+    if let Some(value) = text.strip_prefix("runeCodePoint ") {
+        return Ok(MirInstructionKind::RuneCodePoint {
+            value: ValueId::from_raw(parse_prefixed(value, 'v', line)?),
         });
     }
     if let Some(rest) = text.strip_prefix("gcSafePoint ") {

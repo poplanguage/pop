@@ -561,7 +561,7 @@ is `Range.create(first, last, step?)`. It infers one exact fixed integer type
 and implements `Iterable<TInteger>` without introducing a `..` range operator.
 See ADR 0056.
 
-### Tagged-union matching
+### Closed-union matching
 
 The initial exhaustive statement uses ordinary block words rather than arrows:
 
@@ -576,6 +576,9 @@ end
 
 Every case appears exactly once. `_` may ignore one case payload; wildcard arms,
 guards, and expression-valued matches are reserved for later design.
+The same form accepts reserved `Result.Ok`/`Result.Error` and
+`Iteration.Item`/`Iteration.End` cases with their exact statically known
+payload types.
 
 ### Compile-time values
 

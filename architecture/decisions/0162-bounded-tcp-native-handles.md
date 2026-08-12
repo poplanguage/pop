@@ -1,0 +1,25 @@
+# ADR 0162: Bounded TCP Native Handles
+
+- Status: accepted
+- Date: 2026-08-03
+
+The native runtime exposes opaque TCP listener and stream handles for explicit
+IPv4 loopback endpoints. Bind and connect accept a numeric port only; no DNS,
+environment, global registry, or implicit host selection is permitted. Accept,
+send, receive, and close fail closed on invalid handles and caller bounds.
+Listeners and every connected or accepted stream are nonblocking, so a native
+operation cannot suspend the runtime thread waiting for peer progress.
+ABI 1.28 returns a closed failure/progress/would-block/closed status from send
+and receive and writes byte counts separately, so zero bytes never erases the
+transport state.
+
+The first ABI slice is a deterministic capability bridge for compiler/runtime
+integration. TLS, cancellation, deadlines, public `Net.Tcp` records, and
+non-loopback policy remain later layers.
+
+The backend-neutral `RuntimeOperation` inventory and native ABI symbol catalog
+reserve exact entries for every operation in this slice. Lowering requires the
+backend-neutral `Networking` target capability; the supported Linux native
+target declares it and freestanding targets do not.
+The selected runtime profile must also provide the distinct `NetworkIo`
+runtime contract.

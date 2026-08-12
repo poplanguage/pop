@@ -161,6 +161,25 @@ contract. Bounded channels are the default for streams and pipelines.
 Unbounded channels require an explicit advanced constructor and memory-limit
 documentation.
 
+ADR 0145 fixes the shared bounded-channel lifecycle beneath those public
+operations. Admitted values remain FIFO and within capacity; full/closed sends
+return the exact unsent value, sender closure drains buffered values, and the
+last receiver returns queued values for precise root release. A zero-capacity
+channel is an explicit rendezvous channel whose send becomes ready only when a
+scheduler receiver can be paired.
+
+ADR 0146 maps the non-suspending portion to native ABI 1.27/2.5 with distinct
+directional operations and closed send/receive statuses. Queued managed values
+remain precise strong roots; scalar values do not become roots. Scheduler
+waiting and cancellation must build on, rather than bypass, this admission
+path.
+
+ADR 0147 fixes the first public directional surface: opaque
+`Channel.Sender<T>`/`Receiver<T>`, closed named send/receive outcomes, a checked
+bounded constructor, non-suspending try operations, idempotent directional
+close, and typed inspection functions. Ordinary endpoint copies alias one
+directional group rather than silently creating a new producer/consumer.
+
 Send and receive may suspend and apply backpressure. `Task.select` uses a
 closed typed set of task, channel, or timer cases. It never returns an untyped
 tag/value bag. When several cases are ready, the scheduler chooses unless the
@@ -218,6 +237,14 @@ result. Completion means mailbox admission, not handler completion.
 `Actor.trySend` reports full, closed, or stale incarnation without suspending.
 `Actor.Reply<T>` is a typed single-use response capability.
 
+ADR 0148 fixes the backend-neutral lifecycle below those operations. One local
+actor identity and one exact incarnation form every reference. A restart
+constructs a new incarnation rather than retargeting old references. The
+bounded FIFO accepts only already checked/copied messages while running, and
+preserves the unconsumed value for full, closed, and stale outcomes. Exit first
+closes admission and returns queued messages for precise cleanup; terminal
+publication follows child-task and resource cleanup.
+
 ## Message and capture safety
 
 The compiler proves a recursive actor-message-safe property. It is not a
@@ -230,6 +257,13 @@ The first accepted actor message graph contains:
 - immutable records;
 - tagged unions; and
 - `Actor.Ref<T>`/`Actor.Reply<T>` whose payloads are also accepted.
+
+ADR 0149 makes that set an executable compiler query and reserves exact
+non-prelude Ref/Inbox/Reply identities. The proof recurses through tuples,
+immutable records, and tagged unions with cycle detection. Unknown types,
+unsubstituted parameters, inboxes, mutable collections, callables,
+classes/interfaces, arbitrary builtins/opaque values, Tasks, Channels, views,
+buffers, and native resources fail closed.
 
 The first release rejects mutable arrays, lists, tables, classes, closures,
 tasks, channels, resource/native handles, borrowed views, pins, compiler

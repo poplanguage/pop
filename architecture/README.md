@@ -117,6 +117,9 @@ transplanted into a Luau-shaped file.
 - Public-library APIs optimize for short direct call sites and explicit cost;
   convenience cannot hide allocation, copying, dispatch, authority, or native
   transitions.
+- The complete modern foundation is the canonical essential-library profile:
+  every `standard`-tier root plus explicit `Pop.Http` HTTP/WebSocket support.
+  Planned names and placeholder declarations never count as implementation.
 - The `Pop` prelude is fixed, curated, and automatically available; ordinary
   standard-library use requires no `using` directives.
 - Namespace declarations use explicit `public`, `internal`, or `private`
@@ -132,12 +135,17 @@ transplanted into a Luau-shaped file.
 - Human toolchain presentation uses complete embedded TOML catalogs for `en`,
   `zh-Hans`, `ja`, `pt-BR`, and `es`; one immutable locale context renders the
   same structured diagnostic and event facts for CLI and LSP consumers.
+- Toolchain distributions are immutable, relocatable, signed bundles managed
+  by the separate `popup` trust boundary. `pop install` remains Package-binary
+  installation, and `pop` never silently updates its selected toolchain.
 - Expected failures use the reserved typed `Result` union, nominal error
   declarations, exact prefix propagation, exhaustive recovery, and lexical
   last-in, first-out cleanup.
 - Generalized iteration uses the reserved nominal `Iterable<T>`, `Iterator<T>`,
   and `Iteration<T>` contracts; arrays remain fixed and `List<T>` owns
-  sequential growth.
+  sequential growth. Ordinary source exhaustively matches exact
+  `Iteration.Item`/`Iteration.End` cases through verified HIR/MIR and portable
+  generic capsules.
 - Generic calls infer one complete canonical argument list or fail statically;
   nominal bounds and verified portable specialization capsules preserve exact
   types and Bubble identity across dependency boundaries.
@@ -151,6 +159,10 @@ transplanted into a Luau-shaped file.
   with an exact local direct `Pop.Ffi` dependency and successful bounded
   `.popc` preflight; see
   [ADR 0106](./decisions/0106-bounded-foundation-and-generated-ffi-editor-analysis.md).
+- Reserved foundation source editing preserves the actual one-way graph:
+  `Pop.Internal` receives no Standard reference, while `Pop.Standard` receives
+  only `Pop.Internal` and never its own published metadata; see
+  [ADR 0115](./decisions/0115-foundation-source-editor-analysis.md).
 - Lua-shaped `---` XML documentation comments are parsed, signature-checked,
   emitted with library metadata, and available to editors/doc tools.
 - Non-empty XML documentation elements always use separate opening, body, and
@@ -193,6 +205,82 @@ transplanted into a Luau-shaped file.
   values. Exact structured callable summaries permit direct non-retaining calls
   and parameter-alias results; storage, capture, suspension, ownership, FFI,
   and missing-metadata escapes fail statically under ADR 0097.
+- `Rune` is ADR 0114's validated nonnumeric Unicode-scalar primitive.
+  `Text.get` returns `Rune?` without allocation or partial UTF-8; checked
+  construction excludes surrogates and values above U+10FFFF. The typed native
+  adapter advances the additive descriptors to ABI 1.23 and 2.1.
+- Owned immutable `String` implements exactly `Iterable<Rune>` under ADR 0116.
+  Its generalized iteration decodes each Unicode scalar once in O(n) total
+  UTF-8 bytes with allocation-free steps; `Text.View` remains non-iterable.
+  The closed native iteration kind advances the descriptors to ABI 1.24 and
+  2.2.
+- `Bytes.Buffer` is ADR 0117's distinct reusable mutable byte accumulator.
+  Exact byte, owned/view, and fixed-width endian writes append atomically;
+  `toBytes` returns an independent immutable snapshot. It is neither a List
+  nor FFI storage and advances the native descriptors to ABI 1.25 and 2.3.
+- ADR 0118 adds exact checked UTF-8 transcoding between String/Text views and
+  Bytes views/buffers. Malformed bytes return `nil`, buffer decoding does not
+  mutate storage, and the native descriptors advance to ABI 1.26 and 2.4.
+- ADR 0119 implements canonical lowercase hexadecimal encoding and checked
+  case-insensitive decoding as ordinary portable Pop source.
+- ADR 0120 implements canonical padded standard-alphabet base64 encoding and
+  strict decoding as ordinary portable Pop source.
+- ADR 0121 implements canonical padded uppercase standard-alphabet base32
+  encoding and strict decoding as ordinary portable Pop source.
+- ADR 0122 completes the portable Bytes foundation with checked equal-length
+  bitwise AND, OR, XOR, and bytewise NOT transforms in ordinary Pop source.
+- ADR 0123 adds exact Unicode whitespace, Unicode-safe trim, buffered
+  replace/split/join, and checked complete-range integer parsing.
+- ADR 0124 adds exact prefix/suffix/containment and one-based scalar-indexed
+  text search without exposing UTF-8 byte offsets.
+- ADR 0125 adds whole-String ASCII casing and ASCII-insensitive equality while
+  preserving non-ASCII UTF-8 exactly.
+- ADR 0126 adds one explicit deterministic pseudo-random state with a frozen
+  stream, unbiased byte filling, and unbiased in-place array shuffling.
+- ADR 0127 adds unbiased bounded integers, deterministic unit floats, and
+  checked probability sampling over that explicit state.
+- ADR 0128 adds stable materializing Sequence ordering/reversal and explicit
+  typed equality search without hidden hash or native requirements.
+- ADR 0129 carries ordinary non-generic public record schemas and exact
+  producer identities through reference metadata, HIR, and MIR without source
+  loading, reflection, or an FFI layout claim.
+- ADR 0130 adds exact no-fallback `Sequence.first`/`last` inspection through
+  `Iteration<T>` now that ordinary source can exhaustively match the carrier.
+- ADR 0131 adds bounded Semantic Versioning values, canonical formatting and
+  precedence, plus one deliberately small exact/comparison requirement matcher
+  in ordinary portable Pop source.
+- ADR 0132 adds bounded owned media-type and ordered parameter records,
+  canonical parsing/formatting, lookup, and exact/wildcard identity matching
+  while excluding ambient registries and implicit content sniffing.
+- ADR 0133 adds bounded owned ASCII URI references, component percent coding,
+  and deterministic hierarchical resolution without scheme dispatch, host
+  policy, or network capability.
+- ADR 0134 replaces the dormant bootstrap-only `Guid` prelude placeholder with
+  bounded ordinary GUID records, canonical text/network-byte interchange,
+  named nil/version-four inspection, and explicitly injected version-four
+  randomness.
+- ADR 0135 adds bounded portable lexical path records, deterministic
+  dot/parent normalization, and component inspection without filesystem
+  authority or native-encoding claims.
+- ADR 0136 adds canonical exact `Time.Duration` records and overflow-free unit
+  construction/comparison before any ambient clock, timer, or suspension.
+- ADR 0137 adds bounded monotonic `Time.Instant`/`Deadline` values and an
+  explicitly injected deterministic `Time.TestClock`; host wall/monotonic
+  clocks, timers, and suspension remain later PLRI contracts.
+- ADR 0138 adds bounded proleptic-Gregorian `Time.Date` values and pure calendar
+  validation/comparison without wall-clock, time-zone, or locale authority.
+- ADR 0139 keeps bounded `TimeOfDay`, `LocalDateTime`, fixed `UtcOffset`, and
+  `OffsetDateTime` identities distinct before parsing, zones, or wall clocks.
+- ADR 0140 adds bounded canonical `Locale.Tag` language/script/region values
+  without ambient locale discovery, CLDR data, or negotiation.
+- ADR 0141 adds bounded compiled Unicode-scalar `Glob.Pattern` matching without
+  regex inheritance, shell execution, or filesystem authority.
+- ADR 0142 adds strict bounded `Csv` text-row parsing and canonical CRLF
+  formatting before schema adapters, dialects, or streaming I/O.
+- ADR 0143 adds canonical network-order `Net.Ipv4Address` values, strict dotted
+  decimal parsing, octets, and named private/loopback inspection without I/O.
+- ADR 0144 adds typed `Net.Ipv4Prefix` containment/network projection and
+  canonical `Ipv4SocketAddress` values without socket authority.
 - Managed-capable construction retains one typed `AllocationSiteId`. ADR 0100
   lets native backends emit one immutable private layout descriptor per site;
   the runtime validates it once and monomorphic pages share it across

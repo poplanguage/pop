@@ -120,7 +120,10 @@ optional. One binding receives `T`; multiple loop bindings require a fixed
 tuple `T` with exactly matching arity. Protocol acquisition and stepping resolve
 stable method slots during type checking and never become runtime member-name
 selection. Generic sources require a proven nominal constraint rather than an
-unresolved inference variable. See ADR 0053.
+unresolved inference variable. Ordinary source exhaustively matches
+`Iteration.Item(value)` and `Iteration.End`; the compiler carries the builtin
+identity and exact `T` through portable generic capsules, HIR, and MIR. See ADR
+0053.
 
 An equality comparison with `nil` creates complementary facts for a stable
 versioned place. Optional pattern binding in `if local`/`while local` accepts
@@ -159,10 +162,12 @@ Short-circuit control propagates a fact only along the edge where its predicate
 is proven. A fact does not escape a join unless every predecessor proves the
 same place version and remaining type.
 
-The first `match` statement accepts one tagged-union scrutinee and one arm for
-each resolved `UnionCaseId`. Payload bindings receive the declared case types.
-Missing, duplicate, foreign, or arity/type-mismatched cases are errors. There is
-no wildcard or guard in version one, so exhaustiveness remains exact.
+The first `match` statement accepts one closed-union scrutinee and one arm for
+each resolved case. Ordinary tagged unions retain `UnionCaseId`; reserved
+`Result<T, TError>` and `Iteration<T>` values retain their exact builtin case
+identities. Payload bindings receive the declared case types. Missing,
+duplicate, foreign, or arity/type-mismatched cases are errors. There is no
+wildcard or guard in version one, so exhaustiveness remains exact.
 
 ## Records, arrays, and typed tables
 
@@ -307,6 +312,11 @@ Numeric widening, narrowing, signedness change, optional injection, interface
 upcast, and checked downcast are distinct conversion kinds in HIR. No conversion
 is labeled “dynamic.” Lossy conversions require explicit syntax unless an ADR
 proves a safe implicit rule.
+
+At a `T?` return boundary, exact `T` and `nil` expressions inject a present or
+absent optional respectively. Present injection is explicit in HIR and
+canonical MIR; it is not a runtime library call or dynamic union box. Other
+conversion sites remain separately checked. See ADR 0112.
 
 ADR 0095 fixes checked nominal casts as compiler-known target-type calls rather
 than ordinary overloads. The checker records the exact source interface,

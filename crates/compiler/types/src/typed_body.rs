@@ -144,6 +144,13 @@ pub enum TypedStatementKind {
         result_type: TypeId,
         arms: Vec<TypedResultMatchArm>,
     },
+    IterationMatch {
+        scrutinee: TypedExpression,
+        iteration: BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: Vec<TypedIterationMatchArm>,
+    },
     CodecErrorMatch {
         scrutinee: TypedExpression,
         arms: Vec<TypedCodecErrorMatchArm>,
@@ -201,6 +208,7 @@ pub enum TypedIterationSource {
     Array,
     List,
     Range,
+    String,
     Table,
     Iterable,
     Iterator,
@@ -388,6 +396,47 @@ impl TypedExpression {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelDirection {
+    Sender,
+    Receiver,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelSendOutcomeKind {
+    Accepted,
+    Full,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ChannelReceiveOutcomeKind {
+    Empty,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ActorSendOutcomeKind {
+    Accepted,
+    Full,
+    Closed,
+    Stale,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SocketIoOutcomeKind {
+    Progress,
+    WouldBlock,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TcpReceiveKind {
+    Progress,
+    WouldBlock,
+    Closed,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypedExpressionKind {
     Integer(IntegerValue),
@@ -468,6 +517,83 @@ pub enum TypedExpressionKind {
         list: Box<TypedExpression>,
         value: Box<TypedExpression>,
     },
+    ChannelCreate {
+        capacity: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelTrySend {
+        sender: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelTryReceive {
+        receiver: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelClose {
+        endpoint: Box<TypedExpression>,
+        direction: ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: Box<TypedExpression>,
+        expected: ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: Box<TypedExpression>,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: Box<TypedExpression>,
+        expected: ChannelReceiveOutcomeKind,
+    },
+    ByteBufferCreate {
+        capacity: Option<Box<TypedExpression>>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: Box<TypedExpression>,
+    },
+    ByteBufferReserve {
+        buffer: Box<TypedExpression>,
+        additional_capacity: Box<TypedExpression>,
+    },
+    ByteBufferClear {
+        buffer: Box<TypedExpression>,
+    },
+    ByteBufferWriteByte {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteBytes {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteView {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+    },
+    ByteBufferWriteInteger {
+        buffer: Box<TypedExpression>,
+        value: Box<TypedExpression>,
+        kind: IntegerKind,
+        order: crate::ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8Encode {
+        view: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
+        buffer: Box<TypedExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
     RangeCreate {
         first: Box<TypedExpression>,
         last: Box<TypedExpression>,
@@ -536,6 +662,9 @@ pub enum TypedExpressionKind {
     OptionalPropagate {
         optional: Box<TypedExpression>,
         enclosing_result: TypeId,
+    },
+    OptionalInject {
+        value: Box<TypedExpression>,
     },
     ResultPropagate {
         result: Box<TypedExpression>,
@@ -765,6 +894,10 @@ pub enum TypedExpressionKind {
         view: Box<TypedExpression>,
         index: Box<TypedExpression>,
     },
+    ViewGetRune {
+        view: Box<TypedExpression>,
+        index: Box<TypedExpression>,
+    },
     ViewMaterialize {
         kind: ViewKind,
         view: Box<TypedExpression>,
@@ -773,6 +906,12 @@ pub enum TypedExpressionKind {
     NumericConvert {
         value: Box<TypedExpression>,
         conversion: NumericConversionKind,
+    },
+    RuneFromCodePoint {
+        value: Box<TypedExpression>,
+    },
+    RuneCodePoint {
+        value: Box<TypedExpression>,
     },
 }
 
@@ -999,6 +1138,14 @@ pub struct TypedResultMatchArm {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypedIterationMatchArm {
+    pub(crate) case: pop_foundation::IterationCaseId,
+    pub(crate) bindings: Vec<TypedMatchBinding>,
+    pub(crate) body: Vec<TypedStatement>,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedCodecErrorMatchArm {
     pub(crate) reason: crate::CodecErrorReason,
     pub(crate) body: Vec<TypedStatement>,
@@ -1025,6 +1172,28 @@ impl TypedCodecErrorMatchArm {
 impl TypedResultMatchArm {
     #[must_use]
     pub const fn case(&self) -> ResultCaseId {
+        self.case
+    }
+
+    #[must_use]
+    pub fn bindings(&self) -> &[TypedMatchBinding] {
+        &self.bindings
+    }
+
+    #[must_use]
+    pub fn body(&self) -> &[TypedStatement] {
+        &self.body
+    }
+
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+impl TypedIterationMatchArm {
+    #[must_use]
+    pub const fn case(&self) -> pop_foundation::IterationCaseId {
         self.case
     }
 

@@ -1,0 +1,50 @@
+namespace HttpServer
+using Pop.Net
+using Pop.Text
+
+private function sendResponse(
+    stream: Net.Tcp.Stream,
+    status: String,
+    contentType: String,
+    body: String,
+)
+    local bodyBytes = Text.encodeUtf8(body)
+    local response = `HTTP/1.1 {status}\r\nContent-Type: {contentType}\r\nContent-Length: {Bytes.length(Bytes.view(bodyBytes))}\r\nConnection: close\r\n\r\n{body}`
+    local encoded = Text.encodeUtf8(response)
+    local transfer = Net.Tcp.send(stream, encoded)
+    while Net.transferWouldBlock(transfer) do
+        transfer = Net.Tcp.send(stream, encoded)
+    end
+end
+
+private function serve(stream: Net.Tcp.Stream)
+    local input = Bytes.withCapacity(8192)
+    local transfer = Net.Tcp.receive(stream, input, UInt64(8192))
+    while Net.transferWouldBlock(transfer) do
+        transfer = Net.Tcp.receive(stream, input, UInt64(8192))
+    end
+
+    local request = Text.decodeUtf8(input) ?? ""
+    if Pop.Text.startsWith(request, "GET /health ") then
+        sendResponse(stream, "200 OK", "text/plain; charset=utf-8", "ok\n")
+    elseif Pop.Text.startsWith(request, "GET /api/info ") then
+        local body = `{"name":"Pop Lang","runtime":"native","processId":{Process.id()},"parallelism":{Process.availableParallelism()}}\n`
+        sendResponse(stream, "200 OK", "application/json", body)
+    else
+        sendResponse(stream, "404 Not Found", "text/plain; charset=utf-8", "not found\n")
+    end
+    Net.Tcp.shutdownWrite(stream)
+    Net.Tcp.closeStream(stream)
+end
+
+function main()
+    local listener = Net.Tcp.listen(UInt16(8080))
+    print("Pop HTTP server listening on 127.0.0.1:8080")
+
+    while true do
+        local stream = Net.Tcp.accept(listener)
+        if stream ~= nil then
+            serve(stream)
+        end
+    end
+end

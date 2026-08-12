@@ -1,0 +1,316 @@
+namespace Pop.Random
+
+private const GENERATOR_MODULUS = 2147483647
+private const GENERATOR_PERIOD = 2147483646
+private const GENERATOR_QUOTIENT = 127773
+private const GENERATOR_REMAINDER = 2836
+private const GENERATOR_MULTIPLIER = 16807
+private const BYTE_SAMPLE_LIMIT = 2147483392
+private const DOUBLE_SAMPLE_RANGE = 4611686009837453316
+
+--- <summary>
+--- Holds one explicit deterministic pseudo-random stream.
+--- </summary>
+---
+--- <remarks>
+--- State is mutable, is not thread-safe, and must not be shared concurrently.
+--- It is not suitable for cryptographic use.
+--- </remarks>
+public class State
+    --- <summary>
+    --- Holds the private normalized Park-Miller state.
+    --- </summary>
+    private value: UInt32
+end
+
+--- <summary>
+--- Creates a deterministic pseudo-random state from an unsigned seed.
+--- </summary>
+---
+--- <param name="value">
+--- The seed. Every UInt32 value is accepted.
+--- </param>
+---
+--- <returns>
+--- A new explicit generator state.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates exactly one State.
+--- </allocation>
+public function seed(value: UInt32): State
+    local normalized = Int(value) % GENERATOR_MODULUS
+    if normalized == 0 then
+        normalized = 1
+    end
+    return State { value = UInt32(normalized) }
+end
+
+--- <summary>
+--- Advances a deterministic state and returns its next value.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate.
+--- </param>
+---
+--- <returns>
+--- A value from one through 2,147,483,646.
+--- </returns>
+---
+--- <remarks>
+--- The stream is the frozen Park-Miller MINSTD algorithm with multiplier
+--- 16,807. This function is deterministic and is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function next(state: State): UInt32
+    local current = Int(state.value)
+    local high = current / GENERATOR_QUOTIENT
+    local low = current % GENERATOR_QUOTIENT
+    local following = GENERATOR_MULTIPLIER * low - GENERATOR_REMAINDER * high
+    if following <= 0 then
+        following += GENERATOR_MODULUS
+    end
+    state.value = UInt32(following)
+    return state.value
+end
+
+private function nextOffset(state: State, upper: UInt64): UInt64?
+    if upper == 0 then
+        return nil
+    end
+    if upper > UInt64(DOUBLE_SAMPLE_RANGE) then
+        return nil
+    end
+    local range = UInt64(GENERATOR_PERIOD)
+    local candidate = UInt64(next(state)) - 1
+    if upper > UInt64(GENERATOR_PERIOD) then
+        range = UInt64(DOUBLE_SAMPLE_RANGE)
+        candidate = candidate * UInt64(GENERATOR_PERIOD) + UInt64(next(state)) - 1
+    end
+    local limit = range - range % upper
+    while candidate >= limit do
+        candidate = UInt64(next(state)) - 1
+        if upper > UInt64(GENERATOR_PERIOD) then
+            candidate = candidate * UInt64(GENERATOR_PERIOD) + UInt64(next(state)) - 1
+        end
+    end
+    return candidate % upper
+end
+
+private function nextIndex(state: State, upper: Int): Int
+    return Int(nextOffset(state, UInt64(upper)) ?? 0) + 1
+end
+
+private function intervalWidth(lowerInclusive: Int, upperExclusive: Int): UInt64
+    if lowerInclusive < 0 and upperExclusive >= 0 then
+        local negativeWidth = UInt64(-(lowerInclusive + 1)) + 1
+        return negativeWidth + UInt64(upperExclusive)
+    end
+    return UInt64(upperExclusive - lowerInclusive)
+end
+
+--- <summary>
+--- Returns an unbiased integer within a half-open interval.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate for a valid supported interval.
+--- </param>
+---
+--- <param name="lowerInclusive">
+--- The inclusive lower bound.
+--- </param>
+---
+--- <param name="upperExclusive">
+--- The exclusive upper bound.
+--- </param>
+---
+--- <returns>
+--- An unbiased value in the interval, or nil when the interval is empty,
+--- reversed, or wider than the exact two-sample range.
+--- </returns>
+---
+--- <remarks>
+--- Rejected intervals do not consume state. This function is deterministic
+--- and is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="expected O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function nextInt(state: State, lowerInclusive: Int, upperExclusive: Int): Int?
+    if lowerInclusive >= upperExclusive then
+        return nil
+    end
+    local width = intervalWidth(lowerInclusive, upperExclusive)
+    local offset = nextOffset(state, width)?
+    return lowerInclusive + Int(offset)
+end
+
+--- <summary>
+--- Returns a deterministic unit-interval floating-point sample.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate.
+--- </param>
+---
+--- <returns>
+--- A Float64 greater than or equal to zero and less than one.
+--- </returns>
+---
+--- <remarks>
+--- This function consumes one generator value. It is deterministic and is not
+--- cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function nextFloat(state: State): Float64
+    return Float64(Int(next(state)) - 1) / Float64(GENERATOR_PERIOD)
+end
+
+--- <summary>
+--- Samples a Boolean with the requested success probability.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate for an interior valid probability.
+--- </param>
+---
+--- <param name="probability">
+--- The success probability from zero through one.
+--- </param>
+---
+--- <returns>
+--- The sampled Boolean, or nil for NaN or an out-of-range probability.
+--- </returns>
+---
+--- <remarks>
+--- Exact zero and one do not consume state. This function is deterministic and
+--- is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function chance(state: State, probability: Float64): Boolean?
+    if not (probability >= 0.0 and probability <= 1.0) then
+        return nil
+    end
+    if probability <= 0.0 then
+        return false
+    end
+    if probability >= 1.0 then
+        return true
+    end
+    return nextFloat(state) < probability
+end
+
+--- <summary>
+--- Appends deterministic unbiased pseudo-random bytes to a reusable buffer.
+--- </summary>
+---
+--- <param name="state">
+--- The state to mutate.
+--- </param>
+---
+--- <param name="output">
+--- The reusable buffer receiving appended bytes.
+--- </param>
+---
+--- <param name="count">
+--- The number of bytes to append.
+--- </param>
+---
+--- <returns>
+--- False for a negative count; otherwise true after appending exactly count
+--- bytes.
+--- </returns>
+---
+--- <remarks>
+--- This function is deterministic and is not cryptographically secure.
+--- A negative count leaves both state and output unchanged.
+--- </remarks>
+---
+--- <complexity time="expected O(count)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates no storage of its own. The output buffer may grow.
+--- </allocation>
+public function fill(state: State, output: Bytes.Buffer, count: Int): Boolean
+    if count < 0 then
+        return false
+    end
+    local index = 0
+    while index < count do
+        local sample = Int(next(state)) - 1
+        while sample >= BYTE_SAMPLE_LIMIT do
+            sample = Int(next(state)) - 1
+        end
+        Bytes.write(output, Byte(sample % 256))
+        index += 1
+    end
+    return true
+end
+
+--- <summary>
+--- Randomly permutes an array in place using an explicit deterministic state.
+--- </summary>
+---
+--- <typeparam name="T">
+--- The element type.
+--- </typeparam>
+---
+--- <param name="state">
+--- The state to mutate.
+--- </param>
+---
+--- <param name="values">
+--- The array to permute.
+--- </param>
+---
+--- <returns>
+--- False only when the array is too large for the generator's exact bounded
+--- sampling range; otherwise true.
+--- </returns>
+---
+--- <remarks>
+--- Empty and singleton arrays do not consume state. This function is
+--- deterministic and is not cryptographically secure.
+--- </remarks>
+---
+--- <complexity time="expected O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function shuffle<T>(state: State, values: {T}): Boolean
+    local index = Array.length(values)
+    if index > DOUBLE_SAMPLE_RANGE then
+        return false
+    end
+    while index > 1 do
+        local selected = nextIndex(state, index)
+        local value: T = Array.get(values, index)
+        values[index] = Array.get(values, selected)
+        values[selected] = value
+        index -= 1
+    end
+    return true
+end

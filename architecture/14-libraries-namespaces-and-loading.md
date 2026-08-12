@@ -145,6 +145,11 @@ The directory form may later be packed without changing the logical format.
 Binary/test/example/benchmark Bubbles emit their corresponding executable and
 debug/test metadata rather than pretending to be libraries.
 
+ADR 0107 fixes the bootstrap executable contract for test, example, and
+benchmark roots: each has an explicit statically checked private entry until a
+later accepted typed generated-harness design replaces it. No runner discovers
+functions through runtime names, attributes, or reflection.
+
 ADR 0055 fixes the version-1 physical control files as bounded canonical UTF-8
 JSON with identity-sorted arrays and exactly one trailing newline. Every
 inventoried file has a recorded size and lowercase hexadecimal SHA-256 digest.
@@ -241,6 +246,13 @@ recursive typed schema for parameters, bounds, aggregate/callable types, nominal
 identities, and reserved built-in identities. Unsupported public signature or
 capsule types reject metadata emission rather than becoming erased or dynamic.
 HIR/MIR retain complete identities after any session-local metadata remapping.
+
+ADR 0129 extends that projection to every non-generic ordinary public record.
+The metadata carries its stable producer identity and declaration-ordered
+closed field schema; a consumer reconstructs private session-local types and
+fields while HIR/MIR retain the producer identity. Defaults, generic records,
+class/interface fields, cycles, and dangling record identities fail closed in
+the first slice. Ordinary records require no FFI catalog and gain no ABI claim.
 
 Concrete `AllocationSiteId`, `LifetimeId`, `RegionId`, `StoragePlan`, view
 ranges, and proof graphs remain verified implementation/capsule facts rather

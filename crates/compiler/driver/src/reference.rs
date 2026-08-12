@@ -449,7 +449,7 @@ fn reference_type_parameter_indices_are_valid(
     }
 }
 
-pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Result<(), ()> {
+pub(crate) fn validate_reference_records(metadata: &ReferenceMetadata) -> Result<(), ()> {
     if !metadata
         .records()
         .windows(2)
@@ -466,11 +466,6 @@ pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Re
         .iter()
         .map(|record| (record.identity(), record))
         .collect::<BTreeMap<_, _>>();
-    let retained_records = metadata
-        .retained_adapters()
-        .iter()
-        .map(|adapter| adapter.identity().target())
-        .collect::<BTreeSet<_>>();
     for record in metadata.records() {
         let mut names = BTreeSet::new();
         if record.name().is_empty()
@@ -479,13 +474,16 @@ pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Re
                 .fields()
                 .iter()
                 .any(|field| field.name().is_empty() || !names.insert(field.name()))
-            || record
-                .fields()
-                .iter()
-                .any(|field| !reference_type_records_exist(field.field_type(), &records))
+            || record.fields().iter().any(|field| {
+                !ordinary_record_field_type_is_supported(field.field_type())
+                    || !reference_type_records_exist(field.field_type(), &records)
+            })
         {
             return Err(());
         }
+    }
+    if !reference_record_graph_is_acyclic(&records) {
+        return Err(());
     }
     if metadata.functions().iter().any(|function| {
         function
@@ -499,15 +497,32 @@ pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Re
     }) {
         return Err(());
     }
-    let Some(catalog) = metadata.ffi_layout_catalog() else {
-        return if records
-            .keys()
-            .all(|identity| retained_records.contains(identity))
+    Ok(())
+}
+
+pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Result<(), ()> {
+    let records = metadata
+        .records()
+        .iter()
+        .map(|record| (record.identity(), record))
+        .collect::<BTreeMap<_, _>>();
+    let mut foreign_records = BTreeSet::new();
+    for function in metadata
+        .functions()
+        .iter()
+        .filter(|function| function.foreign_declaration().is_some())
+    {
+        for reference in function
+            .parameters()
+            .iter()
+            .map(ReferenceFunctionParameter::parameter_type)
+            .chain(function.results())
         {
-            Ok(())
-        } else {
-            Err(())
-        };
+            collect_reference_record_closure(reference, &records, &mut foreign_records);
+        }
+    }
+    let Some(catalog) = metadata.ffi_layout_catalog() else {
+        return foreign_records.is_empty().then_some(()).ok_or(());
     };
     if records.is_empty()
         || pop_target::TargetSpec::for_triple(catalog.target()).is_err()
@@ -546,6 +561,9 @@ pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Re
         match (entry.element(), entry.value_class()) {
             (ReferenceType::Record(identity), ReferenceFfiValueClass::Record(fields)) => {
                 let record = records.get(identity).copied().ok_or(())?;
+                if !record.has_ffi_c_layout() {
+                    return Err(());
+                }
                 represented_records.insert(*identity);
                 if fields.len() != record.fields().len() {
                     return Err(());
@@ -581,12 +599,111 @@ pub(crate) fn validate_reference_ffi_layouts(metadata: &ReferenceMetadata) -> Re
             _ => {}
         }
     }
-    if records.keys().any(|identity| {
-        !represented_records.contains(identity) && !retained_records.contains(identity)
-    }) {
+    if foreign_records
+        .iter()
+        .any(|identity| !represented_records.contains(identity))
+    {
         return Err(());
     }
     Ok(())
+}
+
+fn reference_record_graph_is_acyclic(records: &BTreeMap<SymbolIdentity, &ReferenceRecord>) -> bool {
+    fn visit(
+        identity: SymbolIdentity,
+        records: &BTreeMap<SymbolIdentity, &ReferenceRecord>,
+        active: &mut BTreeSet<SymbolIdentity>,
+        complete: &mut BTreeSet<SymbolIdentity>,
+    ) -> bool {
+        if complete.contains(&identity) {
+            return true;
+        }
+        if !active.insert(identity) {
+            return false;
+        }
+        let mut dependencies = BTreeSet::new();
+        for field in &records[&identity].fields {
+            collect_reference_record_identities(field.field_type(), &mut dependencies);
+        }
+        if dependencies
+            .into_iter()
+            .any(|dependency| !visit(dependency, records, active, complete))
+        {
+            return false;
+        }
+        active.remove(&identity);
+        complete.insert(identity);
+        true
+    }
+
+    let mut active = BTreeSet::new();
+    let mut complete = BTreeSet::new();
+    records
+        .keys()
+        .copied()
+        .all(|identity| visit(identity, records, &mut active, &mut complete))
+}
+
+fn collect_reference_record_closure(
+    reference: &ReferenceType,
+    records: &BTreeMap<SymbolIdentity, &ReferenceRecord>,
+    output: &mut BTreeSet<SymbolIdentity>,
+) {
+    let mut pending = BTreeSet::new();
+    collect_reference_record_identities(reference, &mut pending);
+    while let Some(identity) = pending.pop_first() {
+        if !output.insert(identity) {
+            continue;
+        }
+        if let Some(record) = records.get(&identity) {
+            for field in &record.fields {
+                collect_reference_record_identities(field.field_type(), &mut pending);
+            }
+        }
+    }
+}
+
+fn collect_reference_record_identities(
+    reference: &ReferenceType,
+    output: &mut BTreeSet<SymbolIdentity>,
+) {
+    match reference {
+        ReferenceType::Record(identity) => {
+            output.insert(*identity);
+        }
+        ReferenceType::Class(nominal) | ReferenceType::Interface(nominal) => {
+            for argument in nominal.arguments() {
+                collect_reference_record_identities(argument, output);
+            }
+        }
+        ReferenceType::Tuple(elements) | ReferenceType::Union(elements) => {
+            for element in elements {
+                collect_reference_record_identities(element, output);
+            }
+        }
+        ReferenceType::Function {
+            parameters,
+            results,
+            ..
+        } => {
+            for element in parameters.iter().chain(results) {
+                collect_reference_record_identities(element, output);
+            }
+        }
+        ReferenceType::Array(element) | ReferenceType::Optional(element) => {
+            collect_reference_record_identities(element, output);
+        }
+        ReferenceType::Table { key, value } => {
+            collect_reference_record_identities(key, output);
+            collect_reference_record_identities(value, output);
+        }
+        ReferenceType::Builtin { arguments, .. } => {
+            for argument in arguments {
+                collect_reference_record_identities(argument, output);
+            }
+        }
+        ReferenceType::Primitive(_) | ReferenceType::TypeParameter(_) => {}
+    }
 }
 
 fn reference_type_records_exist(
@@ -624,6 +741,36 @@ fn reference_type_records_exist(
     }
 }
 
+fn ordinary_record_field_type_is_supported(reference: &ReferenceType) -> bool {
+    match reference {
+        ReferenceType::Class(_) | ReferenceType::Interface(_) | ReferenceType::TypeParameter(_) => {
+            false
+        }
+        ReferenceType::Tuple(elements) | ReferenceType::Union(elements) => {
+            elements.iter().all(ordinary_record_field_type_is_supported)
+        }
+        ReferenceType::Function {
+            parameters,
+            results,
+            ..
+        } => parameters
+            .iter()
+            .chain(results)
+            .all(ordinary_record_field_type_is_supported),
+        ReferenceType::Array(element) | ReferenceType::Optional(element) => {
+            ordinary_record_field_type_is_supported(element)
+        }
+        ReferenceType::Table { key, value } => {
+            ordinary_record_field_type_is_supported(key)
+                && ordinary_record_field_type_is_supported(value)
+        }
+        ReferenceType::Builtin { arguments, .. } => arguments
+            .iter()
+            .all(ordinary_record_field_type_is_supported),
+        ReferenceType::Primitive(_) | ReferenceType::Record(_) => true,
+    }
+}
+
 const fn reference_abi_name(abi: pop_types::ForeignAbi) -> &'static str {
     match abi {
         pop_types::ForeignAbi::C => "C",
@@ -636,6 +783,7 @@ const fn reference_abi_name(abi: pop_types::ForeignAbi) -> &'static str {
 struct NominalIdentityMaps {
     classes: BTreeMap<TypeId, SymbolIdentity>,
     interfaces: BTreeMap<TypeId, SymbolIdentity>,
+    tagged_unions: BTreeMap<TypeId, Vec<Vec<TypeId>>>,
 }
 
 fn nominal_identity_maps(
@@ -644,6 +792,22 @@ fn nominal_identity_maps(
 ) -> NominalIdentityMaps {
     let mut maps = NominalIdentityMaps::default();
     for declaration in hir.declarations() {
+        if let HirDeclarationKind::Union(union) = declaration.kind() {
+            maps.tagged_unions.insert(
+                union.type_id(),
+                union
+                    .cases()
+                    .iter()
+                    .map(|case| {
+                        case.parameters()
+                            .iter()
+                            .map(pop_hir::HirNamedType::type_id)
+                            .collect()
+                    })
+                    .collect(),
+            );
+            continue;
+        }
         let kind = match declaration.kind() {
             HirDeclarationKind::Class(_) => pop_resolve::DeclarationKind::Class,
             HirDeclarationKind::Interface(_) => pop_resolve::DeclarationKind::Interface,
@@ -782,18 +946,32 @@ pub(crate) fn emit_reference_metadata(
     retained_metadata: Option<&RetainedMetadataArtifacts>,
 ) -> Result<ReferenceMetadata, ReferenceMetadataError> {
     let nominal_identities = nominal_identity_maps(hir, index);
-    let public_layouts = hir
+    let public_records = hir
         .declarations()
         .iter()
         .filter_map(|declaration| match declaration.kind() {
             HirDeclarationKind::Record(record)
-                if declaration.visibility() == pop_resolve::Visibility::Public
-                    && record.has_ffi_c_layout() =>
+                if declaration.visibility() == pop_resolve::Visibility::Public =>
             {
                 Some((record.type_id(), (declaration, record)))
             }
             _ => None,
         })
+        .collect::<BTreeMap<_, _>>();
+    if let Some((declaration, _)) = public_records.values().find(|(_, record)| {
+        record
+            .fields()
+            .iter()
+            .any(pop_hir::HirRecordField::has_default)
+    }) {
+        return Err(ReferenceMetadataError::UnsupportedPublicRecord(
+            SymbolIdentity::new(hir.bubble(), declaration.symbol()),
+        ));
+    }
+    let public_layouts = public_records
+        .iter()
+        .filter(|(_, (_, record))| record.has_ffi_c_layout())
+        .map(|(type_id, declaration)| (*type_id, *declaration))
         .collect::<BTreeMap<_, _>>();
     let mut reachable_layouts = BTreeSet::new();
     for function in hir
@@ -817,20 +995,18 @@ pub(crate) fn emit_reference_metadata(
             )?;
         }
     }
-    let record_identities = reachable_layouts
+    let record_identities = public_records
         .iter()
-        .map(|type_id| {
-            let (declaration, _) = public_layouts[type_id];
+        .map(|(type_id, (declaration, _))| {
             (
                 *type_id,
                 SymbolIdentity::new(hir.bubble(), declaration.symbol()),
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut records = reachable_layouts
+    let mut records = public_records
         .iter()
-        .map(|type_id| {
-            let (hir_declaration, record) = public_layouts[type_id];
+        .map(|(_, (hir_declaration, record))| {
             let identity = SymbolIdentity::new(hir.bubble(), hir_declaration.symbol());
             let declaration = index
                 .declaration(hir_declaration.symbol())
@@ -839,7 +1015,7 @@ pub(crate) fn emit_reference_metadata(
                 .fields()
                 .iter()
                 .map(|field| {
-                    reference_type_with_parameters(
+                    let field_type = reference_type_with_parameters(
                         identity,
                         field.field_type(),
                         arena,
@@ -847,7 +1023,11 @@ pub(crate) fn emit_reference_metadata(
                         &record_identities,
                         &nominal_identities,
                     )
-                    .map(|field_type| ReferenceRecordField {
+                    .map_err(|_| ReferenceMetadataError::UnsupportedPublicRecord(identity))?;
+                    if !ordinary_record_field_type_is_supported(&field_type) {
+                        return Err(ReferenceMetadataError::UnsupportedPublicRecord(identity));
+                    }
+                    Ok(ReferenceRecordField {
                         name: field.name().to_owned(),
                         field_type,
                     })
@@ -859,6 +1039,7 @@ pub(crate) fn emit_reference_metadata(
                 namespace: declaration.namespace().to_owned(),
                 name: hir_declaration.name().to_owned(),
                 fields,
+                ffi_c_layout: record.has_ffi_c_layout(),
                 span: hir_declaration.span(),
             })
         })
@@ -1488,6 +1669,37 @@ fn reference_type_with_parameters(
                 })
                 .collect::<Result<_, _>>()?,
         )),
+        Some(SemanticType::TaggedUnion { .. }) => {
+            let cases = nominal_identities
+                .tagged_unions
+                .get(&type_id)
+                .ok_or(ReferenceMetadataError::UnsupportedPublicType { function, type_id })?;
+            Ok(ReferenceType::Union(
+                cases
+                    .iter()
+                    .map(|case| {
+                        let values = case
+                            .iter()
+                            .map(|value| {
+                                reference_type_with_parameters(
+                                    function,
+                                    *value,
+                                    arena,
+                                    type_parameters,
+                                    record_identities,
+                                    nominal_identities,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if values.len() == 1 {
+                            Ok(values.into_iter().next().expect("one union value"))
+                        } else {
+                            Ok(ReferenceType::Tuple(values))
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
         _ => Err(ReferenceMetadataError::UnsupportedPublicType { function, type_id }),
     }
 }
@@ -1528,7 +1740,12 @@ pub(crate) fn define_reference_records(
                 .declaration_by_reference_identity(record.identity())
                 .expect("verified public record identity is indexed");
             let definition = resolver
-                .define_referenced_record(declaration.symbol(), fields, true, record.span())
+                .define_referenced_record(
+                    declaration.symbol(),
+                    fields,
+                    record.has_ffi_c_layout(),
+                    record.span(),
+                )
                 .expect("verified public record schema reconstructs once");
             record_types.insert(record.identity(), definition.type_id());
             progressed = true;
@@ -1537,6 +1754,33 @@ pub(crate) fn define_reference_records(
         pending = remaining;
     }
     record_types
+}
+
+pub(crate) fn hir_reference_record_declarations(
+    metadata: &[ReferenceMetadata],
+    database: &ResolutionDatabase,
+    resolver: &SignatureResolver<'_>,
+    consumer_bubble: pop_foundation::BubbleId,
+) -> Vec<pop_hir::HirDeclaration> {
+    let mut declarations = metadata
+        .iter()
+        .flat_map(ReferenceMetadata::records)
+        .filter_map(|record| {
+            let local = database
+                .index()
+                .declaration_by_reference_identity(record.identity())?;
+            let definition = resolver.record_definition(local.symbol())?;
+            Some(pop_hir::HirDeclaration::record(
+                record.module(),
+                consumer_bubble,
+                pop_resolve::Visibility::Private,
+                record.name(),
+                definition,
+            ))
+        })
+        .collect::<Vec<_>>();
+    declarations.sort_by_key(pop_hir::HirDeclaration::symbol);
+    declarations
 }
 
 #[derive(Default)]
@@ -1640,6 +1884,7 @@ pub(crate) fn hir_reference_nominal_catalog(
     resolver: &mut SignatureResolver<'_>,
     definitions: &ReferenceNominalTypes,
     record_types: &BTreeMap<SymbolIdentity, TypeId>,
+    database: &ResolutionDatabase,
 ) -> pop_hir::HirNominalReferenceCatalog {
     let mut nominal_identities = NominalIdentityMaps::default();
     for (identity, symbol) in &definitions.interfaces {
@@ -1668,6 +1913,19 @@ pub(crate) fn hir_reference_nominal_catalog(
         .iter()
         .map(|(identity, type_id)| (*type_id, *identity))
         .collect::<BTreeMap<_, _>>();
+    let records = record_types
+        .iter()
+        .filter_map(|(identity, type_id)| {
+            let declaration = database
+                .index()
+                .declaration_by_reference_identity(*identity)?;
+            Some(pop_hir::HirRecordReference::new(
+                *identity,
+                declaration.symbol(),
+                *type_id,
+            ))
+        })
+        .collect();
     let mut interface_identity_by_type = BTreeMap::new();
     let mut interfaces = Vec::new();
     for (identity, symbol) in &definitions.interfaces {
@@ -1774,7 +2032,7 @@ pub(crate) fn hir_reference_nominal_catalog(
             ));
         }
     }
-    pop_hir::HirNominalReferenceCatalog::new(interfaces, classes)
+    pop_hir::HirNominalReferenceCatalog::new(records, interfaces, classes)
 }
 
 fn canonical_runtime_arguments(

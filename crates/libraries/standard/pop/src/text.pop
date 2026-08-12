@@ -1,0 +1,585 @@
+namespace Pop.Text
+using Pop.Unicode
+
+private function bytesMatchAt(
+    value: Bytes.View,
+    pattern: Bytes.View,
+    start: Int,
+): Boolean
+    local patternLength = Bytes.length(pattern)
+    if start < 1 or start + patternLength - 1 > Bytes.length(value) then
+        return false
+    end
+    local offset = 0
+    while offset < patternLength do
+        if (Bytes.get(value, start + offset) ?? 0) ~= (Bytes.get(pattern, offset + 1) ?? 0) then
+            return false
+        end
+        offset = offset + 1
+    end
+    return true
+end
+
+--- <summary>
+--- Converts ASCII uppercase letters in a String to lowercase.
+--- </summary>
+---
+--- <param name="value">
+--- The String to convert.
+--- </param>
+---
+--- <returns>
+--- An owned String with non-ASCII text preserved exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, one reusable buffer, and one String result.
+--- </allocation>
+public function toAsciiLower(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 65 and byte <= 90 then
+            byte = byte + 32
+        end
+        Bytes.write(buffer, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Converts ASCII lowercase letters in a String to uppercase.
+--- </summary>
+---
+--- <param name="value">
+--- The String to convert.
+--- </param>
+---
+--- <returns>
+--- An owned String with non-ASCII text preserved exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded input, one reusable buffer, and one String result.
+--- </allocation>
+public function toAsciiUpper(value: String): String
+    local encoded = Text.encodeUtf8(value)
+    local view = Bytes.view(encoded)
+    local length = Bytes.length(view)
+    local buffer = Bytes.withCapacity(length)
+    local index = 1
+    while index <= length do
+        local byte = Int(Bytes.get(view, index) ?? 0)
+        if byte >= 97 and byte <= 122 then
+            byte = byte - 32
+        end
+        Bytes.write(buffer, Byte(byte))
+        index = index + 1
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Compares Strings while ignoring ASCII letter case.
+--- </summary>
+---
+--- <param name="left">
+--- The left String.
+--- </param>
+---
+--- <param name="right">
+--- The right String.
+--- </param>
+---
+--- <returns>
+--- True when ASCII-folded bytes are equal and non-ASCII bytes match exactly.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function equalsAsciiIgnoreCase(left: String, right: String): Boolean
+    local leftBytes = Text.encodeUtf8(left)
+    local rightBytes = Text.encodeUtf8(right)
+    local leftView = Bytes.view(leftBytes)
+    local rightView = Bytes.view(rightBytes)
+    local length = Bytes.length(leftView)
+    if length ~= Bytes.length(rightView) then
+        return false
+    end
+    local index = 1
+    while index <= length do
+        local leftByte = Int(Bytes.get(leftView, index) ?? 0)
+        local rightByte = Int(Bytes.get(rightView, index) ?? 0)
+        if leftByte >= 65 and leftByte <= 90 then
+            leftByte = leftByte + 32
+        end
+        if rightByte >= 65 and rightByte <= 90 then
+            rightByte = rightByte + 32
+        end
+        if leftByte ~= rightByte then
+            return false
+        end
+        index = index + 1
+    end
+    return true
+end
+
+--- <summary>
+--- Tests whether a String begins with exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="prefix">
+--- The exact prefix text.
+--- </param>
+---
+--- <returns>
+--- True when the complete prefix occurs at the first scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function startsWith(value: String, prefix: String): Boolean
+    return (indexOf(value, prefix, 1) ?? 0) == 1
+end
+
+--- <summary>
+--- Tests whether a String ends with exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="suffix">
+--- The exact suffix text.
+--- </param>
+---
+--- <returns>
+--- True when the complete suffix ends at the final scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs but no result storage.
+--- </allocation>
+public function endsWith(value: String, suffix: String): Boolean
+    local valueLength = 0
+    for _ in value do
+        valueLength = valueLength + 1
+    end
+    local suffixLength = 0
+    for _ in suffix do
+        suffixLength = suffixLength + 1
+    end
+    if suffixLength > valueLength then
+        return false
+    end
+    local start = valueLength - suffixLength + 1
+    return (indexOf(value, suffix, start) ?? 0) == start
+end
+
+--- <summary>
+--- Tests whether a String contains exact text.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="pattern">
+--- The exact text to find.
+--- </param>
+---
+--- <returns>
+--- True when the pattern occurs at any scalar boundary.
+--- </returns>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded immutable inputs through the search operation.
+--- </allocation>
+public function contains(value: String, pattern: String): Boolean
+    return indexOf(value, pattern, 1) ~= nil
+end
+
+--- <summary>
+--- Finds exact text at or after a scalar index.
+--- </summary>
+---
+--- <param name="value">
+--- The String to inspect.
+--- </param>
+---
+--- <param name="pattern">
+--- The exact text to find.
+--- </param>
+---
+--- <param name="start">
+--- The one-based Unicode scalar boundary where search begins.
+--- </param>
+---
+--- <returns>
+--- The first matching scalar index, or nil for no match or an invalid start.
+--- </returns>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one remainder String plus split fields for a nonempty pattern.
+--- </allocation>
+public function indexOf(value: String, pattern: String, start: Int): Int?
+    local scalarLength = 0
+    for _ in value do
+        scalarLength = scalarLength + 1
+    end
+    if start < 1 or start > scalarLength + 1 then
+        return nil
+    end
+    if pattern == "" then
+        return start
+    end
+    if start == scalarLength + 1 then
+        return nil
+    end
+    local remainderView = Text.slice(value, start, scalarLength - start + 1)
+    local remainder = Text.toString(remainderView)
+    local pieces = split(remainder, pattern)
+    if List.length(pieces) == 1 then
+        return nil
+    end
+    local prefixLength = 0
+    for _ in List.get(pieces, 1) do
+        prefixLength = prefixLength + 1
+    end
+    return start + prefixLength
+end
+
+--- <summary>
+--- Removes Unicode whitespace from the start of a String.
+--- </summary>
+---
+--- <param name="value">
+--- The String to trim.
+--- </param>
+---
+--- <returns>
+--- The remaining owned String.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String when a nonempty proper slice remains.
+--- </allocation>
+public function trimStart(value: String): String
+    local length = 0
+    local start = 0
+    for rune in value do
+        length = length + 1
+        local whitespace = isWhitespace(rune)
+        if start == 0 and whitespace == false then
+            start = length
+        end
+    end
+    if start == 0 then
+        return ""
+    end
+    local remaining = Text.slice(value, start, length - start + 1)
+    return Text.toString(remaining)
+end
+
+--- <summary>
+--- Removes Unicode whitespace from the end of a String.
+--- </summary>
+---
+--- <param name="value">
+--- The String to trim.
+--- </param>
+---
+--- <returns>
+--- The remaining owned String.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String when a nonempty proper slice remains.
+--- </allocation>
+public function trimEnd(value: String): String
+    local position = 0
+    local finish = 0
+    for rune in value do
+        position = position + 1
+        local whitespace = isWhitespace(rune)
+        if whitespace == false then
+            finish = position
+        end
+    end
+    if finish == 0 then
+        return ""
+    end
+    local remaining = Text.slice(value, 1, finish)
+    return Text.toString(remaining)
+end
+
+--- <summary>
+--- Removes Unicode whitespace from both ends of a String.
+--- </summary>
+---
+--- <param name="value">
+--- The String to trim.
+--- </param>
+---
+--- <returns>
+--- The remaining owned String.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates the returned String when a nonempty proper slice remains.
+--- </allocation>
+public function trim(value: String): String
+    local position = 0
+    local start = 0
+    local finish = 0
+    for rune in value do
+        position = position + 1
+        local whitespace = isWhitespace(rune)
+        if whitespace == false then
+            if start == 0 then
+                start = position
+            end
+            finish = position
+        end
+    end
+    if start == 0 then
+        return ""
+    end
+    local remaining = Text.slice(value, start, finish - start + 1)
+    return Text.toString(remaining)
+end
+
+--- <summary>
+--- Replaces exact nonoverlapping text matches from left to right.
+--- </summary>
+---
+--- <param name="value">
+--- The source String.
+--- </param>
+---
+--- <param name="target">
+--- The exact text to replace.
+--- </param>
+---
+--- <param name="replacement">
+--- The text emitted for every match.
+--- </param>
+---
+--- <returns>
+--- The replaced owned String. An empty target leaves the source unchanged.
+--- </returns>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded inputs, one reusable output buffer, and one String result.
+--- </allocation>
+public function replace(value: String, target: String, replacement: String): String
+    local targetBytes = Text.encodeUtf8(target)
+    local targetView = Bytes.view(targetBytes)
+    local targetLength = Bytes.length(targetView)
+    if targetLength == 0 then
+        return value
+    end
+    local valueBytes = Text.encodeUtf8(value)
+    local valueView = Bytes.view(valueBytes)
+    local valueLength = Bytes.length(valueView)
+    local replacementBytes = Text.encodeUtf8(replacement)
+    local buffer = Bytes.withCapacity(valueLength)
+    local index = 1
+    while index <= valueLength do
+        if bytesMatchAt(valueView, targetView, index) then
+            Bytes.write(buffer, replacementBytes)
+            index = index + targetLength
+        else
+            Bytes.write(buffer, Bytes.get(valueView, index) ?? 0)
+            index = index + 1
+        end
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Splits a String at exact nonoverlapping separators.
+--- </summary>
+---
+--- <param name="value">
+--- The source String.
+--- </param>
+---
+--- <param name="separator">
+--- The exact separator text.
+--- </param>
+---
+--- <returns>
+--- A new list preserving leading, interior, and trailing empty fields.
+--- </returns>
+---
+--- <remarks>
+--- An empty separator returns one item containing the complete input.
+--- </remarks>
+---
+--- <complexity time="O(n * m)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates encoded inputs, one result list, and one String per field.
+--- </allocation>
+public function split(value: String, separator: String): List<String>
+    local pieces = List.create<<String>>()
+    local separatorBytes = Text.encodeUtf8(separator)
+    local separatorView = Bytes.view(separatorBytes)
+    local separatorLength = Bytes.length(separatorView)
+    if separatorLength == 0 then
+        List.add(pieces, value)
+        return pieces
+    end
+    local valueBytes = Text.encodeUtf8(value)
+    local valueView = Bytes.view(valueBytes)
+    local valueLength = Bytes.length(valueView)
+    local piece = Bytes.create()
+    local index = 1
+    while index <= valueLength do
+        if bytesMatchAt(valueView, separatorView, index) then
+            List.add(pieces, Text.decodeUtf8(piece) ?? "")
+            Bytes.clear(piece)
+            index = index + separatorLength
+        else
+            Bytes.write(piece, Bytes.get(valueView, index) ?? 0)
+            index = index + 1
+        end
+    end
+    List.add(pieces, Text.decodeUtf8(piece) ?? "")
+    return pieces
+end
+
+--- <summary>
+--- Joins String items with one separator between adjacent items.
+--- </summary>
+---
+--- <typeparam name="TSource">
+--- The statically iterable String source type.
+--- </typeparam>
+---
+--- <param name="source">
+--- The String items in output order.
+--- </param>
+---
+--- <param name="separator">
+--- The text emitted between adjacent items.
+--- </param>
+---
+--- <returns>
+--- The joined owned String.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one reusable buffer, transient encoded items, and one String result.
+--- </allocation>
+public function join<TSource: Iterable<String>>(
+    source: TSource,
+    separator: String,
+): String
+    local buffer = Bytes.create()
+    local separatorBytes = Text.encodeUtf8(separator)
+    local first = true
+    for item in source do
+        if first then
+            first = false
+        else
+            Bytes.write(buffer, separatorBytes)
+        end
+        Bytes.write(buffer, Text.encodeUtf8(item))
+    end
+    return Text.decodeUtf8(buffer) ?? ""
+end
+
+--- <summary>
+--- Parses one complete signed decimal Int.
+--- </summary>
+---
+--- <param name="value">
+--- The exact decimal text with an optional leading sign.
+--- </param>
+---
+--- <returns>
+--- The parsed Int, or nil for malformed text or numeric overflow.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate storage of its own.
+--- </allocation>
+public function parseInt(value: String): Int?
+    local first = true
+    local negative = false
+    local seenDigit = false
+    local result = 0
+    local limit = -9223372036854775807
+    for rune in value do
+        local point = Unicode.codePoint(rune)
+        if first and (point == 43 or point == 45) then
+            negative = point == 45
+            if negative then
+                limit = limit - 1
+            end
+            first = false
+        else
+            if point < 48 or point > 57 then
+                return nil
+            end
+            first = false
+            seenDigit = true
+            local digit = Int(point - 48)
+            if result < limit / 10 then
+                return nil
+            end
+            result = result * 10
+            if result < limit + digit then
+                return nil
+            end
+            result = result - digit
+        end
+    end
+    if not seenDigit then
+        return nil
+    end
+    if negative then
+        return result
+    end
+    return -result
+end

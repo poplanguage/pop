@@ -793,6 +793,12 @@ impl<'resolver, 'index> BodyChecker<'resolver, 'index> {
             ));
             return None;
         };
+        if path.as_slice() == ["Channel", "bounded"] {
+            return self.check_channel_bounded(type_arguments, arguments, span);
+        }
+        if path.as_slice() == ["Actor", "mailbox"] {
+            return self.check_actor_mailbox(type_arguments, arguments, span);
+        }
         if matches!(path.as_slice(), [ffi, handle, operation]
             if ffi == "Ffi" && handle == "Handle"
                 && matches!(operation.as_str(), "open" | "get" | "close"))
@@ -2130,6 +2136,12 @@ pub(crate) fn statements_definitely_return(statements: &[TypedStatement]) -> boo
                     .iter()
                     .all(|arm| statements_definitely_return(arm.body()))
         }
+        TypedStatementKind::IterationMatch { arms, .. } => {
+            !arms.is_empty()
+                && arms
+                    .iter()
+                    .all(|arm| statements_definitely_return(arm.body()))
+        }
         TypedStatementKind::CodecErrorMatch { arms, .. } => {
             !arms.is_empty()
                 && arms
@@ -2257,6 +2269,7 @@ pub(crate) const fn primitive_name(primitive: PrimitiveType) -> &'static str {
         PrimitiveType::Integer(IntegerKind::UInt64) => "UInt64",
         PrimitiveType::Float32 => "Float32",
         PrimitiveType::Float64 => "Float64",
+        PrimitiveType::Rune => "Rune",
         PrimitiveType::String => "String",
         PrimitiveType::Never => "Never",
     }

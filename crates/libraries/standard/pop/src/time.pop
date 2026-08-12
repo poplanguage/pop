@@ -1,0 +1,232 @@
+namespace Pop.Time
+
+private const NANOS_PER_SECOND = 1000000000
+private const MILLIS_PER_SECOND = 1000
+private const NANOS_PER_MILLISECOND = 1000000
+
+--- <summary>
+--- Holds one exact canonical duration.
+--- </summary>
+public record Duration
+    --- <summary>
+    --- Mathematical floor seconds of the complete duration.
+    --- </summary>
+    seconds: Int
+
+    --- <summary>
+    --- Subsecond nanoseconds from zero through 999,999,999.
+    --- </summary>
+    nanoseconds: Int
+end
+
+private function value(seconds: Int, nanoseconds: Int): Duration
+    local duration: Duration = { seconds = seconds, nanoseconds = nanoseconds }
+    return duration
+end
+
+--- <summary>
+--- Creates an exact whole-second duration.
+--- </summary>
+---
+--- <param name="seconds">
+--- The complete signed second count.
+--- </param>
+---
+--- <returns>
+--- The canonical duration.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Duration.
+--- </allocation>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- using Pop.Time
+---
+--- private function timeoutExample(): Boolean
+---     local timeout = fromMilliseconds(1500)
+---     return secondsPart(timeout) == 1 and nanosecondsPart(timeout) == 500000000
+--- end
+--- </code>
+--- </example>
+public function fromSeconds(seconds: Int): Duration
+    return value(seconds, 0)
+end
+
+--- <summary>
+--- Creates an exact signed millisecond duration.
+--- </summary>
+---
+--- <param name="milliseconds">
+--- The complete signed millisecond count.
+--- </param>
+---
+--- <returns>
+--- The canonical duration.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Duration.
+--- </allocation>
+public function fromMilliseconds(milliseconds: Int): Duration
+    local seconds = milliseconds / MILLIS_PER_SECOND
+    local remainder = milliseconds % MILLIS_PER_SECOND
+    if remainder < 0 then
+        seconds = seconds - 1
+        remainder = remainder + MILLIS_PER_SECOND
+    end
+    return value(seconds, remainder * NANOS_PER_MILLISECOND)
+end
+
+--- <summary>
+--- Creates an exact signed nanosecond duration.
+--- </summary>
+---
+--- <param name="nanoseconds">
+--- The complete signed nanosecond count.
+--- </param>
+---
+--- <returns>
+--- The canonical duration.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Allocates one Duration.
+--- </allocation>
+public function fromNanoseconds(nanoseconds: Int): Duration
+    local seconds = nanoseconds / NANOS_PER_SECOND
+    local remainder = nanoseconds % NANOS_PER_SECOND
+    if remainder < 0 then
+        seconds = seconds - 1
+        remainder = remainder + NANOS_PER_SECOND
+    end
+    return value(seconds, remainder)
+end
+
+--- <summary>
+--- Compares two exact durations.
+--- </summary>
+---
+--- <param name="left">
+--- The left duration.
+--- </param>
+---
+--- <param name="right">
+--- The right duration.
+--- </param>
+---
+--- <returns>
+--- Negative one, zero, or one by chronological order.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function compare(left: Duration, right: Duration): Int
+    if left.seconds < right.seconds then
+        return -1
+    end
+    if left.seconds > right.seconds then
+        return 1
+    end
+    if left.nanoseconds < right.nanoseconds then
+        return -1
+    end
+    if left.nanoseconds > right.nanoseconds then
+        return 1
+    end
+    return 0
+end
+
+--- <summary>
+--- Reports whether a duration is exactly zero.
+--- </summary>
+---
+--- <param name="duration">
+--- The duration to inspect.
+--- </param>
+---
+--- <returns>
+--- True only for zero seconds and zero nanoseconds.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isZero(duration: Duration): Boolean
+    return duration.seconds == 0 and duration.nanoseconds == 0
+end
+
+--- <summary>
+--- Reports whether a canonical duration is negative.
+--- </summary>
+---
+--- <param name="duration">
+--- The duration to inspect.
+--- </param>
+---
+--- <returns>
+--- True when canonical floor seconds are negative.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isNegative(duration: Duration): Boolean
+    return duration.seconds < 0
+end
+
+--- <summary>
+--- Returns the canonical floor-second field.
+--- </summary>
+---
+--- <param name="duration">
+--- The duration to inspect.
+--- </param>
+---
+--- <returns>
+--- The exact stored floor seconds.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function secondsPart(duration: Duration): Int
+    return duration.seconds
+end
+
+--- <summary>
+--- Returns the canonical subsecond nanosecond field.
+--- </summary>
+---
+--- <param name="duration">
+--- The duration to inspect.
+--- </param>
+---
+--- <returns>
+--- The exact stored nonnegative nanoseconds.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function nanosecondsPart(duration: Duration): Int
+    return duration.nanoseconds
+end

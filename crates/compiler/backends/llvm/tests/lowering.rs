@@ -102,12 +102,558 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
         "collection and field operations need exact optimizable ABI signatures: {text}"
     );
     assert!(
+        text.contains(
+            "declare i8 @pop_rt_atomic_int_compare_exchange(i64, i64, i64, i8, i8, ptr) nounwind"
+        ) && text.contains("declare i8 @pop_rt_actor_try_receive(i64, ptr, ptr) nounwind")
+            && text.contains("declare i8 @pop_rt_tcp_send(i64, ptr, i64, ptr) nounwind")
+            && text
+                .contains("declare i8 @pop_rt_udp_receive(i64, ptr, i64, ptr, ptr, ptr) nounwind"),
+        "closed runtime ABI signatures must drive LLVM declarations: {text}"
+    );
+    assert!(
         !text.contains("@pop_rt_array_get(...)") && !text.contains("@pop_rt_field_set(...)"),
         "variadic runtime declarations hide optimizer-visible argument contracts: {text}"
     );
     assert!(
         !text.contains("pop_rt_semantic"),
         "runtime operations must use closed PLRI identities"
+    );
+}
+
+#[test]
+fn directional_channels_lower_to_exact_native_abi_and_valid_llvm_ir() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/channel.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             if local endpoints = Channel.bounded<<Int>>(UInt64(1)) then\n\
+                 local sender = endpoints[1]\n\
+                 local receiver = endpoints[2]\n\
+                 local sent = Channel.trySend(sender, 41)\n\
+                 local received = Channel.tryReceive(receiver)\n\
+                 local closed = Channel.close(sender)\n\
+                 local finished = Channel.tryReceive(receiver)\n\
+                 if Channel.sendAccepted(sent) and closed and Channel.receiveClosed(finished) then\n\
+                     if local textEndpoints = Channel.bounded<<String>>(UInt64(1)) then\n\
+                         local textSender = textEndpoints[1]\n\
+                         local textReceiver = textEndpoints[2]\n\
+                         local textSent = Channel.trySend(textSender, \"rooted\")\n\
+                         local textReceived = Channel.tryReceive(textReceiver)\n\
+                         if Channel.sendAccepted(textSent) then\n\
+                             return (Channel.received(received) ?? 0) + Text.length(Text.view(Channel.received(textReceived) ?? \"\"))\n\
+                         end\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return -1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Channel MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Channel lowering");
+    let text = module.to_string();
+
+    for symbol in [
+        "pop_rt_channel_create",
+        "pop_rt_channel_try_send",
+        "pop_rt_channel_try_receive",
+        "pop_rt_channel_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    assert!(
+        text.contains("i32 1, ptr @pop_allocation_site")
+            || text.contains("constant [1 x i32] [i32 1]"),
+        "managed receive outcomes need an exact payload root map: {text}"
+    );
+    assert!(!text.to_ascii_lowercase().contains("dynamic"), "{text}");
+    let input = std::env::temp_dir().join("pop-backend-llvm-channel.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-channel.bc");
+    fs::write(&input, &text).expect("write Channel LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Channel IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "channel");
+    assert_eq!(
+        executed.status.code(),
+        Some(47),
+        "native Channel execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
+fn typed_atomic_standard_calls_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/atomic.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             local integer = Atomic.int(4)\n\
+             local loaded = Atomic.loadInt(integer, Atomic.acquireLoadOrder())\n\
+             local previous = Atomic.swapInt(integer, 9, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local exchangedFrom = Atomic.compareExchangeInt(integer, 9, 15, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local mismatchObserved = Atomic.compareExchangeInt(integer, 9, 20, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
+             local addedFrom = Atomic.fetchAddInt(integer, 5, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local subtractedFrom = Atomic.fetchSubtractInt(integer, 2, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local andFrom = Atomic.fetchAndInt(integer, 12, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local orFrom = Atomic.fetchOrInt(integer, 3, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local xorFrom = Atomic.fetchXorInt(integer, 15, Atomic.acquireReleaseReadModifyWriteOrder())\n\
+             local stored = Atomic.storeInt(integer, 12, Atomic.releaseStoreOrder())\n\
+             local boolean = Atomic.boolean(false)\n\
+             local priorBoolean = Atomic.swapBoolean(boolean, true, Atomic.sequentiallyConsistentReadModifyWriteOrder())\n\
+             local exchangedBoolean = Atomic.compareExchangeBoolean(boolean, true, false, Atomic.acquireReleaseReadModifyWriteOrder(), Atomic.acquireLoadOrder())\n\
+             local mismatchBoolean = Atomic.compareExchangeBoolean(boolean, true, true, Atomic.sequentiallyConsistentReadModifyWriteOrder(), Atomic.sequentiallyConsistentLoadOrder())\n\
+             local loadedBoolean = Atomic.loadBoolean(boolean, Atomic.sequentiallyConsistentLoadOrder())\n\
+             local released = Atomic.releaseInt(integer) and Atomic.releaseBoolean(boolean)\n\
+             if loaded == 4 and previous == 4 and exchangedFrom == 9 and mismatchObserved == 15 and addedFrom == 15 and subtractedFrom == 20 and andFrom == 18 and orFrom == 0 and xorFrom == 3 and stored and not priorBoolean and exchangedBoolean and not mismatchBoolean and not loadedBoolean and released then\n\
+                 return 0\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Atomic MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Atomic MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Atomic MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Atomic lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_atomic_int_create",
+        "pop_rt_atomic_int_load",
+        "pop_rt_atomic_int_store",
+        "pop_rt_atomic_int_swap",
+        "pop_rt_atomic_int_compare_exchange",
+        "pop_rt_atomic_bool_create",
+        "pop_rt_atomic_bool_load",
+        "pop_rt_atomic_bool_swap",
+        "pop_rt_atomic_bool_compare_exchange",
+        "pop_rt_atomic_release",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-atomic.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-atomic.bc");
+    fs::write(&input, &text).expect("write Atomic LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Atomic IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "atomic");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Atomic execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
+fn typed_actor_mailboxes_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/actor.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             if local inbox = Actor.mailbox<<Int>>(UInt64(7), UInt64(3), UInt64(2)) then\n\
+                 local reference = Actor.reference(inbox)\n\
+                 local first = Actor.trySend(reference, 41)\n\
+                 local second = Actor.trySend(reference, 42)\n\
+                 local full = Actor.trySend(reference, 43)\n\
+                 if local received = Actor.tryReceive(inbox) then\n\
+                     local finished = Actor.finish(inbox)\n\
+                     local closed = Actor.trySend(reference, 44)\n\
+                     local released = Actor.release(inbox)\n\
+                     if Actor.sendAccepted(first) and Actor.sendAccepted(second) and Actor.sendFull(full) and received == 41 and finished and Actor.sendClosed(closed) and released then\n\
+                         return 0\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Actor MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Actor MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Actor MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Actor lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_actor_create",
+        "pop_rt_actor_activate",
+        "pop_rt_actor_try_send_handle",
+        "pop_rt_actor_try_receive",
+        "pop_rt_actor_begin_exit",
+        "pop_rt_actor_complete_exit",
+        "pop_rt_actor_release",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-actor.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-actor.bc");
+    fs::write(&input, &text).expect("write Actor LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Actor IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "actor");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Actor execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one executable source keeps the TCP and UDP transport assertions connected"
+)]
+fn typed_net_transports_lower_and_execute_through_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/net.pop",
+        "namespace Main\n\
+         private function main(): Int\n\
+             local listener = Net.Tcp.listen(UInt16(0))\n\
+             local tcpPort = Net.Tcp.listenerLocalPort(listener)\n\
+             local client = Net.Tcp.connect(tcpPort)\n\
+             if local server = Net.Tcp.accept(listener) then\n\
+                 local sent = Net.Tcp.sendByte(client, Byte(65))\n\
+                 local received = Net.Tcp.receiveByte(server)\n\
+                 if local byte = Net.Tcp.receivedByte(received) then\n\
+                     local payload = Text.encodeUtf8(\"buffered Pop Net\")\n\
+                     local sentBytes = Net.Tcp.send(client, payload)\n\
+                     local receivedBuffer = Bytes.withCapacity(64)\n\
+                     local receivedBytes = Net.Tcp.receive(server, receivedBuffer, UInt64(64))\n\
+                     while Net.transferWouldBlock(receivedBytes) do\n\
+                         receivedBytes = Net.Tcp.receive(server, receivedBuffer, UInt64(64))\n\
+                     end\n\
+                     local receivedLength = Bytes.length(receivedBuffer)\n\
+                     local expectedTransferCount = UInt64(16)\n\
+                     local expectedTcpByte = Byte(65)\n\
+                     local noDelaySet = Net.Tcp.setNoDelay(client, true)\n\
+                     local noDelay = Net.Tcp.noDelay(client)\n\
+                     local expectedHopLimit = UInt32(42)\n\
+                     local hopLimitSet = Net.Tcp.setHopLimit(client, expectedHopLimit)\n\
+                     local hopLimit = Net.Tcp.hopLimit(client)\n\
+                     local keepAliveSet = Net.Tcp.setKeepAlive(client, true)\n\
+                     local keepAlive = Net.Tcp.keepAlive(client)\n\
+                     local keepAliveIdleSet = Net.Tcp.setKeepAliveIdleMilliseconds(client, UInt64(30000))\n\
+                     local expectedLinger = UInt64(2000)\n\
+                     local lingerSet = Net.Tcp.setLingerMilliseconds(client, expectedLinger)\n\
+                     local linger = Net.Tcp.lingerMilliseconds(client)\n\
+                     local lingerDisabled = Net.Tcp.setLingerMilliseconds(client, UInt64(0))\n\
+                     local expectedFamily = Byte(4)\n\
+                     local expectedScope = UInt32(0)\n\
+                     local localFamily = Net.Tcp.localAddressFamily(client)\n\
+                     local peerFamily = Net.Tcp.peerAddressFamily(client)\n\
+                     local localScope = Net.Tcp.localScopeId(client)\n\
+                     local peerScope = Net.Tcp.peerScopeId(client)\n\
+                     local clientPeerPort = Net.Tcp.peerPort(client)\n\
+                     local writeClosed = Net.Tcp.shutdownWrite(client)\n\
+                     local readClosed = Net.Tcp.shutdownRead(server)\n\
+                     local tcpClosed = Net.Tcp.closeStream(client) and Net.Tcp.closeStream(server) and Net.Tcp.closeListener(listener)\n\
+                     local udp = Net.Udp.bind(UInt16(0))\n\
+                     local udpPort = Net.Udp.localPort(udp)\n\
+                     local udpFamily = Net.Udp.localAddressFamily(udp)\n\
+                     local udpScope = Net.Udp.localScopeId(udp)\n\
+                     local udpBroadcastSet = Net.Udp.setBroadcast(udp, true)\n\
+                     local udpBroadcast = Net.Udp.broadcast(udp)\n\
+                     local udpHopSet = Net.Udp.setHopLimit(udp, expectedHopLimit)\n\
+                     local udpHop = Net.Udp.hopLimit(udp)\n\
+                     local datagramSent = Net.Udp.sendByteTo(udp, UInt32(2130706433), udpPort, Byte(66))\n\
+                     if local datagram = Net.Udp.receiveByte(udp) then\n\
+                         local expectedUdpByte = Byte(66)\n\
+                         local expectedAddress = UInt32(2130706433)\n\
+                         local validDatagram = Net.Udp.datagramByte(datagram) == expectedUdpByte and Net.Udp.datagramAddress(datagram) == expectedAddress and Net.Udp.datagramPort(datagram) == udpPort\n\
+                         local udpPayload = Text.encodeUtf8(\"buffered Pop Net\")\n\
+                         local udpSent = Net.Udp.sendTo(udp, expectedAddress, udpPort, udpPayload)\n\
+                         local udpBuffer = Bytes.withCapacity(64)\n\
+                         if local udpTransfer = Net.Udp.receive(udp, udpBuffer, UInt64(64)) then\n\
+                             local validUdpTransfer = Net.Udp.transferredByteCount(udpTransfer) == expectedTransferCount and Net.Udp.sourceAddress(udpTransfer) == expectedAddress and Net.Udp.sourcePort(udpTransfer) == udpPort and Bytes.length(udpBuffer) == 16\n\
+                             local udpClosed = Net.Udp.close(udp)\n\
+                             if Net.ioProgress(sent) and Net.Tcp.received(received) and byte == expectedTcpByte and Net.transferProgress(sentBytes) and Net.transferredByteCount(sentBytes) == expectedTransferCount and Net.transferProgress(receivedBytes) and Net.transferredByteCount(receivedBytes) == expectedTransferCount and receivedLength == 16 and noDelaySet and noDelay and hopLimitSet and hopLimit == expectedHopLimit and keepAliveSet and keepAlive and keepAliveIdleSet and lingerSet and linger == expectedLinger and lingerDisabled and localFamily == expectedFamily and peerFamily == expectedFamily and localScope == expectedScope and peerScope == expectedScope and clientPeerPort == tcpPort and writeClosed and readClosed and tcpClosed and udpFamily == expectedFamily and udpScope == expectedScope and udpBroadcastSet and udpBroadcast and udpHopSet and udpHop == expectedHopLimit and Net.ioProgress(datagramSent) and validDatagram and Net.transferProgress(udpSent) and validUdpTransfer and udpClosed then\n\
+                                 return 0\n\
+                             end\n\
+                         end\n\
+                     end\n\
+                 end\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("Net MIR");
+    let interpreted = MirInterpreter::new(&mir, front_end.types())
+        .expect("Net MIR interpreter")
+        .call(mir.functions()[0].symbol(), &[])
+        .expect("Net MIR execution");
+    assert_eq!(
+        interpreted,
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("0", IntegerKind::Int64).expect("zero")
+        )]
+    );
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("LLVM Net lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_tcp_listen",
+        "pop_rt_tcp_connect",
+        "pop_rt_tcp_accept",
+        "pop_rt_tcp_send",
+        "pop_rt_tcp_receive",
+        "pop_rt_tcp_set_keepalive",
+        "pop_rt_tcp_keepalive",
+        "pop_rt_tcp_set_keepalive_idle",
+        "pop_rt_tcp_set_linger",
+        "pop_rt_tcp_linger",
+        "pop_rt_tcp_close",
+        "pop_rt_udp_bind",
+        "pop_rt_udp_send_to",
+        "pop_rt_udp_receive",
+        "pop_rt_udp_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+    let input = std::env::temp_dir().join("pop-backend-llvm-net.ll");
+    let output = std::env::temp_dir().join("pop-backend-llvm-net.bc");
+    fs::write(&input, &text).expect("write Net LLVM input");
+    let assembled = Command::new("llvm-as")
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("llvm-as must be installed");
+    assert!(
+        assembled.status.success(),
+        "llvm-as rejected Net IR: {}\n{text}",
+        String::from_utf8_lossy(&assembled.stderr)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let executed = link_with_runtime_and_run(&module, "net");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native Net execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+}
+
+#[test]
+fn verified_tls_lowers_and_executes_through_native_abi() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate = cert.der().to_vec();
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(certificate.clone())],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                signing_key.serialize_der(),
+            )),
+        )
+        .expect("server TLS config");
+    let listener =
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("loopback listener");
+    let port = listener.local_addr().expect("listener address").port();
+
+    let mut program = format!(
+        "namespace Main\nprivate function main(): Int\n    local certificateBuffer = Bytes.withCapacity({})\n",
+        certificate.len()
+    );
+    for byte in &certificate {
+        writeln!(program, "    Bytes.write(certificateBuffer, Byte({byte}))")
+            .expect("write certificate source");
+    }
+    writeln!(
+        program,
+        "    local certificate = Bytes.toBytes(certificateBuffer)\n\
+         local source = Task.cancellationSource()\n\
+         local cancel = Task.cancelToken(source)\n\
+         local clock = Time.monotonicClock()\n\
+         local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(5000))\n\
+         local tcp = Net.Tcp.connect(UInt16({port}))\n\
+         local config = Net.Tls.clientRootConfig(certificate)\n\
+         local stream = Net.Tls.clientHandshake(config, tcp, \"localhost\", deadline, cancel)\n\
+         local sent = Net.Tls.send(stream, Text.encodeUtf8(\"encrypted Pop Net\"))\n\
+         local expected = UInt64(17)\n\
+         if Net.transferProgress(sent) and Net.transferredByteCount(sent) == expected and Net.Tls.close(stream) and Net.Tls.closeClientConfig(config) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock) then\n\
+             return 0\n\
+         end\n\
+         return 1\n\
+         end"
+    )
+    .expect("write TLS program");
+    let source = SourceFile::new(FileId::from_raw(0), "src/tls.pop", program).expect("TLS source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("TLS MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(mir.functions()[0].symbol()),
+    )
+    .expect("TLS LLVM lowering");
+    let text = module.to_string();
+    for symbol in [
+        "pop_rt_tls_client_root_config",
+        "pop_rt_tls_client_handshake",
+        "pop_rt_tls_send_bytes",
+        "pop_rt_tls_close",
+    ] {
+        assert!(text.contains(symbol), "missing {symbol}: {text}");
+    }
+
+    let server = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().expect("TLS client connection");
+        let connection = rustls::ServerConnection::new(std::sync::Arc::new(server_config))
+            .expect("server connection");
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let mut payload = [0_u8; 17];
+        std::io::Read::read_exact(&mut stream, &mut payload).expect("encrypted payload");
+        payload
+    });
+    let executed = link_with_runtime_and_run(&module, "tls");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "native TLS execution failed: {}\n{text}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+    assert_eq!(
+        server.join().expect("TLS server thread"),
+        *b"encrypted Pop Net"
     );
 }
 
@@ -2844,7 +3390,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 0)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 4)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -2990,6 +3536,163 @@ fn emitted_llvm_executes_a_pure_pop_function() {
         Some(42),
         "lli rejected or failed generated IR: {}",
         String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn representative_programs_match_canonical_mir_optimized_mir_and_native_execution() {
+    let programs = [
+        (
+            "multi-module-control-flow",
+            vec![
+                (
+                    "src/calculation.pop",
+                    "namespace Representative\n\
+public function sumWithoutThree(limit: Int): Int\n\
+    local total = 0\n\
+    for value = 1, limit do\n\
+        if value == 3 then\n\
+            continue\n\
+        end\n\
+        total += value\n\
+    end\n\
+    return total\n\
+end\n",
+                ),
+                (
+                    "src/main.pop",
+                    "namespace Representative\n\
+private function main(): Int\n\
+    return sumWithoutThree(10)\n\
+end\n",
+                ),
+            ],
+            52,
+        ),
+        (
+            "structural-values",
+            vec![(
+                "src/main.pop",
+                "namespace Representative\n\
+public record Point\n\
+    x: Int\n\
+    label: String\n\
+end\n\
+private function main(): Int\n\
+    local point: Point = { label = \"pop\", x = 40 }\n\
+    local updated = point with { x = point.x + 2 }\n\
+    if updated.label == \"pop\" then\n\
+        return updated.x\n\
+    end\n\
+    return 1\n\
+end\n",
+            )],
+            42,
+        ),
+        (
+            "nominal-dispatch",
+            vec![(
+                "src/main.pop",
+                "namespace Representative\n\
+public interface Reader\n\
+    function read(value: Int): Int\n\
+end\n\
+public class IncrementReader implements Reader\n\
+    public function IncrementReader:read(value: Int): Int\n\
+        return 41\n\
+    end\n\
+end\n\
+public class DoubleReader implements Reader\n\
+    public function DoubleReader:read(value: Int): Int\n\
+        return 0\n\
+    end\n\
+end\n\
+private function readThroughInterface(reader: Reader, value: Int): Int\n\
+    return reader:read(value)\n\
+end\n\
+private function main(): Int\n\
+    local reader = IncrementReader {}\n\
+    local doubleReader = DoubleReader {}\n\
+    return readThroughInterface(reader, 20) + readThroughInterface(doubleReader, 10) + 1\n\
+end\n",
+            )],
+            42,
+        ),
+    ];
+
+    for (name, sources, expected) in programs {
+        assert_representative_program_equivalence(name, &sources, expected);
+    }
+}
+
+fn assert_representative_program_equivalence(name: &str, sources: &[(&str, &str)], expected: i32) {
+    let modules = sources
+        .iter()
+        .enumerate()
+        .map(|(index, (path, text))| {
+            let raw = u32::try_from(index).expect("representative Module count");
+            FrontEndModule::new(
+                ModuleId::from_raw(raw),
+                SourceFile::new(FileId::from_raw(raw), *path, *text)
+                    .expect("representative source"),
+            )
+        })
+        .collect();
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        modules,
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{name}: {}",
+        front_end.diagnostic_snapshot()
+    );
+    let hir = front_end.hir().expect("representative HIR");
+    let entry = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "main")
+        .expect("representative entry")
+        .symbol();
+    let canonical =
+        lower_hir_bubble(hir, front_end.types()).expect("verified canonical representative MIR");
+    let optimized =
+        optimize_mir(canonical.clone(), front_end.types()).expect("verified optimized MIR");
+    let expected_value = vec![MirValue::Integer(
+        IntegerValue::parse_decimal(&expected.to_string(), IntegerKind::Int64)
+            .expect("representative expected Int"),
+    )];
+
+    let canonical_value = MirInterpreter::new(&canonical, front_end.types())
+        .expect("canonical MIR interpreter")
+        .call(entry, &[])
+        .expect("canonical MIR execution");
+    assert_eq!(canonical_value, expected_value, "{name}: canonical MIR");
+
+    let optimized_value = MirInterpreter::new(&optimized, front_end.types())
+        .expect("optimized MIR interpreter")
+        .call(entry, &[])
+        .expect("optimized MIR execution");
+    assert_eq!(
+        optimized_value, canonical_value,
+        "{name}: optimized MIR diverged"
+    );
+
+    let module = lower_mir_to_llvm_ir(
+        &optimized,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(entry),
+    )
+    .expect("representative LLVM lowering");
+    let native = link_with_runtime_and_run(&module, name);
+    assert_eq!(
+        native.status.code(),
+        Some(expected),
+        "{name}: LLVM native execution diverged: {}\n{module}",
+        String::from_utf8_lossy(&native.stderr)
     );
 }
 
@@ -3172,6 +3875,93 @@ end\n",
 }
 
 #[test]
+fn emitted_llvm_executes_linear_unicode_string_iteration() {
+    let module = native_module(
+        "namespace Main\n\
+private function main(): Int\n\
+    local count = 0\n\
+    for rune in \"Aé中😀\\0e\\u{301}\" do\n\
+        count += 1\n\
+        local point = Unicode.codePoint(rune)\n\
+        if count == 1 and point ~= 65 then\n\
+            return 1\n\
+        end\n\
+        if count == 2 and point ~= 233 then\n\
+            return 2\n\
+        end\n\
+        if count == 3 and point ~= 20013 then\n\
+            return 3\n\
+        end\n\
+        if count == 4 and point ~= 128512 then\n\
+            return 4\n\
+        end\n\
+        if count == 5 and point ~= 0 then\n\
+            return 5\n\
+        end\n\
+        if count == 6 and point ~= 101 then\n\
+            return 6\n\
+        end\n\
+        if count == 7 and point ~= 769 then\n\
+            return 7\n\
+        end\n\
+    end\n\
+    if count ~= 7 then\n\
+        return 8\n\
+    end\n\
+    return 42\n\
+end\n",
+    );
+    let text = module.to_string();
+    assert!(
+        text.contains("call i64 @pop_rt_iteration_acquire(i64") && text.contains("i8 4"),
+        "String iteration must select the closed append-only kind:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "string-rune-iteration");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted String rune iteration: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_specializes_sequence_count_over_string_runes() {
+    let module = native_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private function main(): Int\n\
+                 local scalarCount = count(\"Aé中😀e\\u{301}\")\n\
+                 if scalarCount ~= 6 then\n\
+                     return 1\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let text = module.to_string();
+    assert!(
+        text.contains("call i64 @pop_rt_iteration_acquire(i64") && text.contains("i8 4"),
+        "Sequence.count(String) must retain the exact String specialization:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "sequence-count-string-runes");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "Sequence.count(String) misexecuted: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
 fn emitted_llvm_executes_first_class_integer_ranges() {
     let module = native_module(
         "namespace Main\n\
@@ -3218,6 +4008,67 @@ end\n",
         result.status.code(),
         Some(126),
         "native executable advanced a broken range: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_both_reserved_iteration_match_cases() {
+    let module = native_module(
+        "namespace Main\n\
+private function inspect<T>(step: Iteration<T>, fallback: T): T\n\
+    match step\n\
+    when Iteration.Item(value) then\n\
+        return value\n\
+    when Iteration.End then\n\
+        return fallback\n\
+    end\n\
+end\n\
+private function main(): Int\n\
+    local item: Iteration<Int> = Iteration.Item(41)\n\
+    local empty: Iteration<Int> = Iteration.End\n\
+    return inspect(item, 0) + inspect(empty, 1)\n\
+end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "iteration-match");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Iteration match: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_preserves_optional_iteration_item_presence() {
+    let module = native_module(
+        "namespace Main\n\
+private function hasItem(step: Iteration<Int?>): Boolean\n\
+    match step\n\
+    when Iteration.Item(value) then\n\
+        return true\n\
+    when Iteration.End then\n\
+        return false\n\
+    end\n\
+end\n\
+private function main(): Int\n\
+    local empty: {Int} = {}\n\
+    local absent: Int? = empty[1]\n\
+    local item: Iteration<Int?> = Iteration.Item(absent)\n\
+    local ended: Iteration<Int?> = Iteration.End\n\
+    if hasItem(item) and not hasItem(ended) then\n\
+        return 42\n\
+    end\n\
+    return 1\n\
+end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "optional-iteration-match");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable collapsed Item(nil) into End: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
     );
@@ -3429,6 +4280,14 @@ fn emitted_llvm_executes_sequence_inspection_and_visitation() {
             "src/main.pop",
             "namespace Main\n\
              using Pop.Sequence\n\
+             private function valueOr(step: Iteration<Int>, fallback: Int): Int\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return value\n\
+                 when Iteration.End then\n\
+                     return fallback\n\
+                 end\n\
+             end\n\
              private class CountingIterator implements Iterator<Int>\n\
                  private values: {Int}\n\
                  private index: Int\n\
@@ -3489,14 +4348,23 @@ fn emitted_llvm_executes_sequence_inspection_and_visitation() {
                  if noEven or matchCounter:callCount() ~= 2 then\n\
                      return -1\n\
                  end\n\
-                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + eachCounter:visitedTotal() + matches\n\
+                 local firstCounter = CountingIterator.new(values)\n\
+                 local firstSource: Iterator<Int> = firstCounter\n\
+                 local firstValue = valueOr(first(firstSource), 0)\n\
+                 local lastCounter = CountingIterator.new(values)\n\
+                 local lastSource: Iterator<Int> = lastCounter\n\
+                 local lastValue = valueOr(last(lastSource), 0)\n\
+                 if firstCounter:callCount() ~= 1 or firstCounter:visitedTotal() ~= 1 or lastCounter:callCount() ~= 5 or lastCounter:visitedTotal() ~= 10 then\n\
+                     return -1\n\
+                 end\n\
+                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + eachCounter:visitedTotal() + matches + firstValue + lastValue\n\
              end\n",
         ),
     ]);
     let result = link_with_runtime_and_run(&module, "sequence-inspection-visitation");
     assert_eq!(
         result.status.code(),
-        Some(53),
+        Some(58),
         "native executable misexecuted Sequence terminals: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
@@ -3917,17 +4785,2002 @@ fn emitted_llvm_executes_portable_integer_math() {
                  if not coprime(35, 64) or coprime(21, 6) or lcm(3000000000, 6000000000) ~= 6000000000 or lcm(-9223372036854775807 - 1, 0) ~= 0 then\n\
                      return -1\n\
                  end\n\
-                 return values + numberTheory\n\
+                 local bounded = clamp(12, 0, 10) ?? -100\n\
+                 local invalidBounds = clamp(4, 8, -2) ?? 7\n\
+                 local exponentiated = power(2, 5) ?? 0\n\
+                 local negativeExponent = power(2, -1) ?? 9\n\
+                 if (power(0, 1) ?? -1) ~= 0 then\n\
+                     return -1\n\
+                 end\n\
+                 local floorValues = floorDivide(-7, 3) + floorRemainder(-7, 3)\n\
+                 return values + numberTheory + bounded + invalidBounds + exponentiated + negativeExponent + floorValues\n\
              end\n",
         ),
     ]);
     let result = link_with_runtime_and_run(&module, "portable-integer-math");
     assert_eq!(
         result.status.code(),
-        Some(59),
+        Some(116),
         "native executable misexecuted portable Math: {}\n{}",
         String::from_utf8_lossy(&result.stderr),
         module
+    );
+}
+
+#[test]
+fn emitted_llvm_lowers_portable_bytes_inspection_and_endian_reads() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("backend crate is under the repository root");
+    let bytes_source = fs::read_to_string(root.join("crates/libraries/standard/pop/src/bytes.pop"))
+        .expect("read Pop.Bytes source");
+    let module = native_modules(&[
+        ("src/bytes.pop", bytes_source.as_str()),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(arguments: Array<String>): Int\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let text = module.to_string();
+
+    for operation in ["viewLength", "viewGetByte"] {
+        assert!(
+            !text.contains(operation),
+            "LLVM text must contain backend operations rather than MIR name `{operation}`"
+        );
+    }
+    assert!(
+        text.contains("@pop_rt_bytes_view_lengths")
+            && text.contains("@pop_rt_bytes_view_get")
+            && text.contains("define internal { i1, i16 }")
+            && text.contains("define internal { i1, i32 }")
+            && text.contains("define internal { i1, i64 }"),
+        "portable Bytes functions must lower to typed LLVM view and integer operations:\n{text}"
+    );
+}
+
+const PORTABLE_BYTES_CONSUMER: &str = "namespace Main\n\
+    using Pop.Bytes\n\
+    public function inspect(value: Bytes, equalValue: Bytes, prefix: Bytes, suffix: Bytes, empty: Bytes, maximum: Bytes): Int\n\
+        local view = Bytes.view(value)\n\
+        local equalView = Bytes.view(equalValue)\n\
+        local prefixView = Bytes.view(prefix)\n\
+        local suffixView = Bytes.view(suffix)\n\
+        local emptyView = Bytes.view(empty)\n\
+        local maximumView = Bytes.view(maximum)\n\
+        if not equals(view, equalView) then\n\
+            return 1\n\
+        end\n\
+        if compare(prefixView, view) ~= -1 then\n\
+            return 9\n\
+        end\n\
+        if not startsWith(view, prefixView) or not endsWith(view, suffixView) then\n\
+            return 2\n\
+        end\n\
+        if not contains(view, 255) or (indexOf(view, 255, 1) ?? 0) ~= 5 then\n\
+            return 3\n\
+        end\n\
+        if (readUInt16BigEndian(view, 1) ?? 0) ~= 258 or (readUInt16LittleEndian(view, 2) ?? 0) ~= 770 then\n\
+            return 4\n\
+        end\n\
+        if (readUInt32BigEndian(view, 1) ?? 0) ~= 16909060 or (readUInt64LittleEndian(view, 1) ?? 0) ~= 4647715910730318337 then\n\
+            return 5\n\
+        end\n\
+        if not equals(emptyView, emptyView) or not startsWith(view, emptyView) or not endsWith(view, emptyView) then\n\
+            return 6\n\
+        end\n\
+        if (readUInt16BigEndian(maximumView, 1) ?? 0) ~= 65535 or (readUInt32LittleEndian(maximumView, 1) ?? 0) ~= 4294967295 or (readUInt64BigEndian(maximumView, 1) ?? 0) ~= 18446744073709551615 then\n\
+            return 7\n\
+        end\n\
+        if readUInt64BigEndian(view, 2) ~= nil or readUInt16BigEndian(view, 9223372036854775807) ~= nil or indexOf(emptyView, 0, 1) ~= nil then\n\
+            return 8\n\
+        end\n\
+        return 42\n\
+    end\n";
+
+const PORTABLE_BYTES_EXACT_VIEW_FIXTURE: &str = "\n\
+    @pop_test_bytes_payloads = private constant [48 x i8] [\
+        i8 1, i8 2, i8 3, i8 4, i8 255, i8 0, i8 128, i8 64,\
+        i8 1, i8 2, i8 3, i8 4, i8 255, i8 0, i8 128, i8 64,\
+        i8 1, i8 2, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0,\
+        i8 128, i8 64, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0,\
+        i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0, i8 0,\
+        i8 255, i8 255, i8 255, i8 255, i8 255, i8 255, i8 255, i8 255\
+    ]\n\
+    @pop_test_bytes_lengths = private constant [6 x i64] [i64 8, i64 8, i64 2, i64 2, i64 0, i64 8]\n\
+    define { i64, i64 } @pop_rt_bytes_view_lengths(i64 %token) nounwind {\n\
+    entry:\n\
+        %slot = sub i64 %token, 1\n\
+        %pointer = getelementptr [6 x i64], ptr @pop_test_bytes_lengths, i64 0, i64 %slot\n\
+        %length = load i64, ptr %pointer\n\
+        %with_bytes = insertvalue { i64, i64 } undef, i64 %length, 0\n\
+        %result = insertvalue { i64, i64 } %with_bytes, i64 %length, 1\n\
+        ret { i64, i64 } %result\n\
+    }\n\
+    define i16 @pop_rt_bytes_view_get(i64 %token, i64 %offset, i64 %length, i64 %index) nounwind {\n\
+    entry:\n\
+        %after_start = icmp sge i64 %index, 1\n\
+        %before_end = icmp sle i64 %index, %length\n\
+        %present = and i1 %after_start, %before_end\n\
+        br i1 %present, label %read, label %absent\n\
+    read:\n\
+        %token_index = sub i64 %token, 1\n\
+        %token_offset = mul i64 %token_index, 8\n\
+        %view_offset = add i64 %token_offset, %offset\n\
+        %zero_index = sub i64 %index, 1\n\
+        %payload_index = add i64 %view_offset, %zero_index\n\
+        %pointer = getelementptr [48 x i8], ptr @pop_test_bytes_payloads, i64 0, i64 %payload_index\n\
+        %value = load i8, ptr %pointer\n\
+        %wide_value = zext i8 %value to i16\n\
+        %shifted_value = shl i16 %wide_value, 8\n\
+        %result = or i16 %shifted_value, 1\n\
+        ret i16 %result\n\
+    absent:\n\
+        ret i16 0\n\
+    }\n";
+
+#[test]
+fn emitted_llvm_executes_portable_bytes_inspection_and_endian_reads() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("backend crate is under the repository root");
+    let bytes_source = fs::read_to_string(root.join("crates/libraries/standard/pop/src/bytes.pop"))
+        .expect("read Pop.Bytes source");
+    let modules = [
+        ("src/bytes.pop", bytes_source.as_str()),
+        ("src/main.pop", PORTABLE_BYTES_CONSUMER),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (path, text))| {
+        let raw = u32::try_from(index).expect("Bytes Module count");
+        FrontEndModule::new(
+            ModuleId::from_raw(raw),
+            SourceFile::new(FileId::from_raw(raw), path, text).expect("Bytes source"),
+        )
+    })
+    .collect();
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        modules,
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let hir = front_end.hir().expect("Bytes HIR");
+    let entry = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "inspect")
+        .expect("Bytes inspect entry")
+        .symbol();
+    let mir = lower_hir_bubble(hir, front_end.types()).expect("Bytes MIR");
+    let mut llvm = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default(),
+    )
+    .expect("Bytes LLVM")
+    .to_string();
+    llvm = llvm
+        .replace(
+            "declare { i64, i64 } @pop_rt_bytes_view_lengths(i64) nounwind\n",
+            "",
+        )
+        .replace(
+            "declare i16 @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind\n",
+            "",
+        );
+    llvm.push_str(PORTABLE_BYTES_EXACT_VIEW_FIXTURE);
+    let retained_entry = format!("pop_b0_s{}", entry.raw());
+    llvm = retain_reachable_llvm_fixture(&llvm, &retained_entry, "portable-bytes");
+    let fixture = format!(
+        "#include <stdint.h>\n\
+         #include <stdlib.h>\n\
+         uint8_t pop_rt_gc_safe_point(uint32_t point, uint64_t *roots, uint64_t count) {{\n\
+             (void)point; (void)roots; (void)count; return 1;\n\
+         }}\n\
+         void pop_rt_trap(void) {{ abort(); }}\n\
+         extern int64_t pop_b0_s{symbol}(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);\n\
+         int main(void) {{ return (int)pop_b0_s{symbol}(1, 2, 3, 4, 5, 6); }}\n",
+        symbol = entry.raw()
+    );
+    let result = link_llvm_with_c_fixture(&llvm, &fixture, "portable-bytes");
+    assert!(
+        result.status.code() == Some(42),
+        "LLVM Bytes fixture failed with {:?}:\n{llvm}",
+        result.status.code()
+    );
+}
+
+fn retain_reachable_llvm_fixture(llvm: &str, entry: &str, name: &str) -> String {
+    let input = std::env::temp_dir().join(format!("pop-backend-llvm-{name}-complete.ll"));
+    let output = std::env::temp_dir().join(format!("pop-backend-llvm-{name}-reachable.ll"));
+    fs::write(&input, llvm).expect("write complete LLVM fixture");
+    let retained_api = format!("--internalize-public-api-list={entry}");
+    let optimized = Command::new("opt")
+        .args(["--passes=internalize,globaldce", &retained_api, "-S"])
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .expect("opt must be installed");
+    assert!(
+        optimized.status.success(),
+        "opt rejected LLVM fixture: {}\n{llvm}",
+        String::from_utf8_lossy(&optimized.stderr)
+    );
+    let reachable = fs::read_to_string(&output).expect("read reachable LLVM fixture");
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    reachable
+}
+
+#[test]
+fn emitted_llvm_executes_reusable_byte_buffer_writes_and_snapshots() {
+    let module = native_module(
+        "namespace Main\n\
+         private function main(): Int\n\
+             local buffer = Bytes.withCapacity(1)\n\
+             Bytes.reserve(buffer, 24)\n\
+             Bytes.write(buffer, 170)\n\
+             Bytes.writeUInt16BigEndian(buffer, 258)\n\
+             Bytes.writeUInt16LittleEndian(buffer, 772)\n\
+             Bytes.writeUInt32BigEndian(buffer, 84281096)\n\
+             Bytes.writeUInt64LittleEndian(buffer, 72623859790382856)\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             Bytes.write(buffer, snapshot)\n\
+             Bytes.write(buffer, Bytes.slice(snapshot, 2, 2))\n\
+             local result = Bytes.toBytes(buffer)\n\
+             if Bytes.length(buffer) ~= 19 or Bytes.length(Bytes.view(snapshot)) ~= 17 then\n\
+                 return 1\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 1) ?? 0) ~= 170 then\n\
+                 return 2\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 2) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 3) ?? 0) ~= 2 then\n\
+                 return 3\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 4) ?? 0) ~= 4 or (Bytes.get(Bytes.view(result), 5) ?? 0) ~= 3 then\n\
+                 return 4\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 6) ?? 0) ~= 5 or (Bytes.get(Bytes.view(result), 9) ?? 0) ~= 8 then\n\
+                 return 5\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 10) ?? 0) ~= 8 or (Bytes.get(Bytes.view(result), 17) ?? 0) ~= 1 then\n\
+                 return 6\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 18) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 19) ?? 0) ~= 2 then\n\
+                 return 7\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "reusable-byte-buffer");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted reusable Bytes.Buffer: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_checked_utf8_transcoding() {
+    let module = native_module(
+        "namespace Main\n\
+         private function main(): Int\n\
+             local text = \"Aé中🦀\"\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             if (Text.decodeUtf8(Bytes.view(encoded)) ?? \"\") ~= text then\n\
+                 return 1\n\
+             end\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 2, 2))\n\
+             if (Text.decodeUtf8(Bytes.view(selected)) ?? \"\") ~= \"é中\" then\n\
+                 return 2\n\
+             end\n\
+             local buffer = Bytes.create()\n\
+             Bytes.write(buffer, 195)\n\
+             Bytes.write(buffer, 169)\n\
+             if (Text.decodeUtf8(buffer) ?? \"\") ~= \"é\" then\n\
+                 return 3\n\
+             end\n\
+             Bytes.write(buffer, 255)\n\
+             if Text.decodeUtf8(buffer) ~= nil or Bytes.length(buffer) ~= 3 then\n\
+                 return 4\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let result = link_with_runtime_and_run(&module, "checked-utf8");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted checked UTF-8: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_portable_hexadecimal_codec() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local buffer = Bytes.create()\n\
+                 Bytes.write(buffer, 0)\n\
+                 Bytes.write(buffer, 171)\n\
+                 Bytes.write(buffer, 255)\n\
+                 local source = Bytes.toBytes(buffer)\n\
+                 local sourceView = Bytes.view(source)\n\
+                 if hexEncode(sourceView) ~= \"00abff\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = hexDecode(\"00aBfF\")\n\
+                 if local decoded = decodedOptional then\n\
+                     local decodedView = Bytes.view(decoded)\n\
+                     if not equals(sourceView, decodedView) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if hexDecode(\"0\") ~= nil or hexDecode(\"0x00\") ~= nil or hexDecode(\"gg\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-hexadecimal");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted hexadecimal codec: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_portable_base64_codec() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local bytes = Text.encodeUtf8(\"foobar\")\n\
+                 local view = Bytes.view(bytes)\n\
+                 if base64Encode(view) ~= \"Zm9vYmFy\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = base64Decode(\"Zm9vYmFy\")\n\
+                 if local decoded = decodedOptional then\n\
+                     local decodedView = Bytes.view(decoded)\n\
+                     if not equals(view, decodedView) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if base64Decode(\"Zg=\") ~= nil or base64Decode(\"Zh==\") ~= nil or base64Decode(\"Zm-8\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-base64");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted base64 codec: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_portable_base32_codec() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local bytes = Text.encodeUtf8(\"foobar\")\n\
+                 local view = Bytes.view(bytes)\n\
+                 if base32Encode(view) ~= \"MZXW6YTBOI======\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = base32Decode(\"MZXW6YTBOI======\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if not equals(view, Bytes.view(decoded)) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if base32Decode(\"MY=====\") ~= nil or base32Decode(\"my======\") ~= nil or base32Decode(\"MZ======\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-base32");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted base32 codec: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_portable_bytes_bitwise_transforms() {
+    let module = native_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             private function main(): Int\n\
+                 local leftBuffer = Bytes.create()\n\
+                 Bytes.write(leftBuffer, 170)\n\
+                 Bytes.write(leftBuffer, 240)\n\
+                 local rightBuffer = Bytes.create()\n\
+                 Bytes.write(rightBuffer, 204)\n\
+                 Bytes.write(rightBuffer, 15)\n\
+                 local leftBytes = Bytes.toBytes(leftBuffer)\n\
+                 local rightBytes = Bytes.toBytes(rightBuffer)\n\
+                 local left = Bytes.view(leftBytes)\n\
+                 local right = Bytes.view(rightBytes)\n\
+                 if local combined = bitwiseXor(left, right) then\n\
+                     local view = Bytes.view(combined)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 102 or (Bytes.get(view, 2) ?? 0) ~= 255 then\n\
+                         return 1\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 local inverted = bitwiseNot(left)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if (Bytes.get(invertedView, 1) ?? 0) ~= 85 or (Bytes.get(invertedView, 2) ?? 0) ~= 15 then\n\
+                     return 2\n\
+                 end\n\
+                 if bitwiseAnd(left, invertedView) == nil or bitwiseOr(left, invertedView) == nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-bytes-bitwise");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Bytes bitwise transforms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_essential_text_algorithms() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if trim(\"\u{a0} hello \u{3000}\") ~= \"hello\" then\n\
+                     return 1\n\
+                 end\n\
+                 if replace(\"aé中é\", \"é\", \"--\") ~= \"a--中--\" then\n\
+                     return 2\n\
+                 end\n\
+                 local pieces = split(\"a·中·\", \"·\")\n\
+                 if List.length(pieces) ~= 3 or List.get(pieces, 3) ~= \"\" then\n\
+                     return 3\n\
+                 end\n\
+                 if join(pieces, \"·\") ~= \"a·中·\" then\n\
+                     return 4\n\
+                 end\n\
+                 if (parseInt(\"-9223372036854775808\") ?? 0) ~= -9223372036854775807 - 1 or parseInt(\"9223372036854775808\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted essential Text algorithms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_scalar_indexed_text_search() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if not startsWith(\"é中😀z\", \"é中\") or not endsWith(\"é中😀z\", \"😀z\") then\n\
+                     return 1\n\
+                 end\n\
+                 if not contains(\"aé中😀é\", \"中😀\") or contains(\"aé中😀é\", \"É\") then\n\
+                     return 2\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"é\", 3) ?? 0) ~= 5 or (indexOf(\"aé中😀é\", \"\", 6) ?? 0) ~= 6 then\n\
+                     return 3\n\
+                 end\n\
+                 if indexOf(\"aé中😀é\", \"\", 7) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text-search");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Text search: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_text_ascii_casing() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             private function main(): Int\n\
+                 if toAsciiLower(\"HTTP-É中😀\") ~= \"http-É中😀\" or toAsciiUpper(\"http-é中😀\") ~= \"HTTP-é中😀\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not equalsAsciiIgnoreCase(\"Content-TYPE\", \"content-type\") or equalsAsciiIgnoreCase(\"É\", \"é\") then\n\
+                     return 2\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "essential-text-ascii-casing");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted Text ASCII casing: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_semantic_versions() {
+    let module = native_modules(&[
+        (
+            "src/math.pop",
+            include_str!("../../../../libraries/standard/pop/src/math.pop"),
+        ),
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/version.pop",
+            include_str!("../../../../libraries/standard/pop/src/version.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Version\n\
+             private function required(text: String): Value\n\
+                 local fallback: Value = { major = 0, minor = 0, patch = 0, prerelease = \"\", build = \"\" }\n\
+                 return parse(text) ?? fallback\n\
+             end\n\
+             private function main(): Int\n\
+                 local complete = required(\"1.2.3-alpha.1+linux\")\n\
+                 if format(complete) ~= \"1.2.3-alpha.1+linux\" then\n\
+                     return 1\n\
+                 end\n\
+                 if parse(\"01.2.3\") ~= nil or parse(\"1.2.3-\") ~= nil or parse(\"1.2.3-alpha..1\") ~= nil or parse(\"1.2.3-α\") ~= nil or parse(\"2147483647.0.0\") ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha\"), required(\"1.0.0-alpha.1\")) >= 0 or compare(required(\"1.0.0-alpha.1\"), required(\"1.0.0-alpha.beta\")) >= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha.beta\"), required(\"1.0.0-beta\")) >= 0 or compare(required(\"1.0.0-beta\"), required(\"1.0.0-beta.2\")) >= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 if compare(required(\"1.0.0-beta.2\"), required(\"1.0.0-beta.11\")) >= 0 or compare(required(\"1.0.0-beta.11\"), required(\"1.0.0-rc.1\")) >= 0 or compare(required(\"1.0.0-rc.1\"), required(\"1.0.0\")) >= 0 then\n\
+                     return 5\n\
+                 end\n\
+                 if compare(required(\"1.2.3+one\"), required(\"1.2.3+two\")) ~= 0 then\n\
+                     return 6\n\
+                 end\n\
+                 if not matches(required(\"1.4.5\"), \"^1.2.3\") or matches(required(\"2.0.0\"), \"^1.2.3\") then\n\
+                     return 7\n\
+                 end\n\
+                 if not matches(required(\"1.2.9\"), \"~1.2.3\") or matches(required(\"1.3.0\"), \"~1.2.3\") then\n\
+                     return 8\n\
+                 end\n\
+                 if not matches(required(\"1.2.3+build\"), \"=1.2.3\") or not matches(required(\"1.2.4\"), \">1.2.3\") or matches(required(\"1.2.3\"), \">=broken\") then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-semantic-versions");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded semantic versions: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_media_types() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/mime.pop",
+            include_str!("../../../../libraries/standard/pop/src/mime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Mime\n\
+             private function fallback(): Value\n\
+                 local parameters = List.create<<Parameter>>()\n\
+                 return { mediaType = \"application\", subtype = \"octet-stream\", parameters = parameters }\n\
+             end\n\
+             private function required(text: String): Value\n\
+                 return parse(text) ?? fallback()\n\
+             end\n\
+             private function main(): Int\n\
+                 local plain = required(\"Text/Plain; Charset=\\\"utf-8\\\"; title=\\\"a b\\\"; note=\\\"a;b\\\"\")\n\
+                 if plain.mediaType ~= \"text\" or plain.subtype ~= \"plain\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (parameter(plain, \"CHARSET\") ?? \"\") ~= \"utf-8\" or (parameter(plain, \"title\") ?? \"\") ~= \"a b\" or (parameter(plain, \"note\") ?? \"\") ~= \"a;b\" then\n\
+                     return 2\n\
+                 end\n\
+                 if format(plain) ~= \"text/plain; charset=utf-8; title=\\\"a b\\\"; note=\\\"a;b\\\"\" then\n\
+                     return 3\n\
+                 end\n\
+                 local escaped = required(\"text/plain; title=\\\"a\\\\\\\"b\\\"\")\n\
+                 if (parameter(escaped, \"title\") ?? \"\") ~= \"a\\\"b\" or format(escaped) ~= \"text/plain; title=\\\"a\\\\\\\"b\\\"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"text\") ~= nil or parse(\"text/plain;\") ~= nil or parse(\"text/plain; A=1; a=2\") ~= nil or parse(\"téxt/plain\") ~= nil or parse(\"text/plain; x=\\\"broken\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if not matches(plain, \"text/plain\") or not matches(plain, \"TEXT/*\") or not matches(plain, \"*/*\") then\n\
+                     return 6\n\
+                 end\n\
+                 if matches(plain, \"application/*\") or matches(plain, \"*/plain\") or matches(plain, \"text/plain; charset=utf-8\") then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-media-types");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded media types: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_uri_references() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/uri.pop",
+            include_str!("../../../../libraries/standard/pop/src/uri.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Uri\n\
+             private function resolved(base: Value, referenceText: String): String\n\
+                 local reference = parse(referenceText) ?? base\n\
+                 return format(resolve(base, reference))\n\
+             end\n\
+             private function main(): Int\n\
+                 if local absolute = parse(\"HTTPS://example.test/a%20b?x=1#part\") then\n\
+                     if absolute.scheme ~= \"https\" or (absolute.authority ?? \"\") ~= \"example.test\" or absolute.path ~= \"/a%20b\" or (absolute.query ?? \"\") ~= \"x=1\" or (absolute.fragment ?? \"\") ~= \"part\" then\n\
+                         return 1\n\
+                     end\n\
+                     if format(absolute) ~= \"https://example.test/a%20b?x=1#part\" then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local empty = parse(\"https://example.test?#\") then\n\
+                     if empty.query == nil or empty.fragment == nil or format(empty) ~= \"https://example.test?#\" then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 if parse(\"1http:x\") ~= nil or parse(\"a b\") ~= nil or parse(\"a%2\") ~= nil or parse(\"é\") ~= nil or parse(\"a#b#c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if local relative = parse(\"a/b:c\") then\n\
+                     if relative.scheme ~= \"\" or relative.path ~= \"a/b:c\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if local fragmentColon = parse(\"abc#d:e\") then\n\
+                     if fragmentColon.scheme ~= \"\" or fragmentColon.path ~= \"abc\" or (fragmentColon.fragment ?? \"\") ~= \"d:e\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if (percentEncode(\"é 中\") ?? \"\") ~= \"%C3%A9%20%E4%B8%AD\" or (percentDecode(\"%C3%A9%20%E4%B8%AD\") ?? \"\") ~= \"é 中\" then\n\
+                     return 6\n\
+                 end\n\
+                 if percentDecode(\"%\") ~= nil or percentDecode(\"%GG\") ~= nil or percentDecode(\"%FF\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if local base = parse(\"http://a/b/c/d;p?q\") then\n\
+                     if resolved(base, \"g:h\") ~= \"g:h\" or resolved(base, \"g\") ~= \"http://a/b/c/g\" or resolved(base, \"./g\") ~= \"http://a/b/c/g\" then\n\
+                         return 8\n\
+                     end\n\
+                     if resolved(base, \"/g\") ~= \"http://a/g\" or resolved(base, \"//g\") ~= \"http://g\" or resolved(base, \"?y\") ~= \"http://a/b/c/d;p?y\" then\n\
+                         return 9\n\
+                     end\n\
+                     if resolved(base, \"g?y#s\") ~= \"http://a/b/c/g?y#s\" or resolved(base, \"#s\") ~= \"http://a/b/c/d;p?q#s\" then\n\
+                         return 10\n\
+                     end\n\
+                     if resolved(base, \".\") ~= \"http://a/b/c/\" or resolved(base, \"..\") ~= \"http://a/b/\" or resolved(base, \"../../g\") ~= \"http://a/g\" then\n\
+                         return 11\n\
+                     end\n\
+                 else\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-uri-references");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded URI references: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_guid_values() {
+    let module = native_modules(&[
+        (
+            "src/guid.pop",
+            include_str!("../../../../libraries/standard/pop/src/guid.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Guid\n\
+             private function main(): Int\n\
+                 if local parsed = parse(\"00112233-4455-1677-8899-aabbccddeeff\") then\n\
+                     if format(parsed) ~= \"00112233-4455-1677-8899-aabbccddeeff\" or isVersion4(parsed) then\n\
+                         return 1\n\
+                     end\n\
+                     local bytes = toBytes(parsed)\n\
+                     if local roundTrip = fromBytes(bytes) then\n\
+                         if format(roundTrip) ~= format(parsed) then\n\
+                             return 3\n\
+                         end\n\
+                     else\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local uppercase = parse(\"00112233-4455-4677-8899-AABBCCDDEEFF\") then\n\
+                     if format(uppercase) ~= \"00112233-4455-4677-8899-aabbccddeeff\" then\n\
+                         return 4\n\
+                     end\n\
+                 else\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"\") ~= nil or parse(\"{00112233-4455-4677-8899-aabbccddeeff}\") ~= nil or parse(\"00112233445546778899aabbccddeeff\") ~= nil or parse(\"00112233-4455-4677-8899-aabbccddeefg\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local empty = Bytes.toBytes(Bytes.create())\n\
+                 if fromBytes(empty) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 local randomBuffer = Bytes.withCapacity(16)\n\
+                 for index = 0, 15 do\n\
+                     Bytes.write(randomBuffer, Byte(index))\n\
+                 end\n\
+                 local randomBytes = Bytes.toBytes(randomBuffer)\n\
+                 if local generated = newVersion4(randomBytes) then\n\
+                     if format(generated) ~= \"00010203-0405-4607-8809-0a0b0c0d0e0f\" or not isVersion4(generated) then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if newVersion4(empty) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nilValue: Value = { firstWord = UInt32(0), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 local unknownValue: Value = { firstWord = UInt32(1), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 if not isNil(nilValue) or isNil(unknownValue) or isVersion4(unknownValue) then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-guid-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded GUID values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_portable_paths() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/path.pop",
+            include_str!("../../../../libraries/standard/pop/src/path.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Path\n\
+             private function required(text: String): Value\n\
+                 return normalize(text) ?? { text = \"invalid\", absolute = false }\n\
+             end\n\
+             private function main(): Int\n\
+                 if format(required(\"\")) ~= \".\" or format(required(\"/a//b/../c/.\")) ~= \"/a/c\" then\n\
+                     return 1\n\
+                 end\n\
+                 if format(required(\"../../a/../b\")) ~= \"../../b\" or format(required(\"/../../a\")) ~= \"/a\" then\n\
+                     return 2\n\
+                 end\n\
+                 if normalize(\"a\\\\b\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local base = required(\"/a/b\")\n\
+                 if not isAbsolute(base) or format(join(base, \"../c\") ?? required(\".\")) ~= \"/a/c\" or join(base, \"/c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local file = required(\"/a/archive.tar.gz\")\n\
+                 if format(parent(file) ?? required(\".\")) ~= \"/a\" or (name(file) ?? \"\") ~= \"archive.tar.gz\" or (extension(file) ?? \"\") ~= \"gz\" then\n\
+                     return 5\n\
+                 end\n\
+                 if extension(required(\".env\")) ~= nil or extension(required(\"name.\")) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parent(required(\"/\")) ~= nil or name(required(\".\")) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if format(required(\"dados/ação.txt\")) ~= \"dados/ação.txt\" then\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-portable-paths");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded portable paths: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_canonical_durations() {
+    let module = native_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function main(): Int\n\
+                 local positive = fromMilliseconds(1500)\n\
+                 if secondsPart(positive) ~= 1 or nanosecondsPart(positive) ~= 500000000 then\n\
+                     return 1\n\
+                 end\n\
+                 local negative = fromMilliseconds(-1)\n\
+                 if secondsPart(negative) ~= -1 or nanosecondsPart(negative) ~= 999000000 or not isNegative(negative) then\n\
+                     return 2\n\
+                 end\n\
+                 local finalNano = fromNanoseconds(-1)\n\
+                 if secondsPart(finalNano) ~= -1 or nanosecondsPart(finalNano) ~= 999999999 then\n\
+                     return 3\n\
+                 end\n\
+                 if not isZero(fromSeconds(0)) or compare(negative, positive) ~= -1 or compare(positive, negative) ~= 1 or compare(positive, fromNanoseconds(1500000000)) ~= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 local low = fromSeconds(-9000000000000000000)\n\
+                 local high = fromSeconds(9000000000000000000)\n\
+                 if compare(low, high) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "canonical-durations");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted canonical durations: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_deterministic_test_clocks() {
+    let module = native_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/timeClock.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeClock.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local start = instant(10, 900000000)?\n\
+                 local clock = testClock(start)?\n\
+                 if not advance(clock, fromMilliseconds(200)) then\n\
+                     return 1\n\
+                 end\n\
+                 local after = now(clock)\n\
+                 if after.seconds ~= 11 or after.nanoseconds ~= 100000000 then\n\
+                     return 2\n\
+                 end\n\
+                 local deadline = deadlineAfter(clock, fromMilliseconds(500))?\n\
+                 if isExpired(clock, deadline) or not advance(clock, fromMilliseconds(500)) or not isExpired(clock, deadline) then\n\
+                     return 3\n\
+                 end\n\
+                 if advance(clock, fromNanoseconds(-1)) then\n\
+                     return 4\n\
+                 end\n\
+                 local nearEnd = instant(2147483646, 999999999)?\n\
+                 local finalClock = testClock(nearEnd)?\n\
+                 if advance(finalClock, fromNanoseconds(1)) or deadlineAfter(finalClock, fromNanoseconds(1)) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if instant(-1, 0) ~= nil or instant(0, -1) ~= nil or instant(0, 1000000000) ~= nil or instant(2147483647, 0) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-test-clocks");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic test clocks: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_gregorian_dates() {
+    let module = native_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local leap = date(2024, 2, 29)?\n\
+                 local next = date(2024, 3, 1)?\n\
+                 if (daysInMonth(2024, 2) ?? 0) ~= 29 or (daysInMonth(2023, 2) ?? 0) ~= 28 then\n\
+                     return 1\n\
+                 end\n\
+                 if not isLeapYear(2024) or isLeapYear(1900) or not isLeapYear(2000) then\n\
+                     return 2\n\
+                 end\n\
+                 if compareDates(leap, next) ~= -1 or compareDates(next, leap) ~= 1 or compareDates(leap, leap) ~= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if date(0, 1, 1) ~= nil or date(10000, 1, 1) ~= nil or date(2023, 2, 29) ~= nil or date(2024, 13, 1) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local first = date(1, 1, 1)?\n\
+                 local final = date(9999, 12, 31)?\n\
+                 if compareDates(first, final) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-gregorian-dates");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Gregorian dates: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_civil_time_values() {
+    let module = native_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/timeDateTime.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDateTime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             private function verify(): Int?\n\
+                 local day = date(2024, 2, 29)?\n\
+                 local time = timeOfDay(23, 59, 59, 999999999)?\n\
+                 local localValue = localDateTime(day, time)?\n\
+                 local offset = utcOffset(-18000)?\n\
+                 local complete = offsetDateTime(localValue, offset)?\n\
+                 if complete.dateTime.date.day ~= 29 or complete.dateTime.time.hour ~= 23 or complete.offset.seconds ~= -18000 then\n\
+                     return 1\n\
+                 end\n\
+                 local zero = utcOffset(0)?\n\
+                 if not isUtc(zero) or isUtc(offset) then\n\
+                     return 2\n\
+                 end\n\
+                 if timeOfDay(-1, 0, 0, 0) ~= nil or timeOfDay(24, 0, 0, 0) ~= nil or timeOfDay(0, 60, 0, 0) ~= nil or timeOfDay(0, 0, 60, 0) ~= nil or timeOfDay(0, 0, 0, 1000000000) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if utcOffset(-64801) ~= nil or utcOffset(64801) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local invalidOffset: UtcOffset = { seconds = 64801 }\n\
+                 if offsetDateTime(localValue, invalidOffset) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-civil-time-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded civil Time values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_locale_tags() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/locale.pop",
+            include_str!("../../../../libraries/standard/pop/src/locale.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Locale\n\
+             private function verify(): Int?\n\
+                 local portuguese = parse(\"pt-br\")?\n\
+                 local traditional = parse(\"zh-hant-tw\")?\n\
+                 if (format(portuguese) ?? \"\") ~= \"pt-BR\" or (format(traditional) ?? \"\") ~= \"zh-Hant-TW\" then\n\
+                     return 1\n\
+                 end\n\
+                 local other = parse(\"pt-PT\")?\n\
+                 if not sameLanguage(portuguese, other) or sameLanguage(portuguese, traditional) then\n\
+                     return 2\n\
+                 end\n\
+                 if parse(\"e\") ~= nil or parse(\"9n\") ~= nil or parse(\"en_\") ~= nil or parse(\"en--US\") ~= nil or parse(\"en-US-extra\") ~= nil or parse(\"é\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-locale-tags");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Locale tags: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_text_globs() {
+    let module = native_modules(&[
+        (
+            "src/glob.pop",
+            include_str!("../../../../libraries/standard/pop/src/glob.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Glob\n\
+             private function verify(): Int?\n\
+                 local wildcard = compile(\"a*?c\")?\n\
+                 if not matches(wildcard, \"abxc\") or matches(wildcard, \"ac\") or matches(wildcard, \"abxcd\") then\n\
+                     return 1\n\
+                 end\n\
+                 local escaped = compile(\"a\\\\*b\")?\n\
+                 if not matches(escaped, \"a*b\") or matches(escaped, \"axxb\") then\n\
+                     return 2\n\
+                 end\n\
+                 local scalar = compile(\"?.txt\")?\n\
+                 if not matches(scalar, \"😀.txt\") or matches(scalar, \"ab.txt\") then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = compile(\"\")?\n\
+                 if not matches(empty, \"\") or matches(empty, \"x\") or compile(\"\\\\\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-text-globs");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Glob patterns: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_bounded_csv_rows() {
+    let module = native_modules(&[
+        (
+            "src/csv.pop",
+            include_str!("../../../../libraries/standard/pop/src/csv.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Csv\n\
+             private function verify(): Int?\n\
+                 local rows = parse(\"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\\n\")?\n\
+                 if List.length(rows) ~= 2 or List.get(List.get(rows, 1), 2) ~= \"b,c\" or List.get(List.get(rows, 2), 1) ~= \"x\\\"y\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (format(rows) ?? \"\") ~= \"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\" then\n\
+                     return 2\n\
+                 end\n\
+                 local embedded = parse(\"\\\"a\\nb\\\",c\")?\n\
+                 if List.get(List.get(embedded, 1), 1) ~= \"a\\nb\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parse(\"a\\rb\") ~= nil or parse(\"a\\\"b\") ~= nil or parse(\"\\\"a\\\"x\") ~= nil or parse(\"\\\"open\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "bounded-csv-rows");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted bounded Csv rows: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_canonical_ipv4_values() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local address = parseIpv4(\"192.168.1.42\")?\n\
+                 if formatIpv4(address) ~= \"192.168.1.42\" or (ipv4Octet(address, 4) ?? 0) ~= Byte(42) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv4Private(address) or isIpv4Loopback(address) then\n\
+                     return 2\n\
+                 end\n\
+                 local loopback = parseIpv4(\"127.255.0.1\")?\n\
+                 if not isIpv4Loopback(loopback) or isIpv4Private(loopback) then\n\
+                     return 3\n\
+                 end\n\
+                 if not isIpv4Private(parseIpv4(\"10.0.0.1\")?) or not isIpv4Private(parseIpv4(\"172.31.255.255\")?) or isIpv4Private(parseIpv4(\"172.32.0.0\")?) then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv4(\"01.2.3.4\") ~= nil or parseIpv4(\"256.0.0.1\") ~= nil or parseIpv4(\"1.2.3\") ~= nil or parseIpv4(\"1.2.3.4.5\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "canonical-ipv4-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted canonical IPv4 values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_canonical_ipv6_values() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local address = parseIpv6(\"2001:db8::1\")?\n\
+                 local second = ipv6Segment(address, 2)?\n\
+                 if formatIpv6(address) ~= \"2001:db8::1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if second ~= UInt16(3512) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv6Loopback(parseIpv6(\"::1\")?) or not isIpv6Unspecified(parseIpv6(\"::\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if formatIpv6(parseIpv6(\"2001::1:0:0:1:1\")?) ~= \"2001::1:0:0:1:1\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv6(\"2001:DB8::1\") ~= nil or parseIpv6(\"2001:0db8::1\") ~= nil or parseIpv6(\"2001:db8:0:0:0:0:0:1\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv6(\"2001:::1\") ~= nil or parseIpv6(\"2001:db8:1\") ~= nil or parseIpv6(\"::ffff:192.0.2.1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "canonical-ipv6-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted canonical IPv6 values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_ipv6_prefixes_and_socket_addresses() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local base = parseIpv6(\"2001:db8:abcd:ffff::1\")?\n\
+                 local prefix = ipv6Prefix(base, 49)?\n\
+                 if formatIpv6(networkIpv6(prefix)) ~= \"2001:db8:abcd:8000::\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:9fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:7fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseIpv6Socket(\"[2001:db8::1]:443\")?\n\
+                 if formatIpv6Socket(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 3\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(443) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:0443\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:65536\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "ipv6-prefix-socket-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted IPv6 prefix/socket values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_closed_ip_address_union() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local ipv4Value = parseAddress(\"127.0.0.1\")?\n\
+                 if formatAddress(ipv4Value) ~= \"127.0.0.1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not isAddressLoopback(ipv4Value) then\n\
+                     return 2\n\
+                 end\n\
+                 local ipv6Value = parseAddress(\"::\")?\n\
+                 if formatAddress(ipv6Value) ~= \"::\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not isAddressUnspecified(ipv6Value) then\n\
+                     return 4\n\
+                 end\n\
+                 if parseAddress(\"01.2.3.4\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseAddress(\"2001:DB8::1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "closed-ip-address-union");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted closed IP address union: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_closed_prefix_and_socket_unions() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local ipv4Value = parseIpv4(\"10.2.3.4\")?\n\
+                 local prefix = Prefix.Ipv4(ipv4Prefix(ipv4Value, 8)?)\n\
+                 if formatAddress(networkAddress(prefix)) ~= \"10.0.0.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if containsAddress(prefix, parseAddress(\"::1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseSocketAddress(\"[2001:db8::1]:443\")?\n\
+                 if formatSocketAddress(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 3\n\
+                 end\n\
+                 if parseSocketAddress(\"2001:db8::1:443\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "closed-prefix-socket-unions");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted closed prefix/socket unions: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_numeric_interface_scope() {
+    let module = native_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local scoped = parseScopedIpv6(\"fe80::1%3\")?\n\
+                 if formatScopedIpv6(scoped) ~= \"fe80::1%3\" then\n\
+                     return 1\n\
+                 end\n\
+                 if scoped.interfaceId.index ~= UInt32(3) then\n\
+                     return 2\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%0\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%4294967296\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "numeric-interface-scope");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted numeric interface scope: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_immutable_interface_and_route_facts() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/netFacts.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFacts.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local identity = interfaceId(UInt32(7))?\n\
+                 local fact = networkInterface(identity, \"eth0\", true, false, UInt32(1500))?\n\
+                 if fact.maximumTransmissionUnit ~= UInt32(1500) then\n\
+                     return 1\n\
+                 end\n\
+                 local destination = ipv4Prefix(parseIpv4(\"10.2.3.4\")?, 8)?\n\
+                 local route = ipv4ViaRoute(destination, parseIpv4(\"10.0.0.1\")?, identity, UInt32(20))\n\
+                 if formatAddress(networkAddress(routeDestination(route))) ~= \"10.0.0.0\" then\n\
+                     return 2\n\
+                 end\n\
+                 local nextHop = routeNextHop(route)?\n\
+                 if formatAddress(nextHop) ~= \"10.0.0.1\" then\n\
+                     return 3\n\
+                 end\n\
+                 if routeMetric(route) ~= UInt32(20) then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "immutable-network-facts");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted immutable network facts: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_ipv4_prefixes_and_socket_addresses() {
+    let module = native_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             private function verify(): Int?\n\
+                 local base = parseIpv4(\"192.168.1.42\")?\n\
+                 local prefix = ipv4Prefix(base, 24)?\n\
+                 if formatIpv4(networkIpv4(prefix)) ~= \"192.168.1.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv4(prefix, parseIpv4(\"192.168.1.255\")?) or containsIpv4(prefix, parseIpv4(\"192.168.2.0\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local endpoint = parseIpv4Socket(\"192.168.1.42:8080\")?\n\
+                 if formatIpv4Socket(endpoint) ~= \"192.168.1.42:8080\" then\n\
+                     return 3\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(8080) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseIpv4Socket(\"192.168.1.42:080\") ~= nil or parseIpv4Socket(\"192.168.1.42:65536\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return verify() ?? 99\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "ipv4-prefix-socket-values");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted IPv4 prefix/socket values: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_deterministic_random_state() {
+    let module = native_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             private function main(): Int\n\
+                 local state = seed(1)\n\
+                 if next(state) ~= 16807 or next(state) ~= 282475249 or next(state) ~= 1622650073 then\n\
+                     return 1\n\
+                 end\n\
+                 local values: {Int} = {1, 2, 3, 4, 5}\n\
+                 local shuffleState = seed(1)\n\
+                 if not shuffle(shuffleState, values) then\n\
+                     return 2\n\
+                 end\n\
+                 if Array.get(values, 1) ~= 4 or Array.get(values, 3) ~= 5 or Array.get(values, 5) ~= 2 then\n\
+                     return 3\n\
+                 end\n\
+                 local output = Bytes.create()\n\
+                 if not fill(seed(1), output, 4) then\n\
+                     return 4\n\
+                 end\n\
+                 local snapshot = Bytes.toBytes(output)\n\
+                 if Bytes.length(Bytes.view(snapshot)) ~= 4 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 166 or (Bytes.get(Bytes.view(snapshot), 4) ?? 0) ~= 41 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-random-state");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic Random.State: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_deterministic_random_distributions() {
+    let module = native_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             private function main(): Int\n\
+                 if (nextInt(seed(1), 10, 20) ?? 0) ~= 16 then\n\
+                     return 1\n\
+                 end\n\
+                 if (nextInt(seed(1), 0, 3000000000) ?? -1) ~= 892629924 then\n\
+                     return 2\n\
+                 end\n\
+                 local floating = seed(1)\n\
+                 local unit = nextFloat(floating)\n\
+                 if unit < 0.0 or unit >= 1.0 or next(floating) ~= 282475249 then\n\
+                     return 3\n\
+                 end\n\
+                 local probability = seed(1)\n\
+                 if not (chance(probability, 0.5) ?? false) or next(probability) ~= 282475249 then\n\
+                     return 4\n\
+                 end\n\
+                 local nan = 0.0 / 0.0\n\
+                 if chance(probability, nan) ~= nil or chance(probability, -0.1) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "deterministic-random-distributions");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted deterministic Random distributions: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_executes_materializing_sequence_order_and_equality() {
+    let module = native_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private record Candidate\n\
+                 id: Int\n\
+                 key: Int\n\
+             end\n\
+             private function main(): Int\n\
+                 local values: {Int} = {3, 1, 2}\n\
+                 local ordered = sort<<Int, {Int}>>(values, function(left: Int, right: Int): Int\n\
+                     if left < right then\n\
+                         return -1\n\
+                     end\n\
+                     if left > right then\n\
+                         return 1\n\
+                     end\n\
+                     return 0\n\
+                 end)\n\
+                 if List.get(ordered, 1) ~= 1 or List.get(ordered, 3) ~= 3 then\n\
+                     return 1\n\
+                 end\n\
+                 local first: Candidate = { id = 1, key = 2 }\n\
+                 local second: Candidate = { id = 2, key = 1 }\n\
+                 local third: Candidate = { id = 3, key = 2 }\n\
+                 local candidates: {Candidate} = {first, second, third}\n\
+                 local selected = sortBy<<Candidate, {Candidate}>>(candidates, function(value: Candidate): Int\n\
+                     return value.key\n\
+                 end)\n\
+                 local selectedFirst = List.get(selected, 1)\n\
+                 local selectedSecond = List.get(selected, 2)\n\
+                 if selectedFirst.id ~= 2 or selectedSecond.id ~= 1 then\n\
+                     return 2\n\
+                 end\n\
+                 local reversed = reverse<<Int, {Int}>>(values)\n\
+                 if List.get(reversed, 1) ~= 2 or List.get(reversed, 3) ~= 3 then\n\
+                     return 3\n\
+                 end\n\
+                 if not containsBy<<Int, {Int}>>(values, 1, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 4\n\
+                 end\n\
+                 local equal: {Int} = {3, 1, 2}\n\
+                 if not equalsBy<<Int, {Int}, {Int}>>(values, equal, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "materializing-sequence-order-equality");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted materializing Sequence algorithms: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        module
+    );
+}
+
+#[test]
+fn emitted_llvm_preserves_portable_power_overflow() {
+    let module = native_modules(&[
+        (
+            "src/math.pop",
+            include_str!("../../../../libraries/standard/pop/src/math.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Math\n\
+             private function main(): Int\n\
+                 return power(2, 63) ?? 0\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-power-overflow");
+    assert!(
+        result.status.code().is_none(),
+        "Math.power must preserve checked Int overflow\n{module}"
+    );
+}
+
+#[test]
+fn emitted_llvm_preserves_portable_floor_remainder_overflow() {
+    let module = native_modules(&[
+        (
+            "src/math.pop",
+            include_str!("../../../../libraries/standard/pop/src/math.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Math\n\
+             private function main(): Int\n\
+                 local minimum = -9223372036854775807 - 1\n\
+                 return floorRemainder(minimum, -1)\n\
+             end\n",
+        ),
+    ]);
+    let result = link_with_runtime_and_run(&module, "portable-floor-remainder-overflow");
+    assert!(
+        result.status.code().is_none(),
+        "Math.floorRemainder must preserve checked division overflow\n{module}"
     );
 }
 
@@ -5369,6 +8222,72 @@ fn emitted_llvm_executes_utf8_text_views_and_materialization() {
 }
 
 #[test]
+fn emitted_llvm_executes_validated_runes_text_access_and_ascii_helpers() {
+    let module = native_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Unicode\n\
+             private function inspect(): Int?\n\
+                 local text = \"Aé中😀z\"\n\
+                 local ascii = Text.get(text, 1)?\n\
+                 local twoByte = Text.get(text, 2)?\n\
+                 local threeByte = Text.get(text, 3)?\n\
+                 local fourByte = Text.get(text, 4)?\n\
+                 local final = Text.get(Text.slice(text, 2, 4), 4)?\n\
+                 if Unicode.codePoint(ascii) ~= 65 or Unicode.codePoint(twoByte) ~= 233 or Unicode.codePoint(threeByte) ~= 20013 or Unicode.codePoint(fourByte) ~= 128512 or Unicode.codePoint(final) ~= 122 then\n\
+                     return 1\n\
+                 end\n\
+                 if Text.get(text, 0) ~= nil or Text.get(text, -1) ~= nil or Text.get(text, 6) ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local low = Unicode.fromCodePoint(0)?\n\
+                 local beforeSurrogate = Unicode.fromCodePoint(55295)?\n\
+                 local afterSurrogate = Unicode.fromCodePoint(57344)?\n\
+                 local maximum = Unicode.fromCodePoint(1114111)?\n\
+                 if Unicode.codePoint(low) ~= 0 or Unicode.codePoint(beforeSurrogate) ~= 55295 or Unicode.codePoint(afterSurrogate) ~= 57344 or Unicode.codePoint(maximum) ~= 1114111 then\n\
+                     return 3\n\
+                 end\n\
+                 if Unicode.fromCodePoint(55296) ~= nil or Unicode.fromCodePoint(57343) ~= nil or Unicode.fromCodePoint(1114112) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local upper = Unicode.fromCodePoint(65)?\n\
+                 local lower = Unicode.fromCodePoint(122)?\n\
+                 local digit = Unicode.fromCodePoint(57)?\n\
+                 local space = Unicode.fromCodePoint(32)?\n\
+                 if not isAscii(upper) or not isAsciiLetter(upper) or not isAsciiDigit(digit) or not isAsciiAlphanumeric(lower) or not isAsciiWhitespace(space) then\n\
+                     return 5\n\
+                 end\n\
+                 if Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiLower(fourByte) ~= fourByte then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function main(): Int\n\
+                 return inspect() ?? 0\n\
+             end\n",
+        ),
+    ]);
+    let text = module.to_string();
+    assert!(
+        text.contains("@pop_rt_text_view_get_rune"),
+        "Rune text access must lower through the typed native view adapter:\n{text}"
+    );
+    let result = link_with_runtime_and_run(&module, "validated-runes");
+    assert_eq!(
+        result.status.code(),
+        Some(42),
+        "native executable misexecuted validated Unicode scalars: {}\n{}",
+        String::from_utf8_lossy(&result.stderr),
+        text
+    );
+}
+
+#[test]
 fn emitted_llvm_rebases_bytes_and_text_views_after_forced_relocation() {
     let mut types = TypeArena::new();
     let integer = types.source_type("Int").expect("Int");
@@ -5810,7 +8729,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && minor == 0;\n",
+            "  return major == 2 && minor <= 4;\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -5932,7 +8851,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && minor == 0;\n",
+            "  return major == 2 && minor <= 4;\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",
@@ -6609,4 +9528,60 @@ fn generated_codec_closed_graph_verifies_symmetric_static_lowering() {
     );
     assert!(!llvm.contains("retained-adapters.popc"), "{llvm}");
     assert!(!llvm.to_ascii_lowercase().contains("registry"), "{llvm}");
+}
+
+#[test]
+fn bounded_network_waits_lower_from_typed_pop_to_native_abi() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/net-wait.pop",
+        "namespace Main\n\
+         private function run(): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local socket = Net.Udp.bind(UInt16(0))\n\
+             local interfaces = Net.Interfaces.snapshot()\n\
+             local interfaceCount = Net.Interfaces.count(interfaces)\n\
+             local routes = Net.Routes.snapshot()\n\
+             local routeCount = Net.Routes.count(routes)\n\
+             local buffer = Bytes.withCapacity(16)\n\
+             local waited = Net.Udp.receiveUntil(socket, buffer, UInt64(16), deadline, cancel)\n\
+             local timedOut = Net.Udp.waitTimedOut(waited)\n\
+             return timedOut and Net.Routes.close(routes) and Net.Interfaces.close(interfaces) and Net.Udp.close(socket) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
+         end\n",
+    )
+    .expect("bounded wait source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(7),
+        NamespaceId::from_raw(7),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let mir = lower_hir_bubble(
+        front_end.hir().expect("bounded wait HIR"),
+        front_end.types(),
+    )
+    .expect("bounded wait MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default(),
+    )
+    .expect("bounded wait LLVM lowering");
+    if let Err(error) = module.verify() {
+        panic!("bounded wait LLVM must verify: {error:?}\n{module}");
+    }
+    let llvm = module.to_string();
+    assert!(llvm.contains("@pop_rt_udp_receive_buffer_until"), "{llvm}");
+    assert!(llvm.contains("@pop_rt_deadline_after"), "{llvm}");
+    assert!(llvm.contains("@pop_rt_net_interfaces_snapshot"), "{llvm}");
+    assert!(llvm.contains("@pop_rt_net_routes_snapshot"), "{llvm}");
 }

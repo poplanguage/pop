@@ -55,6 +55,62 @@ fn check_function(source_text: &str) -> CollectionFixture {
 }
 
 #[test]
+fn reserved_iteration_is_exhaustively_matchable_without_an_optional_sentinel() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function collections(step: Iteration<Int>): Int\n\
+             match step\n\
+             when Iteration.Item(value) then\n\
+                 return value\n\
+             when Iteration.End then\n\
+                 return 0\n\
+             end\n\
+         end\n",
+    );
+
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+}
+
+#[test]
+fn reserved_iteration_match_rejects_missing_foreign_and_malformed_cases() {
+    for (arms, expected) in [
+        (
+            "when Iteration.Item(value) then\n                 return value\n",
+            "POP2020",
+        ),
+        (
+            "when Result.Ok(value) then\n                 return value\n\
+             when Iteration.End then\n                 return 0\n",
+            "POP2022",
+        ),
+        (
+            "when Iteration.Item then\n                 return 1\n\
+             when Iteration.End(value) then\n                 return value\n",
+            "POP2004",
+        ),
+    ] {
+        let fixture = check_function(&format!(
+            "namespace Example\n\
+             public function collections(step: Iteration<Int>): Int\n\
+                 match step\n\
+                 {arms}\
+                 end\n\
+             end\n"
+        ));
+        assert!(fixture.result.body().is_none(), "{arms}");
+        assert!(
+            fixture.result.diagnostic_snapshot().contains(expected),
+            "{}",
+            fixture.result.diagnostic_snapshot()
+        );
+    }
+}
+
+#[test]
 fn checks_luau_shaped_array_and_named_table_literals_against_declared_types() {
     let fixture = check_function(
         "namespace Example\n\
@@ -227,6 +283,38 @@ fn generalized_for_accepts_exact_list_and_protocol_instances() {
         Some(SemanticType::Union(members))
             if members.contains(&fixture.arena.source_type("Int").expect("Int"))
                 && members.contains(&fixture.arena.source_type("nil").expect("nil"))
+    ));
+}
+
+#[test]
+fn generalized_for_treats_owned_strings_as_exact_rune_iterables() {
+    let fixture = check_function(
+        "namespace Example\n\
+         public function collections(text: String): Int\n\
+             local count = 0\n\
+             for rune in text do\n\
+                 local checked: Rune = rune\n\
+                 count += 1\n\
+             end\n\
+             return count\n\
+         end\n",
+    );
+
+    assert!(
+        fixture.result.diagnostics().is_empty(),
+        "{}",
+        fixture.result.diagnostic_snapshot()
+    );
+    let statements = fixture.result.body().expect("typed body").statements();
+    assert!(matches!(
+        statements[1].kind(),
+        TypedStatementKind::GeneralizedFor {
+            source: pop_types::TypedIterationSource::String,
+            item_type,
+            bindings,
+            ..
+        } if *item_type == fixture.arena.source_type("Rune").expect("Rune")
+            && bindings[0].local_type() == *item_type
     ));
 }
 

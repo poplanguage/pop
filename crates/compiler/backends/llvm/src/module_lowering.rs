@@ -8,7 +8,9 @@ use std::fmt::Write as _;
 
 use pop_foundation::{BubbleId, ClassId, FieldId, SymbolId, TypeId, ValueId};
 use pop_mir::{MirBubble, MirDeclarationKind, MirEffect, MirEffectSummary, MirInstructionKind};
-use pop_runtime_interface::RuntimeOperation;
+use pop_runtime_interface::{
+    CLOSED_RUNTIME_ABI_OPERATIONS, RuntimeAbiType, RuntimeOperation, runtime_abi_signature,
+};
 use pop_types::{SemanticType, TypeArena};
 
 use crate::api::LlvmLoweringError;
@@ -312,6 +314,22 @@ pub(crate) fn render_allocation_site_descriptors(
                         .collect::<Vec<_>>(),
                     Vec::new(),
                 ),
+                MirInstructionKind::ChannelCreate {
+                    allocation_site, ..
+                } => (*allocation_site, 2, Vec::new(), Vec::new()),
+                MirInstructionKind::ChannelTryReceive {
+                    allocation_site,
+                    element_map,
+                    ..
+                } => (
+                    *allocation_site,
+                    2,
+                    (*element_map == pop_runtime_interface::ArrayElementMap::ManagedReference)
+                        .then_some(1)
+                        .into_iter()
+                        .collect(),
+                    Vec::new(),
+                ),
                 _ => continue,
             };
             let symbol =
@@ -345,12 +363,16 @@ pub(crate) fn render_allocation_site_descriptors(
                     self_slots.len()
                 )
             });
+            let runtime_type = match instruction.kind() {
+                MirInstructionKind::ChannelCreate { endpoints, .. } => *endpoints,
+                _ => instruction.result_type(),
+            };
             let descriptor = format!(
                 "@{symbol} = private unnamed_addr constant {{ i32, i32, i32, i32, i8, [3 x i8], i32, i32, ptr }} {{ i32 {}, i32 {}, i32 {}, i32 {}, i8 {}, [3 x i8] zeroinitializer, i32 {slot_count}, i32 {}, ptr {reference_pointer} }}",
                 bubble.bubble().raw(),
                 owner.raw(),
                 site.raw(),
-                instruction.result_type().raw(),
+                runtime_type.raw(),
                 u8::from(!moving_nursery),
                 references.len()
             );
@@ -594,12 +616,16 @@ pub(crate) fn render_string_literals(literals: &BTreeMap<String, String>) -> Vec
 }
 
 pub(crate) fn runtime_declarations() -> Vec<String> {
-    vec![
+    let mut declarations = vec![
         "declare { i64, i64 } @pop_rt_bytes_view_lengths(i64) nounwind".to_owned(),
         "declare { i64, i64 } @pop_rt_text_view_lengths(i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_bytes_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
         "declare { i1, i64, i64, i64 } @pop_rt_text_view_slice(i64, i64, i64, i64, i64, i64) nounwind".to_owned(),
-        "declare { i1, i8 } @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind".to_owned(),
+        "declare i16 @pop_rt_bytes_view_get(i64, i64, i64, i64) nounwind".to_owned(),
+        format!(
+            "declare i8 @{}(i64, i64, i64, i64, i64, ptr) nounwind",
+            pop_runtime_native_abi::TEXT_VIEW_GET_RUNE_SYMBOL
+        ),
         "declare i64 @pop_rt_bytes_view_materialize(i64, i64, i64) nounwind".to_owned(),
         "declare i64 @pop_rt_text_view_materialize(i64, i64, i64) nounwind".to_owned(),
         format!(
@@ -667,6 +693,78 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
             native_runtime_symbol(RuntimeOperation::ListAdd)
         ),
         format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelCreate)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseSender)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelReleaseReceiver)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelClose)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelTrySend)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::ChannelTryReceive)
+        ),
+        format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferCreate)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferLength)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferReserve)
+        ),
+        format!(
+            "declare i8 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferClear)
+        ),
+        format!(
+            "declare i8 @{}(i64, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteByte)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteBytes)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteView)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i8, i8) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferWriteInteger)
+        ),
+        format!(
+            "declare i64 @{}(i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::ByteBufferMaterialize)
+        ),
+        format!(
+            "declare i64 @{}(i64, i64, i64) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8Encode)
+        ),
+        format!(
+            "declare i8 @{}(i64, i64, i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8DecodeView)
+        ),
+        format!(
+            "declare i8 @{}(i64, ptr) nounwind",
+            native_runtime_symbol(RuntimeOperation::Utf8DecodeBuffer)
+        ),
+        format!(
             "declare i64 @{}(i64, i64, i64, i1, i8) nounwind",
             native_runtime_symbol(RuntimeOperation::RangeCreate)
         ),
@@ -686,7 +784,38 @@ pub(crate) fn runtime_declarations() -> Vec<String> {
             "declare i8 @{}(i64, i64, i64) nounwind",
             native_runtime_symbol(RuntimeOperation::FieldSet)
         ),
-    ]
+    ];
+    declarations.extend(CLOSED_RUNTIME_ABI_OPERATIONS.map(runtime_abi_declaration));
+    declarations
+}
+
+fn runtime_abi_declaration(operation: RuntimeOperation) -> String {
+    let signature = runtime_abi_signature(operation).expect("closed runtime ABI operation");
+    let parameters = signature
+        .parameters()
+        .iter()
+        .map(|parameter| llvm_runtime_abi_type(*parameter))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "declare {} @{}({parameters}) nounwind",
+        llvm_runtime_abi_type(signature.result()),
+        native_runtime_symbol(operation)
+    )
+}
+
+const fn llvm_runtime_abi_type(value: RuntimeAbiType) -> &'static str {
+    match value {
+        RuntimeAbiType::U8 => "i8",
+        RuntimeAbiType::U16 => "i16",
+        RuntimeAbiType::U32 => "i32",
+        RuntimeAbiType::U64 | RuntimeAbiType::I64 => "i64",
+        RuntimeAbiType::ReadOnlyU8Pointer
+        | RuntimeAbiType::WritableU8Pointer
+        | RuntimeAbiType::WritableU16Pointer
+        | RuntimeAbiType::WritableU32Pointer
+        | RuntimeAbiType::WritableU64Pointer => "ptr",
+    }
 }
 
 pub(crate) fn collect_field_layout(bubble: &MirBubble) -> BTreeMap<FieldId, u32> {

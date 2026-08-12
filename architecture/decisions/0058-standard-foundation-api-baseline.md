@@ -29,7 +29,7 @@ The trusted `Pop.Standard` prelude contains exactly these source bindings:
 | Kind | Bindings |
 | --- | --- |
 | Primitive types | `Boolean`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Int`, `Float32`, `Float64`, `Float`, `Byte`, `String`, `Never` |
-| Foundation types | `Bytes`, `Array`, `Table`, `Result`, `List`, `Set`, `Range`, `Task`, `CancelToken`, `Guid`, `Iterable`, `Iterator`, `Equal`, `Order`, `Hash`, `Close`, `AsyncClose`, `Iteration` |
+| Foundation types | `Bytes`, `Array`, `Table`, `Result`, `List`, `Set`, `Range`, `Task`, `CancelToken`, `Iterable`, `Iterator`, `Equal`, `Order`, `Hash`, `Close`, `AsyncClose`, `Iteration` |
 | Namespace roots | `Sequence` |
 | Function overload sets | `print(Int)`, `print(String)` |
 | Trusted attributes | `CompileTime`, `AttributeUsage`, `AttributeValidator`, `RetainMetadata` |
@@ -38,6 +38,10 @@ The trusted `Pop.Standard` prelude contains exactly these source bindings:
 language type `T?`; the initial prelude does not add a nominal `Option<T>` that
 would duplicate that representation. Documentation may call this the optional
 value contract, but it must not promise an `Option` runtime wrapper.
+
+ADR 0134 removes the dormant bootstrap-only `Guid` nominal binding. The usable
+ordinary value is explicitly named `Guid.Value` after `using Pop.Guid`; the
+prelude does not retain a duplicate compatibility type.
 
 Prelude bindings retain the lowest resolution priority. A local declaration,
 the current namespace, or an explicit `using` alias wins. Only metadata loaded

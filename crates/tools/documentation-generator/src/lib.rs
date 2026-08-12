@@ -89,7 +89,7 @@ pub fn render_xml(
 fn render_nodes(output: &mut String, nodes: &[XmlNode]) {
     for node in nodes {
         match node {
-            XmlNode::Text(text) => output.push_str(text),
+            XmlNode::Text(text) => write_escaped_text(output, text),
             XmlNode::Element {
                 name,
                 attributes,
@@ -105,7 +105,7 @@ fn render_nodes(output: &mut String, nodes: &[XmlNode]) {
                     output.push(' ');
                     output.push_str(attribute.name());
                     output.push_str("=\"");
-                    output.push_str(attribute.value());
+                    write_escaped_attribute(output, attribute.value());
                     output.push('"');
                 }
                 if children.is_empty() {
@@ -116,6 +116,17 @@ fn render_nodes(output: &mut String, nodes: &[XmlNode]) {
                     let _ = write!(output, "</{name}>");
                 }
             }
+        }
+    }
+}
+
+fn write_escaped_text(output: &mut String, value: &str) {
+    for character in value.chars() {
+        match character {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            _ => output.push(character),
         }
     }
 }

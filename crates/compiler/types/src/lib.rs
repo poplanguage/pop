@@ -28,6 +28,7 @@ use pop_foundation::{
 };
 use serde::{Deserialize, Serialize};
 
+mod actor_safety;
 mod aggregate_checking;
 mod arena;
 mod attributes;
@@ -46,6 +47,7 @@ mod signature_resolution;
 mod statement_checking;
 mod typed_body;
 
+pub use actor_safety::{ActorMessageSafety, ActorMessageUnsafeKind};
 pub use arena::{TypeArena, TypeArenaError};
 pub use attributes::{
     AttributeAttachmentError, AttributeAttachmentResult, AttributeAttachmentSet, AttributeConstant,
@@ -57,17 +59,27 @@ pub use attributes::{
 };
 pub use body_checking::{BodyChecker, RuntimeConstant};
 pub use bootstrap::{
-    AttributeIdentity, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID, BootstrapCodecErrorProtocol,
-    BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry, BootstrapIterationProtocol,
-    BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError, BootstrapStandardFunctionEntry,
-    BootstrapTypeEntry, BootstrapTypeRole, CODEC_ERROR_TYPE_ID, CodecErrorReason,
-    CompilerAttributeId, CompilerAttributeRole, CompilerAttributeTarget,
-    FFI_ALLOCATION_ERROR_TYPE_ID, FFI_BUFFER_TYPE_ID, FFI_CALLBACK_CLOSED_ERROR_TYPE_ID,
-    FFI_CALLBACK_CONTEXT_TYPE_ID, FFI_CALLBACK_IN_USE_ERROR_TYPE_ID,
-    FFI_CALLBACK_OPEN_ERROR_TYPE_ID, FFI_CALLBACK_THREAD_TYPE_ID, FFI_FUNCTION_TYPE_ID,
-    FFI_HANDLE_TYPE_ID, FFI_NULL_POINTER_ERROR_TYPE_ID, FFI_OPTIONAL_POINTER_TYPE_ID,
+    ACTOR_INBOX_TYPE_ID, ACTOR_REF_TYPE_ID, ACTOR_REPLY_TYPE_ID, ACTOR_SEND_OUTCOME_TYPE_ID,
+    AttributeIdentity, BYTES_BUFFER_TYPE_ID, BYTES_TYPE_ID, BYTES_VIEW_TYPE_ID,
+    BootstrapCodecErrorProtocol, BootstrapCompilerAttributeEntry, BootstrapIntrinsicEntry,
+    BootstrapIterationProtocol, BootstrapPrimitiveEntry, BootstrapSchema, BootstrapSchemaError,
+    BootstrapStandardFunctionEntry, BootstrapTypeEntry, BootstrapTypeRole,
+    CHANNEL_RECEIVE_OUTCOME_TYPE_ID, CHANNEL_RECEIVER_TYPE_ID, CHANNEL_SEND_OUTCOME_TYPE_ID,
+    CHANNEL_SENDER_TYPE_ID, CODEC_ERROR_TYPE_ID, CodecErrorReason, CompilerAttributeId,
+    CompilerAttributeRole, CompilerAttributeTarget, FFI_ALLOCATION_ERROR_TYPE_ID,
+    FFI_BUFFER_TYPE_ID, FFI_CALLBACK_CLOSED_ERROR_TYPE_ID, FFI_CALLBACK_CONTEXT_TYPE_ID,
+    FFI_CALLBACK_IN_USE_ERROR_TYPE_ID, FFI_CALLBACK_OPEN_ERROR_TYPE_ID,
+    FFI_CALLBACK_THREAD_TYPE_ID, FFI_FUNCTION_TYPE_ID, FFI_HANDLE_TYPE_ID,
+    FFI_NULL_POINTER_ERROR_TYPE_ID, FFI_OPTIONAL_POINTER_TYPE_ID,
     FFI_OPTIONAL_READ_ONLY_POINTER_TYPE_ID, FFI_POINTER_TYPE_ID, FFI_READ_ONLY_POINTER_TYPE_ID,
-    FFI_REGISTERED_CALLBACK_TYPE_ID, FfiCIntegerKind, TEXT_VIEW_TYPE_ID, embedded_bootstrap_schema,
+    FFI_REGISTERED_CALLBACK_TYPE_ID, FfiCIntegerKind, NET_DNS_ANSWERS_TYPE_ID,
+    NET_DNS_RESOLVER_TYPE_ID, NET_INTERFACES_SNAPSHOT_TYPE_ID, NET_ROUTES_SNAPSHOT_TYPE_ID,
+    NET_SOCKET_IO_OUTCOME_TYPE_ID, NET_TCP_LISTENER_TYPE_ID, NET_TCP_RECEIVE_TYPE_ID,
+    NET_TCP_STREAM_TYPE_ID, NET_TLS_CLIENT_CONFIG_TYPE_ID, NET_TLS_SERVER_CONFIG_TYPE_ID,
+    NET_TLS_STREAM_TYPE_ID, NET_TRANSFER_TYPE_ID, NET_UDP_DATAGRAM_TYPE_ID, NET_UDP_SOCKET_TYPE_ID,
+    NET_UDP_TRANSFER_TYPE_ID, NET_UDP_WAIT_TRANSFER_TYPE_ID, NET_UNIX_LISTENER_TYPE_ID,
+    NET_UNIX_STREAM_TYPE_ID, NET_WAIT_TRANSFER_TYPE_ID, TEXT_VIEW_TYPE_ID,
+    TIME_LIVE_DEADLINE_TYPE_ID, TIME_MONOTONIC_CLOCK_TYPE_ID, embedded_bootstrap_schema,
     ffi_c_integer_kind, is_ffi_abi_builtin_type, is_ffi_function_type_constructor,
     is_ffi_integer_abi_builtin_type, is_ffi_pointer_type_constructor,
 };
@@ -94,16 +106,24 @@ pub use signature_resolution::{
     UnionDefinition, UnionDefinitionResult,
 };
 pub use typed_body::{
-    CaptureMode, CaptureSource, StringFormatKind, TypedAssignmentTarget, TypedBinaryOperator,
-    TypedBody, TypedBodyResult, TypedCall, TypedCallDispatch, TypedCapture, TypedClosure,
-    TypedClosureParameter, TypedCompoundOperator, TypedErrorMatchArm, TypedExpression,
-    TypedExpressionKind, TypedExpressionResult, TypedFieldValue, TypedIterationSource,
-    TypedMatchArm, TypedMatchBinding, TypedResultMatchArm, TypedStatement, TypedStatementKind,
-    TypedTableEntry, TypedUnaryOperator,
+    ActorSendOutcomeKind, CaptureMode, CaptureSource, ChannelDirection, ChannelReceiveOutcomeKind,
+    ChannelSendOutcomeKind, SocketIoOutcomeKind, StringFormatKind, TcpReceiveKind,
+    TypedAssignmentTarget, TypedBinaryOperator, TypedBody, TypedBodyResult, TypedCall,
+    TypedCallDispatch, TypedCapture, TypedClosure, TypedClosureParameter, TypedCompoundOperator,
+    TypedErrorMatchArm, TypedExpression, TypedExpressionKind, TypedExpressionResult,
+    TypedFieldValue, TypedIterationMatchArm, TypedIterationSource, TypedMatchArm,
+    TypedMatchBinding, TypedResultMatchArm, TypedStatement, TypedStatementKind, TypedTableEntry,
+    TypedUnaryOperator,
 };
 
 pub type ClassFieldDefault = FieldDefault;
 pub type RecordFieldDefault = FieldDefault;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ByteOrder {
+    BigEndian,
+    LittleEndian,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum IntegerKind {
@@ -153,6 +173,7 @@ pub enum PrimitiveType {
     Integer(IntegerKind),
     Float32,
     Float64,
+    Rune,
     String,
     Never,
 }
@@ -201,7 +222,7 @@ impl PrimitiveSchemaEntry {
     }
 }
 
-const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 17] = [
+const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 18] = [
     primitive("nil", "nil", PrimitiveType::Nil),
     primitive("Boolean", "Boolean", PrimitiveType::Boolean),
     primitive("Int8", "Int8", PrimitiveType::Integer(IntegerKind::Int8)),
@@ -229,6 +250,7 @@ const PRIMITIVE_SCHEMA: [PrimitiveSchemaEntry; 17] = [
     primitive("Float64", "Float64", PrimitiveType::Float64),
     primitive("Float", "Float64", PrimitiveType::Float64),
     primitive("Byte", "UInt8", PrimitiveType::Integer(IntegerKind::UInt8)),
+    primitive("Rune", "Rune", PrimitiveType::Rune),
     primitive("String", "String", PrimitiveType::String),
     primitive("Never", "Never", PrimitiveType::Never),
 ];

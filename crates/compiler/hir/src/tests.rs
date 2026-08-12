@@ -1362,6 +1362,69 @@ fn verifier_rejects_spoofed_iteration_case_and_method_identities() {
     }
 }
 
+#[test]
+fn verifier_rejects_string_iteration_with_a_non_rune_item_type() {
+    let mut arena = TypeArena::new();
+    let string = arena.source_type("String").expect("String");
+    let rune = arena.source_type("Rune").expect("Rune");
+    let integer = arena.source_type("Int").expect("Int");
+    let iterator = arena
+        .intern(SemanticType::Builtin {
+            definition: BuiltinTypeId::from_raw(107),
+            arguments: vec![rune],
+        })
+        .expect("Rune iterator");
+    let iteration = arena
+        .intern(SemanticType::Builtin {
+            definition: BuiltinTypeId::from_raw(113),
+            arguments: vec![rune],
+        })
+        .expect("Rune iteration");
+    let span = test_span();
+    let statement = HirStatement {
+        kind: HirStatementKind::GeneralizedFor {
+            protocol: HirIterationProtocol {
+                iteration: BuiltinTypeId::from_raw(113),
+                iterable: BuiltinTypeId::from_raw(106),
+                iterator: BuiltinTypeId::from_raw(107),
+                list: BuiltinTypeId::from_raw(101),
+                range: BuiltinTypeId::from_raw(103),
+                item_case: IterationCaseId::from_raw(0),
+                end_case: IterationCaseId::from_raw(1),
+                iterator_method: IterationProtocolMethodId::from_raw(0),
+                next_method: IterationProtocolMethodId::from_raw(1),
+            },
+            source: HirIterationSource::String,
+            item_type: integer,
+            iterator_type: iterator,
+            iteration_type: iteration,
+            bindings: vec![HirLocalBinding {
+                binding: BindingId::from_raw(1),
+                local: LocalId::from_raw(0),
+                name: "value".to_owned(),
+                local_type: integer,
+                span,
+            }],
+            iterable: parameter_expression(0, string, span),
+            body: Vec::new(),
+        },
+        span,
+    };
+    let function = hir_function(
+        vec![hir_parameter(0, "text", string, span)],
+        Vec::new(),
+        vec![statement],
+    );
+
+    assert!(matches!(
+        verify_hir_function(&function, &arena, &BTreeSet::new()),
+        Err(errors) if errors.contains(&HirVerificationError::InvalidIterationSource {
+            type_id: string,
+            span,
+        })
+    ));
+}
+
 fn hir_function(
     parameters: Vec<HirParameter>,
     results: Vec<TypeId>,

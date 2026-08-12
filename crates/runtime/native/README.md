@@ -6,7 +6,7 @@ composition, UTF-8 and process-entry adaptation, and native trap/unwind
 termination. The default ABI 1 build remains non-moving while using
 incremental SATB mature marking and bounded sweeping. The explicit
 `production-generational` build selects ADR 0103's moving, mutator-overlapped
-collector and reports only ABI 2.0.
+collector and reports ABI 2.0 through ABI 2.5.
 
 ABI 1.11 adds atomic initialized-object allocation: the facade validates the
 complete precise map and every managed initializer before delegating one
@@ -47,6 +47,43 @@ ABI 1.22 adds failure-atomic self-recursive allocation at one immutable site
 and the closed native `Iteration<T>` constructor. Compiler-declared self slots
 and constant-size homogeneous/strided layout formulas remove cyclic and
 collection pointer-map rebuilds without introducing a dynamic layout facility.
+
+ABI 1.23 and ABI 2.1 add the exact validated Unicode-scalar Text-view read.
+ABI 1.24 and ABI 2.2 append exact linear owned-String scalar iteration.
+ABI 1.25 and ABI 2.3 add distinct reusable byte-buffer storage with atomic
+appends, fixed-width endian writes, and independent immutable snapshots.
+ABI 1.26 and ABI 2.4 add checked UTF-8 Text/Bytes transcoding with direct,
+non-mutating reusable-buffer decode.
+ABI 1.27 and ABI 2.5 add bounded channel storage with directional endpoint
+lifetime, closed non-suspending statuses, and precise managed-payload roots.
+ABI 1.28 adds nonblocking TCP/UDP I/O with a closed transport status and separate
+byte-count outputs.
+ABI 1.29 adds opaque local-Actor reference admission while retaining exact
+incarnation checks inside the native lifecycle registry.
+ABI 1.30 adds typed Atomic integer add, subtract, and bitwise fetch operations
+with exact prior-value results.
+ABI 1.31 adds bounded owning-`Bytes` TCP/UDP transfers with exact counts and
+UDP source metadata.
+ABI 1.32 adds bounded TCP receive directly into a reusable `Bytes.Buffer`.
+ABI 1.33 adds bounded UDP receive directly into a reusable `Bytes.Buffer`.
+ABI 1.34 adds explicit numeric-IPv4 TCP listen/connect and UDP bind endpoints.
+ABI 1.35 adds exact numeric-IPv6 TCP listen/connect and UDP bind endpoints with
+explicit scope IDs.
+ABI 1.36 adds explicit bounded system-resolver and family-preserving DNS answer
+handles.
+ABI 1.37 adds TCP half-close, no-delay configuration, and hop-limit
+configuration with typed scalar inspection.
+ABI 1.38 adds family-preserving TCP local/peer endpoint inspection.
+ABI 1.39 adds UDP endpoint facts, broadcast, hop-limit, and IPv4 multicast controls.
+ABI 1.40 adds Unix-domain listener, stream, transfer, half-close, and close capabilities.
+ABI 1.41 adds explicit live monotonic clocks and owned deadline capabilities.
+ABI 1.42 adds deadline- and cancellation-aware TCP, UDP, and Unix transfers.
+ABI 1.43 adds immutable host network-interface snapshots.
+ABI 1.44 adds immutable Linux route-table snapshots.
+ABI 1.45 adds typed IPv6 UDP multicast membership controls.
+ABI 1.46 adds TCP keepalive, keepalive-idle, and linger controls.
+ABI 1.47 adds owned TLS client/server configurations, bounded handshakes,
+managed-byte transfer, and stream closure.
 
 Initialized objects and arrays construct their complete unpublished payload
 directly in the destination page. Checked array and field reads cache an exact

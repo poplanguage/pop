@@ -8,8 +8,9 @@ use pop_foundation::{
     SymbolId, UnionCaseId,
 };
 use pop_mir::{lower_hir_bubble, optimize_mir, parse_mir_dump};
+use pop_runtime_collector::GenerationalRuntime;
 use pop_runtime_interface::{
-    ForeignAddress, PanicKind, RuntimeFailure, Trap, TrapKind, UnwindReason,
+    ForeignAddress, PanicKind, RuntimeAdapter, RuntimeFailure, Trap, TrapKind, UnwindReason,
 };
 use pop_source::SourceFile;
 use pop_types::{FloatKind, FloatValue, IntegerKind, IntegerValue};
@@ -88,6 +89,40 @@ fn executable_modules(texts: &[(&str, &str)]) -> (pop_mir::MirBubble, pop_types:
 
 fn trap(kind: TrapKind) -> ExecutionError {
     ExecutionError::Runtime(RuntimeFailure::Trap(Trap::new(kind)))
+}
+
+#[test]
+fn bounded_channels_preserve_fifo_backpressure_close_and_typed_outcomes() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         public function exercise(): Int\n\
+             if local endpoints = Channel.bounded<<Int>>(UInt64(1)) then\n\
+                 local sender = endpoints[1]\n\
+                 local receiver = endpoints[2]\n\
+                 local firstSend = Channel.trySend(sender, 41)\n\
+                 local fullSend = Channel.trySend(sender, 42)\n\
+                 local firstReceive = Channel.tryReceive(receiver)\n\
+                 local secondSend = Channel.trySend(sender, 43)\n\
+                 local secondReceive = Channel.tryReceive(receiver)\n\
+                 local closedSender = Channel.close(sender)\n\
+                 local closedReceive = Channel.tryReceive(receiver)\n\
+                 if not Channel.sendAccepted(firstSend) or not Channel.sendFull(fullSend) or not Channel.sendAccepted(secondSend) or not closedSender or not Channel.receiveClosed(closedReceive) then\n\
+                     return -1\n\
+                 end\n\
+                 return (Channel.received(firstReceive) ?? 0) + (Channel.received(secondReceive) ?? 0)\n\
+             end\n\
+             return -2\n\
+         end\n",
+        "exercise",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Channel MIR");
+
+    assert_eq!(
+        interpreter.call(function, &[]).expect("Channel execution"),
+        vec![MirValue::Integer(
+            IntegerValue::parse_decimal("84", IntegerKind::Int64).expect("Int")
+        )]
+    );
 }
 
 #[test]
@@ -553,6 +588,57 @@ fn generalized_iteration_executes_arrays_and_table_tuple_bindings_in_order() {
 }
 
 #[test]
+fn string_iteration_decodes_each_unicode_scalar_once_in_order() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function inspect(): Int\n\
+             local count = 0\n\
+             for rune in \"Aé中😀\\0e\\u{301}\" do\n\
+                 count += 1\n\
+                 local point = Unicode.codePoint(rune)\n\
+                 if count == 1 and point ~= 65 then\n\
+                     return 1\n\
+                 end\n\
+                 if count == 2 and point ~= 233 then\n\
+                     return 2\n\
+                 end\n\
+                 if count == 3 and point ~= 20013 then\n\
+                     return 3\n\
+                 end\n\
+                 if count == 4 and point ~= 128512 then\n\
+                     return 4\n\
+                 end\n\
+                 if count == 5 and point ~= 0 then\n\
+                     return 5\n\
+                 end\n\
+                 if count == 6 and point ~= 101 then\n\
+                     return 6\n\
+                 end\n\
+                 if count == 7 and point ~= 769 then\n\
+                     return 7\n\
+                 end\n\
+             end\n\
+             if count ~= 7 then\n\
+                 return 8\n\
+             end\n\
+             local emptyCount = 0\n\
+             for rune in \"\" do\n\
+                 emptyCount += 1\n\
+             end\n\
+             return 42 + emptyCount\n\
+         end\n",
+    );
+    let function = mir.functions()[0].symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified String iteration MIR")
+            .call(function, &[])
+            .expect("String iteration"),
+        vec![int(42)]
+    );
+}
+
+#[test]
 fn generalized_iteration_observes_replacement_and_traps_structural_mutation() {
     let (mir, types) = executable_source(
         "namespace Main\n\
@@ -689,12 +775,31 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
             "src/main.pop",
             "namespace Main\n\
              using Pop.Sequence\n\
+             private function valueOr(step: Iteration<Int>, fallback: Int): Int\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return value\n\
+                 when Iteration.End then\n\
+                     return fallback\n\
+                 end\n\
+             end\n\
+             private function hasItem<T>(step: Iteration<T>): Boolean\n\
+                 match step\n\
+                 when Iteration.Item(value) then\n\
+                     return true\n\
+                 when Iteration.End then\n\
+                     return false\n\
+                 end\n\
+             end\n\
              public function terminalResult(): Int\n\
                  local empty: {Int} = {}\n\
                  local single: {Int} = {9}\n\
                  local values: {Int} = {1, 2, 3, 4}\n\
                  local absent: Int? = empty[1]\n\
                  local optionalValues: {Int?} = {absent}\n\
+                 if not hasItem(first(optionalValues)) or hasItem(first(empty)) then\n\
+                     return -1\n\
+                 end\n\
                  if not isEmpty(empty) or isEmpty(values) then\n\
                      return -1\n\
                  end\n\
@@ -718,7 +823,7 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
                  if noEven then\n\
                      return -1\n\
                  end\n\
-                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + matches\n\
+                 return firstOr(values, 20) + lastOr(values, 20) * 2 + firstOr(empty, 7) + lastOr(empty, 8) + firstOr(single, 0) + lastOr(single, 0) + matches + valueOr(first(values), 0) + valueOr(last(values), 0) + valueOr(first(empty), 1)\n\
              end\n",
         ),
     ]);
@@ -733,7 +838,7 @@ fn ordinary_pop_sequence_inspection_and_visitation_are_direct() {
             .expect("verified Sequence terminal MIR")
             .call(function, &[])
             .expect("Sequence inspection and visitation"),
-        vec![int(44)]
+        vec![int(50)]
     );
 }
 
@@ -1153,6 +1258,7 @@ fn ordinary_pop_lazy_sequence_bounds_and_composition_preserve_state() {
     );
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn ordinary_pop_integer_math_is_portable_and_checked() {
     let (mir, types) = executable_modules(&[(
@@ -1160,8 +1266,21 @@ fn ordinary_pop_integer_math_is_portable_and_checked() {
         include_str!("../../../../libraries/standard/pop/src/math.pop"),
     )]);
     let interpreter = MirInterpreter::new(&mir, &types).expect("verified Math MIR");
-    let [minimum, maximum, absolute, divisor, sign, multiple, coprime] = mir.functions() else {
-        panic!("Math source must contain exactly seven functions");
+    let [
+        minimum,
+        maximum,
+        absolute,
+        divisor,
+        sign,
+        multiple,
+        coprime,
+        clamp,
+        power,
+        floor_divide,
+        floor_remainder,
+    ] = mir.functions()
+    else {
+        panic!("Math source must contain exactly eleven functions");
     };
 
     assert_eq!(
@@ -1232,6 +1351,2383 @@ fn ordinary_pop_integer_math_is_portable_and_checked() {
     assert_eq!(
         interpreter.call(coprime.symbol(), &[int(21), int(6)]),
         Ok(vec![MirValue::Boolean(false)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(-4), int(-2), int(8)]),
+        Ok(vec![int(-2)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(4), int(-2), int(8)]),
+        Ok(vec![int(4)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(-2), int(-2), int(8)]),
+        Ok(vec![int(-2)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(8), int(-2), int(8)]),
+        Ok(vec![int(8)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(9), int(-2), int(8)]),
+        Ok(vec![int(8)])
+    );
+    assert_eq!(
+        interpreter.call(clamp.symbol(), &[int(4), int(8), int(-2)]),
+        Ok(vec![MirValue::Nil])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(2), int(10)]),
+        Ok(vec![int(1_024)])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(3), int(5)]),
+        Ok(vec![int(243)])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(0), int(0)]),
+        Ok(vec![int(1)])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(0), int(1)]),
+        Ok(vec![int(0)])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(i64::MAX), int(1)]),
+        Ok(vec![int(i64::MAX)])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(2), int(-1)]),
+        Ok(vec![MirValue::Nil])
+    );
+    assert_eq!(
+        interpreter.call(power.symbol(), &[int(2), int(63)]),
+        Err(trap(TrapKind::IntegerOverflow))
+    );
+    for (dividend, divisor, quotient, remainder) in [
+        (7, 3, 2, 1),
+        (6, 3, 2, 0),
+        (-7, 3, -3, 2),
+        (7, -3, -3, -2),
+        (-7, -3, 2, -1),
+        (2, 3, 0, 2),
+    ] {
+        assert_eq!(
+            interpreter.call(floor_divide.symbol(), &[int(dividend), int(divisor)]),
+            Ok(vec![int(quotient)])
+        );
+        assert_eq!(
+            interpreter.call(floor_remainder.symbol(), &[int(dividend), int(divisor)]),
+            Ok(vec![int(remainder)])
+        );
+    }
+    assert_eq!(
+        interpreter.call(floor_divide.symbol(), &[int(1), int(0)]),
+        Err(trap(TrapKind::DivisionByZero))
+    );
+    assert_eq!(
+        interpreter.call(floor_remainder.symbol(), &[int(1), int(0)]),
+        Err(trap(TrapKind::DivisionByZero))
+    );
+    assert_eq!(
+        interpreter.call(floor_divide.symbol(), &[int(i64::MIN), int(-1)]),
+        Err(trap(TrapKind::IntegerOverflow))
+    );
+    assert_eq!(
+        interpreter.call(floor_remainder.symbol(), &[int(i64::MIN), int(-1)]),
+        Err(trap(TrapKind::IntegerOverflow))
+    );
+}
+
+#[test]
+fn ordinary_pop_bytes_inspection_and_endian_reads_are_portable() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("backend crate is under the repository root");
+    let bytes_source =
+        std::fs::read_to_string(root.join("crates/libraries/standard/pop/src/bytes.pop"))
+            .expect("read Pop.Bytes source");
+    let (mir, types) = executable_modules(&[
+        ("src/bytes.pop", bytes_source.as_str()),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function inspect(value: Bytes, equalValue: Bytes, prefix: Bytes, suffix: Bytes, empty: Bytes, maximum: Bytes): Int\n\
+                 local view = Bytes.view(value)\n\
+                 local equalView = Bytes.view(equalValue)\n\
+                 local prefixView = Bytes.view(prefix)\n\
+                 local suffixView = Bytes.view(suffix)\n\
+                 local emptyView = Bytes.view(empty)\n\
+                 local maximumView = Bytes.view(maximum)\n\
+                 if not equals(view, equalView) or compare(view, equalView) ~= 0 then\n\
+                     return 1\n\
+                 end\n\
+                 if compare(prefixView, view) ~= -1 or compare(view, prefixView) ~= 1 then\n\
+                     return 2\n\
+                 end\n\
+                 if not startsWith(view, prefixView) or not endsWith(view, suffixView) then\n\
+                     return 3\n\
+                 end\n\
+                 if not contains(view, 255) or (indexOf(view, 255, 1) ?? 0) ~= 5 then\n\
+                     return 4\n\
+                 end\n\
+                 if indexOf(view, 1, 0) ~= nil or indexOf(view, 7, 1) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if (readUInt16BigEndian(view, 1) ?? 0) ~= 258 or (readUInt16LittleEndian(view, 1) ?? 0) ~= 513 then\n\
+                     return 6\n\
+                 end\n\
+                 if (readUInt32BigEndian(view, 1) ?? 0) ~= 16909060 or (readUInt32LittleEndian(view, 1) ?? 0) ~= 67305985 then\n\
+                     return 7\n\
+                 end\n\
+                 if (readUInt64BigEndian(view, 1) ?? 0) ~= 72623863984324672 or (readUInt64LittleEndian(view, 1) ?? 0) ~= 4647715910730318337 then\n\
+                     return 8\n\
+                 end\n\
+                 if readUInt16BigEndian(view, 8) ~= nil or readUInt64LittleEndian(view, 2) ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 if not equals(emptyView, emptyView) or compare(emptyView, prefixView) ~= -1 or not startsWith(view, emptyView) or not endsWith(view, emptyView) then\n\
+                     return 10\n\
+                 end\n\
+                 if contains(emptyView, 0) or indexOf(emptyView, 0, 1) ~= nil or readUInt16BigEndian(view, -1) ~= nil or readUInt16BigEndian(view, 9223372036854775807) ~= nil then\n\
+                     return 11\n\
+                 end\n\
+                 if (readUInt16BigEndian(view, 2) ?? 0) ~= 515 or (readUInt16LittleEndian(view, 2) ?? 0) ~= 770 then\n\
+                     return 12\n\
+                 end\n\
+                 if (readUInt16BigEndian(maximumView, 1) ?? 0) ~= 65535 or (readUInt32LittleEndian(maximumView, 1) ?? 0) ~= 4294967295 or (readUInt64BigEndian(maximumView, 1) ?? 0) ~= 18446744073709551615 then\n\
+                     return 13\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Bytes consumer").symbol();
+    let mut runtime = GenerationalRuntime::new();
+    let value = runtime
+        .allocate_immutable_bytes(&[1, 2, 3, 4, 255, 0, 128, 64])
+        .expect("value Bytes");
+    let equal = runtime
+        .allocate_immutable_bytes(&[1, 2, 3, 4, 255, 0, 128, 64])
+        .expect("equal Bytes");
+    let prefix = runtime
+        .allocate_immutable_bytes(&[1, 2])
+        .expect("prefix Bytes");
+    let suffix = runtime
+        .allocate_immutable_bytes(&[128, 64])
+        .expect("suffix Bytes");
+    let empty = runtime.allocate_immutable_bytes(&[]).expect("empty Bytes");
+    let maximum = runtime
+        .allocate_immutable_bytes(&[255, 255, 255, 255, 255, 255, 255, 255])
+        .expect("maximum Bytes");
+    let interpreter =
+        MirInterpreter::with_runtime(&mir, &types, runtime).expect("verified Bytes MIR");
+
+    assert_eq!(
+        interpreter
+            .call(
+                entry,
+                &[
+                    MirValue::Bytes(value),
+                    MirValue::Bytes(equal),
+                    MirValue::Bytes(prefix),
+                    MirValue::Bytes(suffix),
+                    MirValue::Bytes(empty),
+                    MirValue::Bytes(maximum),
+                ],
+            )
+            .expect("portable Bytes execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn reusable_byte_buffers_preserve_order_endianness_and_snapshot_independence() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function verify(): Int\n\
+             local buffer = Bytes.withCapacity(2)\n\
+             Bytes.reserve(buffer, 32)\n\
+             Bytes.write(buffer, 170)\n\
+             Bytes.writeUInt16BigEndian(buffer, 258)\n\
+             Bytes.writeUInt16LittleEndian(buffer, 772)\n\
+             Bytes.writeUInt32BigEndian(buffer, 84281096)\n\
+             Bytes.writeUInt64LittleEndian(buffer, 72623859790382856)\n\
+             if Bytes.length(buffer) ~= 17 then\n\
+                 return 1\n\
+             end\n\
+             local snapshot = Bytes.toBytes(buffer)\n\
+             Bytes.clear(buffer)\n\
+             Bytes.write(buffer, 9)\n\
+             local current = Bytes.toBytes(buffer)\n\
+             if Bytes.length(Bytes.view(snapshot)) ~= 17 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 170 then\n\
+                 return 2\n\
+             end\n\
+             if Bytes.length(Bytes.view(current)) ~= 1 or (Bytes.get(Bytes.view(current), 1) ?? 0) ~= 9 then\n\
+                 return 3\n\
+             end\n\
+             local combined = Bytes.create()\n\
+             Bytes.write(combined, snapshot)\n\
+             Bytes.write(combined, Bytes.slice(snapshot, 2, 2))\n\
+             local result = Bytes.toBytes(combined)\n\
+             if Bytes.length(Bytes.view(result)) ~= 19 then\n\
+                 return 4\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 2) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 3) ?? 0) ~= 2 then\n\
+                 return 5\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 4) ?? 0) ~= 4 or (Bytes.get(Bytes.view(result), 5) ?? 0) ~= 3 then\n\
+                 return 6\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 6) ?? 0) ~= 5 or (Bytes.get(Bytes.view(result), 9) ?? 0) ~= 8 then\n\
+                 return 7\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 10) ?? 0) ~= 8 or (Bytes.get(Bytes.view(result), 17) ?? 0) ~= 1 then\n\
+                 return 8\n\
+             end\n\
+             if (Bytes.get(Bytes.view(result), 18) ?? 0) ~= 1 or (Bytes.get(Bytes.view(result), 19) ?? 0) ~= 2 then\n\
+                 return 9\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let entry = mir
+        .functions()
+        .last()
+        .expect("byte-buffer function")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified byte-buffer MIR");
+
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("byte-buffer execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn reusable_byte_buffers_trap_before_negative_capacity_mutation() {
+    for source in [
+        "namespace Main\npublic function fail(): Int\nlocal buffer = Bytes.withCapacity(-1)\nreturn 0\nend\n",
+        "namespace Main\npublic function fail(): Int\nlocal buffer = Bytes.create()\nBytes.reserve(buffer, -1)\nreturn 0\nend\n",
+    ] {
+        let (mir, types) = executable_source(source);
+        let function = mir.functions()[0].symbol();
+        assert_eq!(
+            MirInterpreter::new(&mir, &types)
+                .expect("verified byte-buffer MIR")
+                .call(function, &[]),
+            Err(trap(TrapKind::BoundsViolation))
+        );
+    }
+}
+
+#[test]
+fn checked_utf8_transcoding_is_exact_and_keeps_buffers_reusable() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function verify(): Int\n\
+             local text = \"Aé中🦀\"\n\
+             local encoded = Text.encodeUtf8(text)\n\
+             if (Text.decodeUtf8(Bytes.view(encoded)) ?? \"\") ~= text then\n\
+                 return 1\n\
+             end\n\
+             local selected = Text.encodeUtf8(Text.slice(text, 2, 2))\n\
+             if (Text.decodeUtf8(Bytes.view(selected)) ?? \"\") ~= \"é中\" then\n\
+                 return 2\n\
+             end\n\
+             local empty = Text.encodeUtf8(\"\")\n\
+             if (Text.decodeUtf8(Bytes.view(empty)) ?? \"missing\") ~= \"\" then\n\
+                 return 3\n\
+             end\n\
+             local buffer = Bytes.create()\n\
+             Bytes.write(buffer, 195)\n\
+             Bytes.write(buffer, 169)\n\
+             local decoded = Text.decodeUtf8(buffer)\n\
+             if (decoded ?? \"\") ~= \"é\" or Bytes.length(buffer) ~= 2 then\n\
+                 return 4\n\
+             end\n\
+             Bytes.write(buffer, 255)\n\
+             if Text.decodeUtf8(buffer) ~= nil or Bytes.length(buffer) ~= 3 then\n\
+                 return 5\n\
+             end\n\
+             return 42\n\
+         end\n",
+    );
+    let entry = mir.functions().last().expect("UTF-8 function").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified UTF-8 MIR");
+
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("UTF-8 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_hexadecimal_codec_is_canonical_and_checked() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local buffer = Bytes.create()\n\
+                 Bytes.write(buffer, 0)\n\
+                 Bytes.write(buffer, 1)\n\
+                 Bytes.write(buffer, 10)\n\
+                 Bytes.write(buffer, 15)\n\
+                 Bytes.write(buffer, 16)\n\
+                 Bytes.write(buffer, 171)\n\
+                 Bytes.write(buffer, 255)\n\
+                 local source = Bytes.toBytes(buffer)\n\
+                 local sourceView = Bytes.view(source)\n\
+                 local encoded = hexEncode(sourceView)\n\
+                 if encoded ~= \"00010a0f10abff\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = hexDecode(\"00010A0f10aBfF\")\n\
+                 if local decoded = decodedOptional then\n\
+                     local decodedView = Bytes.view(decoded)\n\
+                     if not equals(sourceView, decodedView) then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 local emptyOptional = hexDecode(\"\")\n\
+                 if local empty = emptyOptional then\n\
+                     local emptyView = Bytes.view(empty)\n\
+                     if Bytes.length(emptyView) ~= 0 then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 if hexDecode(\"0\") ~= nil or hexDecode(\"0x00\") ~= nil or hexDecode(\"00 01\") ~= nil or hexDecode(\"gg\") ~= nil or hexDecode(\"é0\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("hex consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified hexadecimal MIR");
+
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("portable hexadecimal execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_base64_codec_matches_canonical_vectors_and_rejects_malformed_text() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local bytes = Text.encodeUtf8(\"foobar\")\n\
+                 local view = Bytes.view(bytes)\n\
+                 if base64Encode(view) ~= \"Zm9vYmFy\" then\n\
+                     return 1\n\
+                 end\n\
+                 local decodedOptional = base64Decode(\"Zm9vYmFy\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if (Text.decodeUtf8(Bytes.view(decoded)) ?? \"\") ~= \"foobar\" then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if base64Encode(Bytes.view(Text.encodeUtf8(\"f\"))) ~= \"Zg==\" or base64Encode(Bytes.view(Text.encodeUtf8(\"fo\"))) ~= \"Zm8=\" then\n\
+                     return 3\n\
+                 end\n\
+                 if base64Encode(Bytes.view(Text.encodeUtf8(\"foo\"))) ~= \"Zm9v\" or base64Encode(Bytes.view(Text.encodeUtf8(\"foob\"))) ~= \"Zm9vYg==\" or base64Encode(Bytes.view(Text.encodeUtf8(\"fooba\"))) ~= \"Zm9vYmE=\" then\n\
+                     return 5\n\
+                 end\n\
+                 local binary = Bytes.create()\n\
+                 Bytes.write(binary, 0)\n\
+                 Bytes.write(binary, 16)\n\
+                 Bytes.write(binary, 131)\n\
+                 Bytes.write(binary, 255)\n\
+                 if base64Encode(Bytes.view(Bytes.toBytes(binary))) ~= \"ABCD/w==\" then\n\
+                     return 6\n\
+                 end\n\
+                 local boundaries = base64Decode(\"+///\")\n\
+                 if local boundaryBytes = boundaries then\n\
+                     if (Bytes.get(Bytes.view(boundaryBytes), 1) ?? 0) ~= 251 or (Bytes.get(Bytes.view(boundaryBytes), 2) ?? 0) ~= 255 or (Bytes.get(Bytes.view(boundaryBytes), 3) ?? 0) ~= 255 then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if base64Decode(\"Zg=\") ~= nil or base64Decode(\"Zg\") ~= nil or base64Decode(\"====\") ~= nil or base64Decode(\"Z=== \") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if base64Decode(\"Zg=A\") ~= nil or base64Decode(\"Zg==A\") ~= nil or base64Decode(\"Zh==\") ~= nil or base64Decode(\"Zm9=\") ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if base64Decode(\"Zm 8=\") ~= nil or base64Decode(\"Zm\\n8=\") ~= nil or base64Decode(\"Zm-8\") ~= nil or base64Decode(\"Zm_8\") ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("base64 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified base64 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("base64 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_base32_codec_matches_canonical_vectors_and_rejects_malformed_text() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"\"))) ~= \"\" or base32Encode(Bytes.view(Text.encodeUtf8(\"f\"))) ~= \"MY======\" then\n\
+                     return 1\n\
+                 end\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"fo\"))) ~= \"MZXQ====\" or base32Encode(Bytes.view(Text.encodeUtf8(\"foo\"))) ~= \"MZXW6===\" then\n\
+                     return 2\n\
+                 end\n\
+                 if base32Encode(Bytes.view(Text.encodeUtf8(\"foob\"))) ~= \"MZXW6YQ=\" or base32Encode(Bytes.view(Text.encodeUtf8(\"fooba\"))) ~= \"MZXW6YTB\" or base32Encode(Bytes.view(Text.encodeUtf8(\"foobar\"))) ~= \"MZXW6YTBOI======\" then\n\
+                     return 3\n\
+                 end\n\
+                 local binary = Bytes.create()\n\
+                 Bytes.write(binary, 0)\n\
+                 Bytes.write(binary, 16)\n\
+                 Bytes.write(binary, 131)\n\
+                 Bytes.write(binary, 255)\n\
+                 if base32Encode(Bytes.view(Bytes.toBytes(binary))) ~= \"AAIIH7Y=\" then\n\
+                     return 4\n\
+                 end\n\
+                 local decodedOptional = base32Decode(\"HY7UAQK2MF5A====\")\n\
+                 if local decoded = decodedOptional then\n\
+                     if Bytes.length(Bytes.view(decoded)) ~= 7 or (Bytes.get(Bytes.view(decoded), 1) ?? 0) ~= 62 or (Bytes.get(Bytes.view(decoded), 7) ?? 0) ~= 122 then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if base32Decode(\"MY=====\") ~= nil or base32Decode(\"MY\") ~= nil or base32Decode(\"========\") ~= nil or base32Decode(\"MY=====A\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if base32Decode(\"my======\") ~= nil or base32Decode(\"M0======\") ~= nil or base32Decode(\"M1======\") ~= nil or base32Decode(\"M Y=====\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if base32Decode(\"MZ======\") ~= nil or base32Decode(\"MZXR====\") ~= nil or base32Decode(\"MZXW7===\") ~= nil or base32Decode(\"MZXW6YR=\") ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if base32Decode(\"MZXW6Y==\") ~= nil or base32Decode(\"MZXW6YQ=A\") ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("base32 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified base32 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("base32 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_bytes_bitwise_transforms_cover_complete_bytes_and_checked_lengths() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local leftBuffer = Bytes.create()\n\
+                 Bytes.write(leftBuffer, 0)\n\
+                 Bytes.write(leftBuffer, 170)\n\
+                 Bytes.write(leftBuffer, 240)\n\
+                 local rightBuffer = Bytes.create()\n\
+                 Bytes.write(rightBuffer, 255)\n\
+                 Bytes.write(rightBuffer, 204)\n\
+                 Bytes.write(rightBuffer, 15)\n\
+                 local leftBytes = Bytes.toBytes(leftBuffer)\n\
+                 local rightBytes = Bytes.toBytes(rightBuffer)\n\
+                 local left = Bytes.view(leftBytes)\n\
+                 local right = Bytes.view(rightBytes)\n\
+                 if local value = bitwiseAnd(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 1) ~= 0 or (Bytes.get(view, 2) ?? 0) ~= 136 or (Bytes.get(view, 3) ?? 1) ~= 0 then\n\
+                         return 1\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local value = bitwiseOr(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 255 or (Bytes.get(view, 2) ?? 0) ~= 238 or (Bytes.get(view, 3) ?? 0) ~= 255 then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 if local value = bitwiseXor(left, right) then\n\
+                     local view = Bytes.view(value)\n\
+                     if (Bytes.get(view, 1) ?? 0) ~= 255 or (Bytes.get(view, 2) ?? 0) ~= 102 or (Bytes.get(view, 3) ?? 0) ~= 255 then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 local inverted = bitwiseNot(left)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if (Bytes.get(invertedView, 1) ?? 0) ~= 255 or (Bytes.get(invertedView, 2) ?? 0) ~= 85 or (Bytes.get(invertedView, 3) ?? 0) ~= 15 then\n\
+                     return 4\n\
+                 end\n\
+                 local shortBytes = Text.encodeUtf8(\"x\")\n\
+                 if bitwiseAnd(left, Bytes.view(shortBytes)) ~= nil or bitwiseOr(left, Bytes.view(shortBytes)) ~= nil or bitwiseXor(left, Bytes.view(shortBytes)) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("bitwise consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified bitwise MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("bitwise execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn portable_bytes_bitwise_transforms_preserve_empty_length() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Bytes\n\
+             public function verify(): Int\n\
+                 local firstBytes = Text.encodeUtf8(\"\")\n\
+                 local secondBytes = Text.encodeUtf8(\"\")\n\
+                 local first = Bytes.view(firstBytes)\n\
+                 local second = Bytes.view(secondBytes)\n\
+                 local inverted = bitwiseNot(first)\n\
+                 local invertedView = Bytes.view(inverted)\n\
+                 if Bytes.length(invertedView) ~= 0 then\n\
+                     return 1\n\
+                 end\n\
+                 if local combined = bitwiseXor(first, second) then\n\
+                     local combinedView = Bytes.view(combined)\n\
+                     if Bytes.length(combinedView) ~= 0 then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 2\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("empty bitwise consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified empty bitwise MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("empty bitwise execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn essential_text_algorithms_are_unicode_safe_linear_and_checked() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if trim(\"\t\u{a0} hello \u{3000}\\n\") ~= \"hello\" then\n\
+                     return 1\n\
+                 end\n\
+                 if trimStart(\"\u{2003}\u{2003}é \") ~= \"é \" or trimEnd(\" é\u{202f}\") ~= \" é\" then\n\
+                     return 2\n\
+                 end\n\
+                 if trim(\"\u{1680}\u{205f}\") ~= \"\" or trim(\"中\") ~= \"中\" then\n\
+                     return 3\n\
+                 end\n\
+                 if replace(\"aé中éz\", \"é\", \"--\") ~= \"a--中--z\" or replace(\"aaaa\", \"aa\", \"b\") ~= \"bb\" then\n\
+                     return 4\n\
+                 end\n\
+                 if replace(\"same\", \"\", \"x\") ~= \"same\" or replace(\"same\", \"z\", \"x\") ~= \"same\" then\n\
+                     return 5\n\
+                 end\n\
+                 local pieces = split(\"éaé中é\", \"é\")\n\
+                 if List.length(pieces) ~= 4 or List.get(pieces, 1) ~= \"\" or List.get(pieces, 2) ~= \"a\" or List.get(pieces, 3) ~= \"中\" or List.get(pieces, 4) ~= \"\" then\n\
+                     return 6\n\
+                 end\n\
+                 local unsplit = split(\"abc\", \"\")\n\
+                 if List.length(unsplit) ~= 1 or List.get(unsplit, 1) ~= \"abc\" then\n\
+                     return 7\n\
+                 end\n\
+                 local values = List.create<<String>>()\n\
+                 List.add(values, \"a\")\n\
+                 List.add(values, \"中\")\n\
+                 List.add(values, \"\")\n\
+                 if join(values, \"·\") ~= \"a·中·\" then\n\
+                     return 8\n\
+                 end\n\
+                 local empty = List.create<<String>>()\n\
+                 if join(empty, \",\") ~= \"\" then\n\
+                     return 9\n\
+                 end\n\
+                 if (parseInt(\"0\") ?? 99) ~= 0 or (parseInt(\"+42\") ?? 0) ~= 42 or (parseInt(\"-42\") ?? 0) ~= -42 then\n\
+                     return 10\n\
+                 end\n\
+                 if (parseInt(\"9223372036854775807\") ?? 0) ~= 9223372036854775807 or (parseInt(\"-9223372036854775808\") ?? 0) ~= -9223372036854775807 - 1 then\n\
+                     return 11\n\
+                 end\n\
+                 if parseInt(\"9223372036854775808\") ~= nil or parseInt(\"-9223372036854775809\") ~= nil then\n\
+                     return 12\n\
+                 end\n\
+                 if parseInt(\"\") ~= nil or parseInt(\"+\") ~= nil or parseInt(\" 1\") ~= nil or parseInt(\"１２\") ~= nil or parseInt(\"1x\") ~= nil then\n\
+                     return 13\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Text consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Text MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Text execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn essential_text_search_returns_exact_scalar_boundaries() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if not startsWith(\"é中😀z\", \"é中\") or startsWith(\"é中\", \"é中😀\") or not startsWith(\"x\", \"\") then\n\
+                     return 1\n\
+                 end\n\
+                 if not endsWith(\"é中😀z\", \"😀z\") or endsWith(\"é中\", \"xé中\") or not endsWith(\"\", \"\") then\n\
+                     return 2\n\
+                 end\n\
+                 if not contains(\"aé中😀é\", \"中😀\") or contains(\"aé中😀é\", \"É\") or not contains(\"\", \"\") then\n\
+                     return 3\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"é\", 1) ?? 0) ~= 2 or (indexOf(\"aé中😀é\", \"é\", 3) ?? 0) ~= 5 then\n\
+                     return 4\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"😀\", 1) ?? 0) ~= 4 or (indexOf(\"aaaa\", \"aa\", 2) ?? 0) ~= 2 then\n\
+                     return 5\n\
+                 end\n\
+                 if (indexOf(\"aé中😀é\", \"\", 6) ?? 0) ~= 6 or indexOf(\"aé中😀é\", \"\", 0) ~= nil or indexOf(\"aé中😀é\", \"\", 7) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if indexOf(\"aé中😀é\", \"missing\", 1) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Text search consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Text search MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Text search execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn essential_text_ascii_casing_preserves_non_ascii_bytes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Text\n\
+             public function verify(): Int\n\
+                 if toAsciiLower(\"HTTP-É中😀-42\") ~= \"http-É中😀-42\" then\n\
+                     return 1\n\
+                 end\n\
+                 if toAsciiUpper(\"http-é中😀-42\") ~= \"HTTP-é中😀-42\" then\n\
+                     return 2\n\
+                 end\n\
+                 if toAsciiLower(\"\") ~= \"\" or toAsciiUpper(\"Already\") ~= \"ALREADY\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not equalsAsciiIgnoreCase(\"Content-TYPE\", \"content-type\") then\n\
+                     return 4\n\
+                 end\n\
+                 if equalsAsciiIgnoreCase(\"É\", \"é\") or equalsAsciiIgnoreCase(\"abc\", \"ab\") or equalsAsciiIgnoreCase(\"abc\", \"abd\") then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("ASCII casing consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified ASCII casing MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("ASCII casing execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_semantic_versions_parse_order_format_and_match() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/math.pop",
+            include_str!("../../../../libraries/standard/pop/src/math.pop"),
+        ),
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/version.pop",
+            include_str!("../../../../libraries/standard/pop/src/version.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Version\n\
+             private function required(text: String): Value\n\
+                 local fallback: Value = { major = 0, minor = 0, patch = 0, prerelease = \"\", build = \"\" }\n\
+                 return parse(text) ?? fallback\n\
+             end\n\
+             public function verify(): Int\n\
+                 local complete = required(\"1.2.3-alpha.1+linux\")\n\
+                 if format(complete) ~= \"1.2.3-alpha.1+linux\" then\n\
+                     return 1\n\
+                 end\n\
+                 if parse(\"01.2.3\") ~= nil or parse(\"1.2.3-\") ~= nil or parse(\"1.2.3-alpha..1\") ~= nil or parse(\"1.2.3-α\") ~= nil or parse(\"2147483647.0.0\") ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha\"), required(\"1.0.0-alpha.1\")) >= 0 or compare(required(\"1.0.0-alpha.1\"), required(\"1.0.0-alpha.beta\")) >= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if compare(required(\"1.0.0-alpha.beta\"), required(\"1.0.0-beta\")) >= 0 or compare(required(\"1.0.0-beta\"), required(\"1.0.0-beta.2\")) >= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 if compare(required(\"1.0.0-beta.2\"), required(\"1.0.0-beta.11\")) >= 0 or compare(required(\"1.0.0-beta.11\"), required(\"1.0.0-rc.1\")) >= 0 or compare(required(\"1.0.0-rc.1\"), required(\"1.0.0\")) >= 0 then\n\
+                     return 5\n\
+                 end\n\
+                 if compare(required(\"1.2.3+one\"), required(\"1.2.3+two\")) ~= 0 then\n\
+                     return 6\n\
+                 end\n\
+                 if not matches(required(\"1.4.5\"), \"^1.2.3\") or matches(required(\"2.0.0\"), \"^1.2.3\") then\n\
+                     return 7\n\
+                 end\n\
+                 if not matches(required(\"1.2.9\"), \"~1.2.3\") or matches(required(\"1.3.0\"), \"~1.2.3\") then\n\
+                     return 8\n\
+                 end\n\
+                 if not matches(required(\"1.2.3+build\"), \"=1.2.3\") or not matches(required(\"1.2.4\"), \">1.2.3\") or matches(required(\"1.2.3\"), \">=broken\") then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("Version consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Version MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Version execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_media_types_parse_format_lookup_and_match() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/mime.pop",
+            include_str!("../../../../libraries/standard/pop/src/mime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Mime\n\
+             private function fallback(): Value\n\
+                 local parameters = List.create<<Parameter>>()\n\
+                 return { mediaType = \"application\", subtype = \"octet-stream\", parameters = parameters }\n\
+             end\n\
+             private function required(text: String): Value\n\
+                 return parse(text) ?? fallback()\n\
+             end\n\
+             public function verify(): Int\n\
+                 local plain = required(\"Text/Plain; Charset=\\\"utf-8\\\"; title=\\\"a b\\\"; note=\\\"a;b\\\"\")\n\
+                 if plain.mediaType ~= \"text\" or plain.subtype ~= \"plain\" then\n\
+                     return 1\n\
+                 end\n\
+                 if (parameter(plain, \"CHARSET\") ?? \"\") ~= \"utf-8\" or (parameter(plain, \"title\") ?? \"\") ~= \"a b\" or (parameter(plain, \"note\") ?? \"\") ~= \"a;b\" then\n\
+                     return 2\n\
+                 end\n\
+                 if format(plain) ~= \"text/plain; charset=utf-8; title=\\\"a b\\\"; note=\\\"a;b\\\"\" then\n\
+                     return 3\n\
+                 end\n\
+                 local escaped = required(\"text/plain; title=\\\"a\\\\\\\"b\\\"\")\n\
+                 if (parameter(escaped, \"title\") ?? \"\") ~= \"a\\\"b\" or format(escaped) ~= \"text/plain; title=\\\"a\\\\\\\"b\\\"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"text\") ~= nil or parse(\"text/plain;\") ~= nil or parse(\"text/plain; A=1; a=2\") ~= nil or parse(\"téxt/plain\") ~= nil or parse(\"text/plain; x=\\\"broken\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if not matches(plain, \"text/plain\") or not matches(plain, \"TEXT/*\") or not matches(plain, \"*/*\") then\n\
+                     return 6\n\
+                 end\n\
+                 if matches(plain, \"application/*\") or matches(plain, \"*/plain\") or matches(plain, \"text/plain; charset=utf-8\") then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Mime consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Mime MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Mime execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_uri_references_parse_code_and_resolve() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/uri.pop",
+            include_str!("../../../../libraries/standard/pop/src/uri.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Uri\n\
+             private function resolved(base: Value, referenceText: String): String\n\
+                 local reference = parse(referenceText) ?? base\n\
+                 return format(resolve(base, reference))\n\
+             end\n\
+             public function verify(): Int\n\
+                 if local absolute = parse(\"HTTPS://example.test/a%20b?x=1#part\") then\n\
+                     if absolute.scheme ~= \"https\" or (absolute.authority ?? \"\") ~= \"example.test\" or absolute.path ~= \"/a%20b\" or (absolute.query ?? \"\") ~= \"x=1\" or (absolute.fragment ?? \"\") ~= \"part\" then\n\
+                         return 1\n\
+                     end\n\
+                     if format(absolute) ~= \"https://example.test/a%20b?x=1#part\" then\n\
+                         return 2\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local empty = parse(\"https://example.test?#\") then\n\
+                     if empty.query == nil or empty.fragment == nil or format(empty) ~= \"https://example.test?#\" then\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 3\n\
+                 end\n\
+                 if parse(\"1http:x\") ~= nil or parse(\"a b\") ~= nil or parse(\"a%2\") ~= nil or parse(\"é\") ~= nil or parse(\"a#b#c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if local relative = parse(\"a/b:c\") then\n\
+                     if relative.scheme ~= \"\" or relative.path ~= \"a/b:c\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if local fragmentColon = parse(\"abc#d:e\") then\n\
+                     if fragmentColon.scheme ~= \"\" or fragmentColon.path ~= \"abc\" or (fragmentColon.fragment ?? \"\") ~= \"d:e\" then\n\
+                         return 5\n\
+                     end\n\
+                 else\n\
+                     return 5\n\
+                 end\n\
+                 if (percentEncode(\"é 中\") ?? \"\") ~= \"%C3%A9%20%E4%B8%AD\" or (percentDecode(\"%C3%A9%20%E4%B8%AD\") ?? \"\") ~= \"é 中\" then\n\
+                     return 6\n\
+                 end\n\
+                 if percentDecode(\"%\") ~= nil or percentDecode(\"%GG\") ~= nil or percentDecode(\"%FF\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if local base = parse(\"http://a/b/c/d;p?q\") then\n\
+                     if resolved(base, \"g:h\") ~= \"g:h\" or resolved(base, \"g\") ~= \"http://a/b/c/g\" or resolved(base, \"./g\") ~= \"http://a/b/c/g\" then\n\
+                         return 8\n\
+                     end\n\
+                     if resolved(base, \"/g\") ~= \"http://a/g\" or resolved(base, \"//g\") ~= \"http://g\" or resolved(base, \"?y\") ~= \"http://a/b/c/d;p?y\" then\n\
+                         return 9\n\
+                     end\n\
+                     if resolved(base, \"g?y#s\") ~= \"http://a/b/c/g?y#s\" or resolved(base, \"#s\") ~= \"http://a/b/c/d;p?q#s\" then\n\
+                         return 10\n\
+                     end\n\
+                     if resolved(base, \".\") ~= \"http://a/b/c/\" or resolved(base, \"..\") ~= \"http://a/b/\" or resolved(base, \"../../g\") ~= \"http://a/g\" then\n\
+                         return 11\n\
+                     end\n\
+                 else\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Uri consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Uri MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Uri execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_guid_values_round_trip_and_inject_version_four_bytes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/guid.pop",
+            include_str!("../../../../libraries/standard/pop/src/guid.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Guid\n\
+             public function verify(): Int\n\
+                 if local parsed = parse(\"00112233-4455-1677-8899-aabbccddeeff\") then\n\
+                     if format(parsed) ~= \"00112233-4455-1677-8899-aabbccddeeff\" or isVersion4(parsed) then\n\
+                         return 1\n\
+                     end\n\
+                     local bytes = toBytes(parsed)\n\
+                     if local roundTrip = fromBytes(bytes) then\n\
+                         if format(roundTrip) ~= format(parsed) then\n\
+                             return 3\n\
+                         end\n\
+                     else\n\
+                         return 3\n\
+                     end\n\
+                 else\n\
+                     return 1\n\
+                 end\n\
+                 if local uppercase = parse(\"00112233-4455-4677-8899-AABBCCDDEEFF\") then\n\
+                     if format(uppercase) ~= \"00112233-4455-4677-8899-aabbccddeeff\" then\n\
+                         return 4\n\
+                     end\n\
+                 else\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"\") ~= nil or parse(\"{00112233-4455-4677-8899-aabbccddeeff}\") ~= nil or parse(\"00112233445546778899aabbccddeeff\") ~= nil or parse(\"00112233-4455-4677-8899-aabbccddeefg\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local empty = Bytes.toBytes(Bytes.create())\n\
+                 if fromBytes(empty) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 local randomBuffer = Bytes.withCapacity(16)\n\
+                 for index = 0, 15 do\n\
+                     Bytes.write(randomBuffer, Byte(index))\n\
+                 end\n\
+                 local randomBytes = Bytes.toBytes(randomBuffer)\n\
+                 if local generated = newVersion4(randomBytes) then\n\
+                     if format(generated) ~= \"00010203-0405-4607-8809-0a0b0c0d0e0f\" or not isVersion4(generated) then\n\
+                         return 7\n\
+                     end\n\
+                 else\n\
+                     return 7\n\
+                 end\n\
+                 if newVersion4(empty) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nilValue: Value = { firstWord = UInt32(0), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 local unknownValue: Value = { firstWord = UInt32(1), secondWord = UInt32(0), thirdWord = UInt32(0), fourthWord = UInt32(0) }\n\
+                 if not isNil(nilValue) or isNil(unknownValue) or isVersion4(unknownValue) then\n\
+                     return 9\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Guid consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Guid MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Guid execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_portable_paths_normalize_and_inspect_lexically() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/path.pop",
+            include_str!("../../../../libraries/standard/pop/src/path.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Path\n\
+             private function required(text: String): Value\n\
+                 return normalize(text) ?? { text = \"invalid\", absolute = false }\n\
+             end\n\
+             public function verify(): Int\n\
+                 if format(required(\"\")) ~= \".\" or format(required(\"/a//b/../c/.\")) ~= \"/a/c\" then\n\
+                     return 1\n\
+                 end\n\
+                 if format(required(\"../../a/../b\")) ~= \"../../b\" or format(required(\"/../../a\")) ~= \"/a\" then\n\
+                     return 2\n\
+                 end\n\
+                 if normalize(\"a\\\\b\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local base = required(\"/a/b\")\n\
+                 if not isAbsolute(base) or format(join(base, \"../c\") ?? required(\".\")) ~= \"/a/c\" or join(base, \"/c\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local file = required(\"/a/archive.tar.gz\")\n\
+                 if format(parent(file) ?? required(\".\")) ~= \"/a\" or (name(file) ?? \"\") ~= \"archive.tar.gz\" or (extension(file) ?? \"\") ~= \"gz\" then\n\
+                     return 5\n\
+                 end\n\
+                 if extension(required(\".env\")) ~= nil or extension(required(\"name.\")) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parent(required(\"/\")) ~= nil or name(required(\".\")) ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 if format(required(\"dados/ação.txt\")) ~= \"dados/ação.txt\" then\n\
+                     return 8\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Path consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Path MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Path execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn canonical_durations_preserve_exact_signed_units() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int\n\
+                 local positive = fromMilliseconds(1500)\n\
+                 if secondsPart(positive) ~= 1 or nanosecondsPart(positive) ~= 500000000 then\n\
+                     return 1\n\
+                 end\n\
+                 local negative = fromMilliseconds(-1)\n\
+                 if secondsPart(negative) ~= -1 or nanosecondsPart(negative) ~= 999000000 or not isNegative(negative) then\n\
+                     return 2\n\
+                 end\n\
+                 local finalNano = fromNanoseconds(-1)\n\
+                 if secondsPart(finalNano) ~= -1 or nanosecondsPart(finalNano) ~= 999999999 then\n\
+                     return 3\n\
+                 end\n\
+                 if not isZero(fromSeconds(0)) or compare(negative, positive) ~= -1 or compare(positive, negative) ~= 1 or compare(positive, fromNanoseconds(1500000000)) ~= 0 then\n\
+                     return 4\n\
+                 end\n\
+                 local low = fromSeconds(-9000000000000000000)\n\
+                 local high = fromSeconds(9000000000000000000)\n\
+                 if compare(low, high) ~= -1 then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Time consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Time MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Time execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn deterministic_test_clocks_advance_and_expire_exactly() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/time.pop",
+            include_str!("../../../../libraries/standard/pop/src/time.pop"),
+        ),
+        (
+            "src/timeClock.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeClock.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local start = instant(10, 900000000)?\n\
+                 local clock = testClock(start)?\n\
+                 local before = now(clock)\n\
+                 if before.seconds ~= 10 or before.nanoseconds ~= 900000000 then\n\
+                     return 1\n\
+                 end\n\
+                 if not advance(clock, fromMilliseconds(200)) then\n\
+                     return 2\n\
+                 end\n\
+                 local after = now(clock)\n\
+                 if after.seconds ~= 11 or after.nanoseconds ~= 100000000 then\n\
+                     return 3\n\
+                 end\n\
+                 local deadline = deadlineAfter(clock, fromMilliseconds(500))?\n\
+                 if isExpired(clock, deadline) then\n\
+                     return 4\n\
+                 end\n\
+                 if not advance(clock, fromMilliseconds(500)) or not isExpired(clock, deadline) then\n\
+                     return 5\n\
+                 end\n\
+                 if advance(clock, fromNanoseconds(-1)) then\n\
+                     return 6\n\
+                 end\n\
+                 local unchanged = now(clock)\n\
+                 if unchanged.seconds ~= 11 or unchanged.nanoseconds ~= 600000000 then\n\
+                     return 7\n\
+                 end\n\
+                 local nearEnd = instant(2147483646, 999999999)?\n\
+                 local finalClock = testClock(nearEnd)?\n\
+                 if advance(finalClock, fromNanoseconds(1)) or deadlineAfter(finalClock, fromNanoseconds(1)) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 if instant(-1, 0) ~= nil or instant(0, -1) ~= nil or instant(0, 1000000000) ~= nil or instant(2147483647, 0) ~= nil then\n\
+                     return 9\n\
+                 end\n\
+                 local invalid: Instant = { seconds = -1, nanoseconds = 0 }\n\
+                 if testClock(invalid) ~= nil then\n\
+                     return 10\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("TestClock consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified TestClock MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("TestClock execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_gregorian_dates_validate_and_compare_exactly() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local leap = date(2024, 2, 29)?\n\
+                 local next = date(2024, 3, 1)?\n\
+                 if (daysInMonth(2024, 2) ?? 0) ~= 29 or (daysInMonth(2023, 2) ?? 0) ~= 28 then\n\
+                     return 1\n\
+                 end\n\
+                 if not isLeapYear(2024) or isLeapYear(1900) or not isLeapYear(2000) then\n\
+                     return 2\n\
+                 end\n\
+                 if compareDates(leap, next) ~= -1 or compareDates(next, leap) ~= 1 or compareDates(leap, leap) ~= 0 then\n\
+                     return 3\n\
+                 end\n\
+                 if date(0, 1, 1) ~= nil or date(10000, 1, 1) ~= nil or date(2023, 2, 29) ~= nil or date(2024, 13, 1) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if daysInMonth(0, 1) ~= nil or daysInMonth(2024, 0) ~= nil or daysInMonth(2024, 13) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local first = date(1, 1, 1)?\n\
+                 local final = date(9999, 12, 31)?\n\
+                 if compareDates(first, final) ~= -1 then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Date consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Date MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Date execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_civil_time_values_keep_local_and_offset_meanings_distinct() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/timeDate.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDate.pop"),
+        ),
+        (
+            "src/timeDateTime.pop",
+            include_str!("../../../../libraries/standard/pop/src/timeDateTime.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Time\n\
+             public function verify(): Int?\n\
+                 local day = date(2024, 2, 29)?\n\
+                 local time = timeOfDay(23, 59, 59, 999999999)?\n\
+                 local localValue = localDateTime(day, time)?\n\
+                 local offset = utcOffset(-18000)?\n\
+                 local complete = offsetDateTime(localValue, offset)?\n\
+                 if complete.dateTime.date.day ~= 29 or complete.dateTime.time.hour ~= 23 or complete.offset.seconds ~= -18000 then\n\
+                     return 1\n\
+                 end\n\
+                 local zero = utcOffset(0)?\n\
+                 if not isUtc(zero) or isUtc(offset) then\n\
+                     return 2\n\
+                 end\n\
+                 if timeOfDay(-1, 0, 0, 0) ~= nil or timeOfDay(24, 0, 0, 0) ~= nil or timeOfDay(0, 60, 0, 0) ~= nil or timeOfDay(0, 0, 60, 0) ~= nil or timeOfDay(0, 0, 0, 1000000000) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if utcOffset(-64801) ~= nil or utcOffset(64801) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local invalidTime: TimeOfDay = { hour = 24, minute = 0, second = 0, nanosecond = 0 }\n\
+                 if localDateTime(day, invalidTime) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 local invalidOffset: UtcOffset = { seconds = 64801 }\n\
+                 if offsetDateTime(localValue, invalidOffset) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("civil Time consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified civil Time MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("civil Time execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_locale_tags_canonicalize_without_ambient_discovery() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/unicode.pop",
+            include_str!("../../../../libraries/standard/pop/src/unicode.pop"),
+        ),
+        (
+            "src/text.pop",
+            include_str!("../../../../libraries/standard/pop/src/text.pop"),
+        ),
+        (
+            "src/locale.pop",
+            include_str!("../../../../libraries/standard/pop/src/locale.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Locale\n\
+             public function verify(): Int?\n\
+                 local portuguese = parse(\"pt-br\")?\n\
+                 local traditional = parse(\"zh-hant-tw\")?\n\
+                 if (format(portuguese) ?? \"\") ~= \"pt-BR\" or (format(traditional) ?? \"\") ~= \"zh-Hant-TW\" then\n\
+                     return 1\n\
+                 end\n\
+                 local other = parse(\"pt-PT\")?\n\
+                 if not sameLanguage(portuguese, other) or sameLanguage(portuguese, traditional) then\n\
+                     return 2\n\
+                 end\n\
+                 if parse(\"e\") ~= nil or parse(\"9n\") ~= nil or parse(\"en_\") ~= nil or parse(\"en--US\") ~= nil or parse(\"en-US-extra\") ~= nil or parse(\"é\") ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 local valid = parse(\"en\")?\n\
+                 local invalid: Tag = { language = \"e\", script = valid.script, region = valid.region }\n\
+                 if format(invalid) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Locale consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Locale MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Locale execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_text_globs_match_unicode_scalars_and_escapes() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/glob.pop",
+            include_str!("../../../../libraries/standard/pop/src/glob.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Glob\n\
+             public function verify(): Int?\n\
+                 local wildcard = compile(\"a*?c\")?\n\
+                 if not matches(wildcard, \"abxc\") or matches(wildcard, \"ac\") or matches(wildcard, \"abxcd\") then\n\
+                     return 1\n\
+                 end\n\
+                 local escaped = compile(\"a\\\\*b\")?\n\
+                 if not matches(escaped, \"a*b\") or matches(escaped, \"axxb\") then\n\
+                     return 2\n\
+                 end\n\
+                 local scalar = compile(\"?.txt\")?\n\
+                 if not matches(scalar, \"😀.txt\") or matches(scalar, \"ab.txt\") then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = compile(\"\")?\n\
+                 if not matches(empty, \"\") or matches(empty, \"x\") or compile(\"\\\\\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Glob consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Glob MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Glob execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn bounded_csv_rows_parse_and_format_strict_quoting() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/csv.pop",
+            include_str!("../../../../libraries/standard/pop/src/csv.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Csv\n\
+             public function verify(): Int?\n\
+                 local rows = parse(\"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\\n\")?\n\
+                 if List.length(rows) ~= 2 then\n\
+                     return 11\n\
+                 end\n\
+                 if List.get(List.get(rows, 1), 2) ~= \"b,c\" then\n\
+                     return 12\n\
+                 end\n\
+                 if List.get(List.get(rows, 2), 1) ~= \"x\\\"y\" then\n\
+                     return 13\n\
+                 end\n\
+                 if (format(rows) ?? \"\") ~= \"a,\\\"b,c\\\"\\r\\n\\\"x\\\"\\\"y\\\",z\" then\n\
+                     return 2\n\
+                 end\n\
+                 local embedded = parse(\"\\\"a\\nb\\\",c\")?\n\
+                 if List.get(List.get(embedded, 1), 1) ~= \"a\\nb\" then\n\
+                     return 3\n\
+                 end\n\
+                 local empty = parse(\"\")?\n\
+                 if List.length(empty) ~= 1 or List.get(List.get(empty, 1), 1) ~= \"\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parse(\"a\\rb\") ~= nil or parse(\"a\\\"b\") ~= nil or parse(\"\\\"a\\\"x\") ~= nil or parse(\"\\\"open\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Csv consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Csv MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("Csv execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn canonical_ipv4_values_parse_format_and_classify() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local address = parseIpv4(\"192.168.1.42\")?\n\
+                 if formatIpv4(address) ~= \"192.168.1.42\" or (ipv4Octet(address, 4) ?? 0) ~= Byte(42) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv4Private(address) or isIpv4Loopback(address) then\n\
+                     return 2\n\
+                 end\n\
+                 local loopback = parseIpv4(\"127.255.0.1\")?\n\
+                 if not isIpv4Loopback(loopback) or isIpv4Private(loopback) then\n\
+                     return 3\n\
+                 end\n\
+                 if not isIpv4Private(parseIpv4(\"10.0.0.1\")?) or not isIpv4Private(parseIpv4(\"172.31.255.255\")?) or isIpv4Private(parseIpv4(\"172.32.0.0\")?) then\n\
+                     return 4\n\
+                 end\n\
+                 if parseIpv4(\"01.2.3.4\") ~= nil or parseIpv4(\"256.0.0.1\") ~= nil or parseIpv4(\"1.2.3\") ~= nil or parseIpv4(\"1.2.3.4.5\") ~= nil or parseIpv4(\"1.2.3.-1\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if ipv4Octet(address, 0) ~= nil or ipv4Octet(address, 5) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("IPv4 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv4 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("IPv4 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn canonical_ipv6_values_parse_format_and_classify() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local address = parseIpv6(\"2001:db8::1\")?\n\
+                 if formatIpv6(address) ~= \"2001:db8::1\" or (ipv6Segment(address, 2) ?? UInt16(0)) ~= UInt16(3512) then\n\
+                     return 1\n\
+                 end\n\
+                 if not isIpv6Loopback(parseIpv6(\"::1\")?) or isIpv6Unspecified(parseIpv6(\"::1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if not isIpv6Unspecified(parseIpv6(\"::\")?) or isIpv6Loopback(parseIpv6(\"::\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local tie = parseIpv6(\"2001::1:0:0:1:1\")?\n\
+                 if formatIpv6(tie) ~= \"2001::1:0:0:1:1\" then\n\
+                     return 4\n\
+                 end\n\
+                 local direct = ipv6(UInt16(1), UInt16(2), UInt16(3), UInt16(4), UInt16(5), UInt16(6), UInt16(7), UInt16(8))\n\
+                 if (ipv6Segment(direct, 8) ?? UInt16(0)) ~= UInt16(8) or ipv6Segment(direct, 0) ~= nil or ipv6Segment(direct, 9) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv6(\"2001:DB8::1\") ~= nil or parseIpv6(\"2001:0db8::1\") ~= nil or parseIpv6(\"2001:db8:0:0:0:0:0:1\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parseIpv6(\"2001:::1\") ~= nil or parseIpv6(\"2001:db8:1\") ~= nil or parseIpv6(\":\") ~= nil or parseIpv6(\"::ffff:192.0.2.1\") ~= nil then\n\
+                     return 7\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("IPv6 consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv6 MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("IPv6 execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn ipv6_prefixes_and_socket_addresses_are_exact_values() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local base = parseIpv6(\"2001:db8:abcd:ffff::1\")?\n\
+                 local prefix = ipv6Prefix(base, 49)?\n\
+                 if formatIpv6(networkIpv6(prefix)) ~= \"2001:db8:abcd:8000::\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:9fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsIpv6(prefix, parseIpv6(\"2001:db8:abcd:7fff::2\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local all = ipv6Prefix(base, 0)?\n\
+                 local host = ipv6Prefix(base, 128)?\n\
+                 if not containsIpv6(all, parseIpv6(\"ffff::1\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 if containsIpv6(host, parseIpv6(\"2001:db8:abcd:ffff::2\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseIpv6Socket(\"[2001:db8::1]:443\")?\n\
+                 if formatIpv6Socket(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 4\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(443) then\n\
+                     return 4\n\
+                 end\n\
+                 if ipv6Prefix(base, -1) ~= nil or ipv6Prefix(base, 129) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv6Socket(\"2001:db8::1:443\") ~= nil or parseIpv6Socket(\"[2001:db8::1]:0443\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 if parseIpv6Socket(\"[2001:db8::1]:65536\") ~= nil or parseIpv6Socket(\"[fe80::1%eth0]:80\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("IPv6 endpoint consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv6 endpoint MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("IPv6 endpoint execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn closed_ip_address_union_preserves_family_and_classification() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local ipv4Value = parseAddress(\"127.0.0.1\")?\n\
+                 if formatAddress(ipv4Value) ~= \"127.0.0.1\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not isAddressLoopback(ipv4Value) or isAddressUnspecified(ipv4Value) then\n\
+                     return 2\n\
+                 end\n\
+                 local ipv6Value = parseAddress(\"::\")?\n\
+                 if formatAddress(ipv6Value) ~= \"::\" then\n\
+                     return 3\n\
+                 end\n\
+                 if not isAddressUnspecified(ipv6Value) or isAddressLoopback(ipv6Value) then\n\
+                     return 4\n\
+                 end\n\
+                 local direct = Address.Ipv6(parseIpv6(\"2001:db8::1\")?)\n\
+                 if formatAddress(direct) ~= \"2001:db8::1\" then\n\
+                     return 5\n\
+                 end\n\
+                 if parseAddress(\"01.2.3.4\") ~= nil or parseAddress(\"2001:DB8::1\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("closed address consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified address-union MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("address-union execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn closed_prefix_and_socket_unions_preserve_exact_families() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local ipv4Value = parseIpv4(\"10.2.3.4\")?\n\
+                 local prefix = Prefix.Ipv4(ipv4Prefix(ipv4Value, 8)?)\n\
+                 if formatAddress(networkAddress(prefix)) ~= \"10.0.0.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsAddress(prefix, parseAddress(\"10.255.0.1\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 if containsAddress(prefix, parseAddress(\"::1\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseSocketAddress(\"[2001:db8::1]:443\")?\n\
+                 if formatSocketAddress(endpoint) ~= \"[2001:db8::1]:443\" then\n\
+                     return 4\n\
+                 end\n\
+                 if parseSocketAddress(\"2001:db8::1:443\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("family-value consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified family-value MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("family-value execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn numeric_interface_scope_is_canonical_and_bounded() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local scoped = parseScopedIpv6(\"fe80::1%3\")?\n\
+                 if formatScopedIpv6(scoped) ~= \"fe80::1%3\" then\n\
+                     return 1\n\
+                 end\n\
+                 if scoped.interfaceId.index ~= UInt32(3) then\n\
+                     return 2\n\
+                 end\n\
+                 local maximum = parseScopedIpv6(\"::1%4294967295\")?\n\
+                 if maximum.interfaceId.index ~= UInt32(4294967295) then\n\
+                     return 3\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%0\") ~= nil or parseScopedIpv6(\"fe80::1%03\") ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 if parseScopedIpv6(\"fe80::1%4294967296\") ~= nil or parseScopedIpv6(\"fe80::1%eth0\") ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("scope consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified scope MIR");
+    assert_eq!(
+        interpreter.call(entry, &[]).expect("scope execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn immutable_interface_and_route_facts_preserve_family_constraints() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
+            "src/netIpv6Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+        ),
+        (
+            "src/netAddress.pop",
+            include_str!("../../../../libraries/standard/pop/src/netAddress.pop"),
+        ),
+        (
+            "src/netFamilyValues.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFamilyValues.pop"),
+        ),
+        (
+            "src/netScope.pop",
+            include_str!("../../../../libraries/standard/pop/src/netScope.pop"),
+        ),
+        (
+            "src/netFacts.pop",
+            include_str!("../../../../libraries/standard/pop/src/netFacts.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local identity = interfaceId(UInt32(7))?\n\
+                 local fact = networkInterface(identity, \"eth0\", true, false, UInt32(1500))?\n\
+                 if fact.name ~= \"eth0\" or fact.maximumTransmissionUnit ~= UInt32(1500) then\n\
+                     return 1\n\
+                 end\n\
+                 if networkInterface(identity, \"\", true, false, UInt32(0)) ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local destination = ipv4Prefix(parseIpv4(\"10.2.3.4\")?, 8)?\n\
+                 local route = ipv4ViaRoute(destination, parseIpv4(\"10.0.0.1\")?, identity, UInt32(20))\n\
+                 if formatAddress(networkAddress(routeDestination(route))) ~= \"10.0.0.0\" then\n\
+                     return 3\n\
+                 end\n\
+                 local nextHop = routeNextHop(route)?\n\
+                 if formatAddress(nextHop) ~= \"10.0.0.1\" then\n\
+                     return 4\n\
+                 end\n\
+                 local routeIdentity = routeInterfaceId(route)\n\
+                 if routeIdentity.index ~= UInt32(7) or routeMetric(route) ~= UInt32(20) then\n\
+                     return 5\n\
+                 end\n\
+                 local ipv6Destination = ipv6Prefix(parseIpv6(\"2001:db8::1\")?, 32)?\n\
+                 local onLink = ipv6OnLinkRoute(ipv6Destination, identity, UInt32(1))\n\
+                 if routeNextHop(onLink) ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("network fact consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified network facts MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("network fact execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/net.pop",
+            include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv4Endpoint.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Net\n\
+             public function verify(): Int?\n\
+                 local base = parseIpv4(\"192.168.1.42\")?\n\
+                 local prefix = ipv4Prefix(base, 24)?\n\
+                 if formatIpv4(networkIpv4(prefix)) ~= \"192.168.1.0\" then\n\
+                     return 1\n\
+                 end\n\
+                 if not containsIpv4(prefix, parseIpv4(\"192.168.1.255\")?) or containsIpv4(prefix, parseIpv4(\"192.168.2.0\")?) then\n\
+                     return 2\n\
+                 end\n\
+                 local all = ipv4Prefix(base, 0)?\n\
+                 local host = ipv4Prefix(base, 32)?\n\
+                 if not containsIpv4(all, parseIpv4(\"1.2.3.4\")?) or containsIpv4(host, parseIpv4(\"192.168.1.43\")?) then\n\
+                     return 3\n\
+                 end\n\
+                 local endpoint = parseIpv4Socket(\"192.168.1.42:8080\")?\n\
+                 if formatIpv4Socket(endpoint) ~= \"192.168.1.42:8080\" then\n\
+                     return 4\n\
+                 end\n\
+                 if endpoint.port ~= UInt16(8080) then\n\
+                     return 4\n\
+                 end\n\
+                 if ipv4Prefix(base, -1) ~= nil or ipv4Prefix(base, 33) ~= nil then\n\
+                     return 5\n\
+                 end\n\
+                 if parseIpv4Socket(\"192.168.1.42:080\") ~= nil or parseIpv4Socket(\"192.168.1.42:65536\") ~= nil or parseIpv4Socket(\"192.168.1.42\") ~= nil then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .last()
+        .expect("IPv4 endpoint consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified IPv4 endpoint MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("IPv4 endpoint execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn materializing_sequence_order_and_equality_are_stable_and_short_circuit() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/sequence.pop",
+            include_str!("../../../../libraries/standard/pop/src/sequence.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Sequence\n\
+             private record Candidate\n\
+                 id: Int\n\
+                 key: Int\n\
+             end\n\
+             public function verify(): Int\n\
+                 local first: Candidate = { id = 1, key = 2 }\n\
+                 local second: Candidate = { id = 2, key = 1 }\n\
+                 local third: Candidate = { id = 3, key = 2 }\n\
+                 local fourth: Candidate = { id = 4, key = 1 }\n\
+                 local values: {Candidate} = {first, second, third, fourth}\n\
+                 local ordered = sortBy<<Candidate, {Candidate}>>(values, function(value: Candidate): Int\n\
+                     return value.key\n\
+                 end)\n\
+                 local orderedFirst = List.get(ordered, 1)\n\
+                 local orderedSecond = List.get(ordered, 2)\n\
+                 local orderedThird = List.get(ordered, 3)\n\
+                 local orderedFourth = List.get(ordered, 4)\n\
+                 if orderedFirst.id ~= 2 or orderedSecond.id ~= 4 or orderedThird.id ~= 1 or orderedFourth.id ~= 3 then\n\
+                     return 1\n\
+                 end\n\
+                 local sourceFirst = Array.get(values, 1)\n\
+                 if sourceFirst.id ~= 1 then\n\
+                     return 2\n\
+                 end\n\
+                 local numbers: {Int} = {1, 2, 3}\n\
+                 local descending: {Int} = {3, 2, 1}\n\
+                 local orderedNumbers = sort<<Int, {Int}>>(descending, function(left: Int, right: Int): Int\n\
+                     if left < right then\n\
+                         return -1\n\
+                     end\n\
+                     if left > right then\n\
+                         return 1\n\
+                     end\n\
+                     return 0\n\
+                 end)\n\
+                 if List.get(orderedNumbers, 1) ~= 1 or List.get(orderedNumbers, 3) ~= 3 then\n\
+                     return 7\n\
+                 end\n\
+                 local reversed = reverse<<Int, {Int}>>(numbers)\n\
+                 if List.get(reversed, 1) ~= 3 or List.get(reversed, 3) ~= 1 then\n\
+                     return 3\n\
+                 end\n\
+                 local words: {String} = {\"a\", \"b\", \"c\"}\n\
+                 if not containsBy<<String, {String}>>(words, \"b\", function(left: String, right: String): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 4\n\
+                 end\n\
+                 local equalLeft: {Int} = {1, 2, 3}\n\
+                 local equalRight: {Int} = {1, 4, 3}\n\
+                 if equalsBy<<Int, {Int}, {Int}>>(equalLeft, equalRight, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 5\n\
+                 end\n\
+                 local shortLeft: {Int} = {1}\n\
+                 local shortRight: {Int} = {1, 2}\n\
+                 if equalsBy<<Int, {Int}, {Int}>>(shortLeft, shortRight, function(left: Int, right: Int): Boolean\n\
+                     return left == right\n\
+                 end) then\n\
+                     return 6\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("materializing Sequence consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified materializing Sequence MIR")
+            .call(entry, &[])
+            .expect("materializing Sequence execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn deterministic_random_state_matches_the_frozen_stream() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             public function verify(): Int\n\
+                 local state = seed(1)\n\
+                 if next(state) ~= 16807 or next(state) ~= 282475249 or next(state) ~= 1622650073 then\n\
+                     return 1\n\
+                 end\n\
+                 if not verifyBytes() then\n\
+                     return 2\n\
+                 end\n\
+                 if not verifySeeds() then\n\
+                     return 3\n\
+                 end\n\
+                 local shuffleResult = verifyShuffle()\n\
+                 if shuffleResult ~= 42 then\n\
+                     return shuffleResult\n\
+                 end\n\
+                 if fill(seed(1), Bytes.create(), -1) then\n\
+                     return 4\n\
+                 end\n\
+                 return 42\n\
+             end\n\
+             private function verifySeeds(): Boolean\n\
+                 if next(seed(0)) ~= 16807 or next(seed(2147483647)) ~= 16807 or next(seed(4294967295)) ~= 16807 then\n\
+                     return false\n\
+                 end\n\
+                 local unchanged = seed(1)\n\
+                 if not fill(unchanged, Bytes.create(), 0) or next(unchanged) ~= 16807 then\n\
+                     return false\n\
+                 end\n\
+                 local checkpoint = seed(1)\n\
+                 local index = 0\n\
+                 local value = 0\n\
+                 while index < 10000 do\n\
+                     value = Int(next(checkpoint))\n\
+                     index += 1\n\
+                 end\n\
+                 return value == 1043618065\n\
+             end\n\
+             private function verifyBytes(): Boolean\n\
+                 local output = Bytes.create()\n\
+                 local bytesState = seed(1)\n\
+                 if not fill(bytesState, output, 4) then\n\
+                     return false\n\
+                 end\n\
+                 local snapshot = Bytes.toBytes(output)\n\
+                 if Bytes.length(Bytes.view(snapshot)) ~= 4 or (Bytes.get(Bytes.view(snapshot), 1) ?? 0) ~= 166 or (Bytes.get(Bytes.view(snapshot), 4) ?? 0) ~= 41 then\n\
+                     return false\n\
+                 end\n\
+                 return true\n\
+             end\n\
+             private function verifyShuffle(): Int\n\
+                 local values: {Int} = {1, 2, 3, 4, 5}\n\
+                 local shuffleState = seed(1)\n\
+                 if not shuffle(shuffleState, values) then\n\
+                     return 31\n\
+                 end\n\
+                 if Array.get(values, 1) ~= 4 then\n\
+                     return 100 + Array.get(values, 1)\n\
+                 end\n\
+                 if Array.get(values, 2) ~= 3 then\n\
+                     return 33\n\
+                 end\n\
+                 if Array.get(values, 3) ~= 5 then\n\
+                     return 34\n\
+                 end\n\
+                 if Array.get(values, 4) ~= 1 or Array.get(values, 5) ~= 2 then\n\
+                     return 35\n\
+                 end\n\
+                 if next(shuffleState) ~= 1144108930 then\n\
+                     return 36\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("random consumer")
+        .symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified random MIR");
+    assert_eq!(
+        interpreter
+            .call(entry, &[])
+            .expect("deterministic random execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn deterministic_random_distributions_are_bounded_and_unbiased() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/random.pop",
+            include_str!("../../../../libraries/standard/pop/src/random.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Random\n\
+             public function verify(): Int\n\
+                 local state = seed(1)\n\
+                 if (nextInt(state, 10, 20) ?? 0) ~= 16 then\n\
+                     return 1\n\
+                 end\n\
+                 if (nextInt(seed(1), -10, 10) ?? 0) ~= -4 or (nextInt(seed(1), 5, 6) ?? 0) ~= 5 then\n\
+                     return 9\n\
+                 end\n\
+                 local wide = seed(1)\n\
+                 if (nextInt(wide, 0, 3000000000) ?? -1) ~= 892629924 then\n\
+                     return 2\n\
+                 end\n\
+                 local invalid = seed(1)\n\
+                 if nextInt(invalid, 5, 5) ~= nil or nextInt(invalid, 7, 2) ~= nil then\n\
+                     return 3\n\
+                 end\n\
+                 if nextInt(invalid, -9223372036854775807 - 1, 9223372036854775807) ~= nil or next(invalid) ~= 16807 then\n\
+                     return 4\n\
+                 end\n\
+                 local floating = seed(1)\n\
+                 local unit = nextFloat(floating)\n\
+                 if unit < 0.0 or unit >= 1.0 or next(floating) ~= 282475249 then\n\
+                     return 5\n\
+                 end\n\
+                 local probability = seed(1)\n\
+                 if (chance(probability, 0.0) ?? true) or not (chance(probability, 1.0) ?? false) then\n\
+                     return 6\n\
+                 end\n\
+                 if not (chance(probability, 0.5) ?? false) or next(probability) ~= 282475249 then\n\
+                     return 7\n\
+                 end\n\
+                 if chance(probability, -0.1) ~= nil or chance(probability, 1.1) ~= nil then\n\
+                     return 8\n\
+                 end\n\
+                 local nan = 0.0 / 0.0\n\
+                 if chance(probability, nan) ~= nil then\n\
+                     return 10\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("random distribution consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified random distribution MIR")
+            .call(entry, &[])
+            .expect("deterministic random distribution execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn unicode_scalars_text_access_and_ascii_helpers_are_portable() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("backend crate is under the repository root");
+    let unicode_source =
+        std::fs::read_to_string(root.join("crates/libraries/standard/pop/src/unicode.pop"))
+            .expect("read Pop.Unicode source");
+    let (mir, types) = executable_modules(&[
+        ("src/unicode.pop", unicode_source.as_str()),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.Unicode\n\
+             public function inspect(text: String): Int?\n\
+                 local ascii = Text.get(text, 1)?\n\
+                 local twoByte = Text.get(text, 2)?\n\
+                 local threeByte = Text.get(text, 3)?\n\
+                 local fourByte = Text.get(text, 4)?\n\
+                 local final = Text.get(Text.slice(text, 2, 4), 4)?\n\
+                 if Unicode.codePoint(ascii) ~= 65 or Unicode.codePoint(twoByte) ~= 233 or Unicode.codePoint(threeByte) ~= 20013 or Unicode.codePoint(fourByte) ~= 128512 or Unicode.codePoint(final) ~= 122 then\n\
+                     return 1\n\
+                 end\n\
+                 local zeroIndex: Rune? = Text.get(text, 0)\n\
+                 local negativeIndex: Rune? = Text.get(text, -1)\n\
+                 local pastEnd: Rune? = Text.get(text, 6)\n\
+                 if zeroIndex ~= nil or negativeIndex ~= nil or pastEnd ~= nil then\n\
+                     return 2\n\
+                 end\n\
+                 local low = Unicode.fromCodePoint(0)?\n\
+                 local beforeSurrogate = Unicode.fromCodePoint(55295)?\n\
+                 local afterSurrogate = Unicode.fromCodePoint(57344)?\n\
+                 local maximum = Unicode.fromCodePoint(1114111)?\n\
+                 if Unicode.codePoint(low) ~= 0 or Unicode.codePoint(beforeSurrogate) ~= 55295 or Unicode.codePoint(afterSurrogate) ~= 57344 or Unicode.codePoint(maximum) ~= 1114111 then\n\
+                     return 3\n\
+                 end\n\
+                 if Unicode.fromCodePoint(55296) ~= nil or Unicode.fromCodePoint(57343) ~= nil or Unicode.fromCodePoint(1114112) ~= nil then\n\
+                     return 4\n\
+                 end\n\
+                 local upper = Unicode.fromCodePoint(65)?\n\
+                 local lower = Unicode.fromCodePoint(122)?\n\
+                 local digit = Unicode.fromCodePoint(57)?\n\
+                 local space = Unicode.fromCodePoint(32)?\n\
+                 if not isAscii(upper) or not isAsciiLetter(upper) or not isAsciiDigit(digit) or not isAsciiAlphanumeric(lower) or not isAsciiWhitespace(space) then\n\
+                     return 5\n\
+                 end\n\
+                 if Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiLower(fourByte) ~= fourByte then\n\
+                     return 6\n\
+                 end\n\
+                 local asciiMaximum = Unicode.fromCodePoint(127)?\n\
+                 local beyondAscii = Unicode.fromCodePoint(128)?\n\
+                 if not isAscii(low) or not isAscii(asciiMaximum) or isAscii(beyondAscii) then\n\
+                     return 7\n\
+                 end\n\
+                 local beforeUpper = Unicode.fromCodePoint(64)?\n\
+                 local upperEnd = Unicode.fromCodePoint(90)?\n\
+                 local afterUpper = Unicode.fromCodePoint(91)?\n\
+                 local beforeLower = Unicode.fromCodePoint(96)?\n\
+                 local lowerStart = Unicode.fromCodePoint(97)?\n\
+                 local afterLower = Unicode.fromCodePoint(123)?\n\
+                 if isAsciiLetter(beforeUpper) or not isAsciiLetter(upper) or not isAsciiLetter(upperEnd) or isAsciiLetter(afterUpper) or isAsciiLetter(beforeLower) or not isAsciiLetter(lowerStart) or not isAsciiLetter(lower) or isAsciiLetter(afterLower) then\n\
+                     return 8\n\
+                 end\n\
+                 local beforeDigit = Unicode.fromCodePoint(47)?\n\
+                 local digitStart = Unicode.fromCodePoint(48)?\n\
+                 local afterDigit = Unicode.fromCodePoint(58)?\n\
+                 if isAsciiDigit(beforeDigit) or not isAsciiDigit(digitStart) or not isAsciiDigit(digit) or isAsciiDigit(afterDigit) then\n\
+                     return 9\n\
+                 end\n\
+                 if isAsciiAlphanumeric(beforeDigit) or not isAsciiAlphanumeric(digitStart) or not isAsciiAlphanumeric(digit) or isAsciiAlphanumeric(afterDigit) or isAsciiAlphanumeric(beforeUpper) or not isAsciiAlphanumeric(upper) or not isAsciiAlphanumeric(upperEnd) or isAsciiAlphanumeric(afterUpper) or isAsciiAlphanumeric(beforeLower) or not isAsciiAlphanumeric(lowerStart) or not isAsciiAlphanumeric(lower) or isAsciiAlphanumeric(afterLower) then\n\
+                     return 10\n\
+                 end\n\
+                 local beforeTab = Unicode.fromCodePoint(8)?\n\
+                 local tab = Unicode.fromCodePoint(9)?\n\
+                 local carriageReturn = Unicode.fromCodePoint(13)?\n\
+                 local afterCarriageReturn = Unicode.fromCodePoint(14)?\n\
+                 local unitSeparator = Unicode.fromCodePoint(31)?\n\
+                 local afterSpace = Unicode.fromCodePoint(33)?\n\
+                 if isAsciiWhitespace(beforeTab) or not isAsciiWhitespace(tab) or not isAsciiWhitespace(carriageReturn) or isAsciiWhitespace(afterCarriageReturn) or isAsciiWhitespace(unitSeparator) or not isAsciiWhitespace(space) or isAsciiWhitespace(afterSpace) then\n\
+                     return 11\n\
+                 end\n\
+                 if toAsciiLower(beforeUpper) ~= beforeUpper or Unicode.codePoint(toAsciiLower(upper)) ~= 97 or Unicode.codePoint(toAsciiLower(upperEnd)) ~= 122 or toAsciiLower(afterUpper) ~= afterUpper or toAsciiLower(beyondAscii) ~= beyondAscii then\n\
+                     return 12\n\
+                 end\n\
+                 if toAsciiUpper(beforeLower) ~= beforeLower or Unicode.codePoint(toAsciiUpper(lowerStart)) ~= 65 or Unicode.codePoint(toAsciiUpper(lower)) ~= 90 or toAsciiUpper(afterLower) ~= afterLower or toAsciiUpper(beyondAscii) ~= beyondAscii then\n\
+                     return 13\n\
+                 end\n\
+                 return 42\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Unicode consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Unicode MIR");
+
+    assert_eq!(
+        interpreter
+            .call(entry, &[MirValue::String("Aé中😀z".to_owned())])
+            .expect("portable Unicode execution"),
+        vec![int(42)]
+    );
+}
+
+#[test]
+fn rune_call_boundaries_reject_numeric_and_invalid_scalar_values() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function codePoint(value: Rune): UInt32\n\
+             return Unicode.codePoint(value)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Rune MIR");
+
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[MirValue::Rune(65)]),
+        Ok(vec![integer("65", IntegerKind::UInt32)])
+    );
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[integer("65", IntegerKind::UInt32)]),
+        Err(ExecutionError::TypeMismatch)
+    );
+    assert_eq!(
+        interpreter.call(SymbolId::from_raw(0), &[MirValue::Rune(0xD800)]),
+        Err(ExecutionError::TypeMismatch)
     );
 }
 
@@ -1931,6 +4427,34 @@ fn arrays_and_tables_execute_identically_before_and_after_mir_optimization() {
             .call(function, &[])
             .expect("optimized collections"),
         expected
+    );
+}
+
+#[test]
+fn managed_array_mutation_through_a_call_preserves_identity() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         private function replaceFirst(values: {Int})\n\
+             values[1] = 42\n\
+         end\n\
+         public function verify(): Int\n\
+             local values: {Int} = {1, 2}\n\
+             replaceFirst(values)\n\
+             return Array.get(values, 1)\n\
+         end\n",
+    );
+    let verify = mir
+        .functions()
+        .iter()
+        .find(|function| function.parameters().is_empty())
+        .expect("array identity consumer")
+        .symbol();
+    assert_eq!(
+        MirInterpreter::new(&mir, &types)
+            .expect("verified array identity MIR")
+            .call(verify, &[])
+            .expect("array mutation through call"),
+        vec![int(42)]
     );
 }
 
@@ -2722,5 +5246,179 @@ fn remaining_exact_numeric_operations_preserve_width_and_format() {
             MirValue::Boolean(false),
             MirValue::Boolean(true),
         ])]
+    );
+}
+
+#[test]
+fn live_monotonic_deadlines_execute_as_owned_capabilities() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local expired = Time.liveDeadlineExpired(clock, deadline)\n\
+             local deadlineClosed = Time.closeLiveDeadline(deadline)\n\
+             local clockClosed = Time.closeMonotonicClock(clock)\n\
+             return expired and deadlineClosed and clockClosed\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("live deadline execution"),
+        vec![MirValue::Boolean(true)]
+    );
+}
+
+#[test]
+fn bounded_udp_wait_reports_timeout_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(0))\n\
+             local socket = Net.Udp.bind(UInt16(0))\n\
+             local buffer = Bytes.withCapacity(16)\n\
+             local waited = Net.Udp.receiveUntil(socket, buffer, UInt64(16), deadline, cancel)\n\
+             local timedOut = Net.Udp.waitTimedOut(waited)\n\
+             return timedOut\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("bounded UDP wait execution"),
+        vec![MirValue::Boolean(true)]
+    );
+}
+
+#[test]
+fn verified_tls_client_handshake_and_transfer_execute_in_mir_interpreter() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate loopback certificate");
+    let certificate_der = cert.der().to_vec();
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(
+                certificate_der.clone(),
+            )],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                signing_key.serialize_der(),
+            )),
+        )
+        .expect("server TLS config");
+    let listener =
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("loopback listener");
+    let port = listener.local_addr().expect("listener address").port();
+    let server = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().expect("TLS client connection");
+        let connection = rustls::ServerConnection::new(std::sync::Arc::new(server_config))
+            .expect("server connection");
+        let mut stream = rustls::StreamOwned::new(connection, socket);
+        let mut payload = [0_u8; 17];
+        std::io::Read::read_exact(&mut stream, &mut payload).expect("encrypted payload");
+        payload
+    });
+
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         public function run(certificate: Bytes, payload: Bytes, port: UInt16): Boolean\n\
+             local source = Task.cancellationSource()\n\
+             local cancel = Task.cancelToken(source)\n\
+             local clock = Time.monotonicClock()\n\
+             local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(5000))\n\
+             local tcp = Net.Tcp.connect(port)\n\
+             local config = Net.Tls.clientRootConfig(certificate)\n\
+             local stream = Net.Tls.clientHandshake(config, tcp, \"localhost\", deadline, cancel)\n\
+             local sent = Net.Tls.send(stream, payload)\n\
+             return Net.transferProgress(sent) and Net.transferredByteCount(sent) == UInt64(17) and Net.Tls.close(stream) and Net.Tls.closeClientConfig(config) and Time.closeLiveDeadline(deadline) and Time.closeMonotonicClock(clock)\n\
+         end\n",
+        "run",
+    );
+    let mut runtime = GenerationalRuntime::new();
+    let certificate = runtime
+        .allocate_immutable_bytes(&certificate_der)
+        .expect("certificate Bytes");
+    let payload = runtime
+        .allocate_immutable_bytes(b"encrypted Pop Net")
+        .expect("payload Bytes");
+    let interpreter =
+        MirInterpreter::with_runtime(&mir, &types, runtime).expect("verified TLS MIR");
+    assert_eq!(
+        interpreter
+            .call(
+                function,
+                &[
+                    MirValue::Bytes(certificate),
+                    MirValue::Bytes(payload),
+                    integer(&port.to_string(), IntegerKind::UInt16),
+                ],
+            )
+            .expect("TLS client execution"),
+        vec![MirValue::Boolean(true)]
+    );
+    assert_eq!(
+        server.join().expect("TLS server thread"),
+        *b"encrypted Pop Net"
+    );
+}
+
+#[test]
+fn host_interface_and_route_snapshots_execute_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local interfaces = Net.Interfaces.snapshot()\n\
+             local interfaceCount = Net.Interfaces.count(interfaces)\n\
+             local interfaceIndex = Net.Interfaces.index(interfaces, UInt64(0))\n\
+             local interfaceAddressCount = Net.Interfaces.addressCount(interfaces, UInt64(0))\n\
+             local interfaceFamily = Net.Interfaces.addressFamily(interfaces, UInt64(0), UInt64(0))\n\
+             local interfaceWord = Net.Interfaces.addressWord(interfaces, UInt64(0), UInt64(0), Byte(0))\n\
+             local routes = Net.Routes.snapshot()\n\
+             local routeCount = Net.Routes.count(routes)\n\
+             local routeFamily = Net.Routes.family(routes, UInt64(0))\n\
+             local destinationWord = Net.Routes.destinationWord(routes, UInt64(0), Byte(0))\n\
+             return interfaceCount > UInt64(0) and interfaceIndex > UInt32(0) and interfaceAddressCount > UInt64(0) and (interfaceFamily == Byte(4) or interfaceFamily == Byte(6)) and interfaceWord >= UInt32(0) and routeCount > UInt64(0) and (routeFamily == Byte(4) or routeFamily == Byte(6)) and destinationWord >= UInt32(0) and Net.Interfaces.close(interfaces) and Net.Routes.close(routes)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("host network snapshots"),
+        vec![MirValue::Boolean(true)]
+    );
+}
+
+#[test]
+fn tcp_lifecycle_controls_execute_in_mir_interpreter() {
+    let (mir, types) = executable_source(
+        "namespace Main\n\
+         public function run(): Boolean\n\
+             local listener = Net.Tcp.listen(UInt16(0))\n\
+             local stream = Net.Tcp.connect(Net.Tcp.listenerLocalPort(listener))\n\
+             local keepAliveSet = Net.Tcp.setKeepAlive(stream, true)\n\
+             local keepAlive = Net.Tcp.keepAlive(stream)\n\
+             local keepAliveIdleSet = Net.Tcp.setKeepAliveIdleMilliseconds(stream, UInt64(30000))\n\
+             local lingerSet = Net.Tcp.setLingerMilliseconds(stream, UInt64(2000))\n\
+             local linger = Net.Tcp.lingerMilliseconds(stream)\n\
+             local lingerDisabled = Net.Tcp.setLingerMilliseconds(stream, UInt64(0))\n\
+             local lingerAfterDisable = Net.Tcp.lingerMilliseconds(stream)\n\
+             return keepAliveSet and keepAlive and keepAliveIdleSet and lingerSet and linger == UInt64(2000) and lingerDisabled and lingerAfterDisable == UInt64(0) and Net.Tcp.closeStream(stream) and Net.Tcp.closeListener(listener)\n\
+         end\n",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified MIR");
+    assert_eq!(
+        interpreter
+            .call(mir.functions()[0].symbol(), &[])
+            .expect("TCP lifecycle controls"),
+        vec![MirValue::Boolean(true)]
     );
 }

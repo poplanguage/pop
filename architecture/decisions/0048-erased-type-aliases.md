@@ -19,7 +19,7 @@ representation has not been designed.
 The initial alias form is:
 
 ```luau
-public type PlayerId = Guid
+public type PlayerId = Guid.Value
 ```
 
 It has no type parameters. Its name follows normal namespace visibility and

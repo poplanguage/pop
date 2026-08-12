@@ -16,11 +16,11 @@ use pop_foundation::{
 };
 use pop_resolve::Visibility;
 use pop_types::{
-    AttributeConstant, AttributeDefinition, ClassDefinition, ClassFieldDefault,
+    AttributeConstant, AttributeDefinition, ByteOrder, ClassDefinition, ClassFieldDefault,
     ClassMethodDefinition, ClassMethodDispatch, EffectSummary, EnumDefinition, ErrorDefinition,
-    FfiCallbackBindingContract, FfiCallbackThreadPolicy, FieldDefault, FloatValue, IntegerValue,
-    InterfaceDefinition, NumericConversionKind, RecordDefinition, StringFormatKind, TypeArena,
-    TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator, UnionDefinition,
+    FfiCallbackBindingContract, FfiCallbackThreadPolicy, FieldDefault, FloatValue, IntegerKind,
+    IntegerValue, InterfaceDefinition, NumericConversionKind, RecordDefinition, StringFormatKind,
+    TypeArena, TypedBinaryOperator, TypedCompoundOperator, TypedUnaryOperator, UnionDefinition,
 };
 use serde::{Deserialize, Serialize};
 
@@ -924,8 +924,43 @@ impl HirClassReference {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirRecordReference {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) symbol: SymbolId,
+    pub(crate) type_id: TypeId,
+}
+
+impl HirRecordReference {
+    #[must_use]
+    pub const fn new(identity: SymbolIdentity, symbol: SymbolId, type_id: TypeId) -> Self {
+        Self {
+            identity,
+            symbol,
+            type_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+
+    #[must_use]
+    pub const fn symbol(&self) -> SymbolId {
+        self.symbol
+    }
+
+    #[must_use]
+    pub const fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HirNominalReferenceCatalog {
+    #[serde(default)]
+    pub(crate) records: Vec<HirRecordReference>,
     pub(crate) interfaces: Vec<HirInterfaceReference>,
     pub(crate) classes: Vec<HirClassReference>,
 }
@@ -933,12 +968,15 @@ pub struct HirNominalReferenceCatalog {
 impl HirNominalReferenceCatalog {
     #[must_use]
     pub fn new(
+        mut records: Vec<HirRecordReference>,
         mut interfaces: Vec<HirInterfaceReference>,
         mut classes: Vec<HirClassReference>,
     ) -> Self {
+        records.sort_by_key(HirRecordReference::identity);
         interfaces.sort_by(|left, right| left.identity().cmp(right.identity()));
         classes.sort_by(|left, right| left.identity().cmp(right.identity()));
         Self {
+            records,
             interfaces,
             classes,
         }
@@ -946,7 +984,12 @@ impl HirNominalReferenceCatalog {
 
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.interfaces.is_empty() && self.classes.is_empty()
+        self.records.is_empty() && self.interfaces.is_empty() && self.classes.is_empty()
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[HirRecordReference] {
+        &self.records
     }
 
     #[must_use]
@@ -3055,6 +3098,23 @@ fn remap_aggregate_statements(statements: &mut [HirStatement], instances: &HirDa
                     remap_aggregate_statements(&mut arm.body, instances);
                 }
             }
+            HirStatementKind::IterationMatch {
+                scrutinee,
+                iteration_type,
+                item_type,
+                arms,
+                ..
+            } => {
+                *iteration_type = instances.type_id(*iteration_type);
+                *item_type = instances.type_id(*item_type);
+                remap_aggregate_expression(scrutinee, instances);
+                for arm in arms {
+                    for binding in &mut arm.bindings {
+                        binding.type_id = instances.type_id(binding.type_id);
+                    }
+                    remap_aggregate_statements(&mut arm.body, instances);
+                }
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 remap_aggregate_expression(scrutinee, instances);
                 for arm in arms {
@@ -3458,8 +3518,62 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
                 remap_aggregate_expression(capacity, instances);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            remap_aggregate_expression(capacity, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            remap_aggregate_expression(sender, instances);
+            remap_aggregate_expression(value, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            remap_aggregate_expression(receiver, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            remap_aggregate_expression(endpoint, instances);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            remap_aggregate_expression(outcome, instances);
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            remap_aggregate_expression(outcome, instances);
+            *element = instances.type_id(*element);
+        }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                remap_aggregate_expression(capacity, instances);
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             remap_aggregate_expression(list, instances);
+            remap_aggregate_expression(value, instances);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            remap_aggregate_expression(buffer, instances);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            remap_aggregate_expression(view, instances);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            remap_aggregate_expression(buffer, instances);
             remap_aggregate_expression(value, instances);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -3480,6 +3594,9 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
         }
         HirExpressionKind::OptionalNarrow { optional } => {
             remap_aggregate_expression(optional, instances);
+        }
+        HirExpressionKind::OptionalInject { value } => {
+            remap_aggregate_expression(value, instances);
         }
         HirExpressionKind::Record { record, fields, .. } => {
             if let Some(instance) = instances.symbol(expression.type_id) {
@@ -3625,9 +3742,14 @@ fn remap_aggregate_expression(expression: &mut HirExpression, instances: &HirDat
             remap_aggregate_expression(start, instances);
             remap_aggregate_expression(length, instances);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             remap_aggregate_expression(view, instances);
             remap_aggregate_expression(index, instances);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            remap_aggregate_expression(value, instances);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -3858,6 +3980,14 @@ fn collect_statement_calls(statements: &[HirStatement], calls: &mut Vec<HirColle
                     collect_statement_calls(&arm.body, calls);
                 }
             }
+            HirStatementKind::IterationMatch {
+                scrutinee, arms, ..
+            } => {
+                collect_expression_calls(scrutinee, calls);
+                for arm in arms {
+                    collect_statement_calls(&arm.body, calls);
+                }
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 collect_expression_calls(scrutinee, calls);
                 for arm in arms {
@@ -4079,8 +4209,52 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
                 collect_expression_calls(capacity, calls);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            collect_expression_calls(capacity, calls);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            collect_expression_calls(sender, calls);
+            collect_expression_calls(value, calls);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            collect_expression_calls(receiver, calls);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            collect_expression_calls(endpoint, calls);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            collect_expression_calls(outcome, calls);
+        }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                collect_expression_calls(capacity, calls);
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             collect_expression_calls(list, calls);
+            collect_expression_calls(value, calls);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            collect_expression_calls(buffer, calls);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            collect_expression_calls(view, calls);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            collect_expression_calls(buffer, calls);
             collect_expression_calls(value, calls);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -4093,7 +4267,8 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             collect_expression_calls(fallback, calls);
         }
         HirExpressionKind::OptionalPropagate { optional, .. }
-        | HirExpressionKind::OptionalNarrow { optional } => {
+        | HirExpressionKind::OptionalNarrow { optional }
+        | HirExpressionKind::OptionalInject { value: optional } => {
             collect_expression_calls(optional, calls);
         }
         HirExpressionKind::Record { fields, .. } => {
@@ -4197,9 +4372,14 @@ fn collect_expression_calls(expression: &HirExpression, calls: &mut Vec<HirColle
             collect_expression_calls(start, calls);
             collect_expression_calls(length, calls);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             collect_expression_calls(view, calls);
             collect_expression_calls(index, calls);
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            collect_expression_calls(value, calls);
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -4348,6 +4528,9 @@ fn specialize_statement(
             ) {
                 *source = match arena.get(iterable.type_id())? {
                     pop_types::SemanticType::Array(_) => HirIterationSource::Array,
+                    pop_types::SemanticType::Primitive(pop_types::PrimitiveType::String) => {
+                        HirIterationSource::String
+                    }
                     pop_types::SemanticType::Table { .. } => HirIterationSource::Table,
                     pop_types::SemanticType::Builtin { definition, .. }
                         if *definition == protocol.list() =>
@@ -4405,6 +4588,23 @@ fn specialize_statement(
         } => {
             specialize_expression(scrutinee, substitutions, instances, arena)?;
             specialize_type(result_type, substitutions, arena)?;
+            for arm in arms {
+                for binding in &mut arm.bindings {
+                    specialize_type(&mut binding.type_id, substitutions, arena)?;
+                }
+                specialize_statements(&mut arm.body, substitutions, instances, arena)?;
+            }
+        }
+        HirStatementKind::IterationMatch {
+            scrutinee,
+            iteration_type,
+            item_type,
+            arms,
+            ..
+        } => {
+            specialize_expression(scrutinee, substitutions, instances, arena)?;
+            specialize_type(iteration_type, substitutions, arena)?;
+            specialize_type(item_type, substitutions, arena)?;
             for arm in arms {
                 for binding in &mut arm.bindings {
                     specialize_type(&mut binding.type_id, substitutions, arena)?;
@@ -4828,8 +5028,62 @@ fn specialize_expression(
                 specialize_expression(capacity, substitutions, instances, arena)?;
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            specialize_expression(capacity, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            specialize_expression(sender, substitutions, instances, arena)?;
+            specialize_expression(value, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            specialize_expression(receiver, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            specialize_expression(endpoint, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            specialize_expression(outcome, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            specialize_expression(outcome, substitutions, instances, arena)?;
+            specialize_type(element, substitutions, arena)?;
+        }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            if let Some(capacity) = capacity {
+                specialize_expression(capacity, substitutions, instances, arena)?;
+            }
+        }
         HirExpressionKind::ListAdd { list, value } => {
             specialize_expression(list, substitutions, instances, arena)?;
+            specialize_expression(value, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            specialize_expression(buffer, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            specialize_expression(view, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            specialize_expression(buffer, substitutions, instances, arena)?;
             specialize_expression(value, substitutions, instances, arena)?;
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -4850,6 +5104,9 @@ fn specialize_expression(
         }
         HirExpressionKind::OptionalNarrow { optional } => {
             specialize_expression(optional, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::OptionalInject { value } => {
+            specialize_expression(value, substitutions, instances, arena)?;
         }
         HirExpressionKind::Record { fields, .. }
         | HirExpressionKind::ClassConstruct { fields, .. } => {
@@ -4946,9 +5203,14 @@ fn specialize_expression(
             specialize_expression(start, substitutions, instances, arena)?;
             specialize_expression(length, substitutions, instances, arena)?;
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             specialize_expression(view, substitutions, instances, arena)?;
             specialize_expression(index, substitutions, instances, arena)?;
+        }
+        HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
+            specialize_expression(value, substitutions, instances, arena)?;
         }
         HirExpressionKind::Integer(_)
         | HirExpressionKind::Float(_)
@@ -5177,6 +5439,13 @@ pub enum HirStatementKind {
         result_type: TypeId,
         arms: Vec<HirResultMatchArm>,
     },
+    IterationMatch {
+        scrutinee: HirExpression,
+        iteration: BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: Vec<HirIterationMatchArm>,
+    },
     CodecErrorMatch {
         scrutinee: HirExpression,
         arms: Vec<HirCodecErrorMatchArm>,
@@ -5234,6 +5503,7 @@ pub enum HirIterationSource {
     Array,
     List,
     Range,
+    String,
     Table,
     Iterable,
     Iterator,
@@ -5446,6 +5716,14 @@ pub struct HirResultMatchArm {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HirIterationMatchArm {
+    pub(crate) case: IterationCaseId,
+    pub(crate) bindings: Vec<HirMatchBinding>,
+    pub(crate) body: Vec<HirStatement>,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HirCodecErrorMatchArm {
     pub(crate) case: EnumCaseId,
     pub(crate) body: Vec<HirStatement>,
@@ -5475,6 +5753,25 @@ impl HirResultMatchArm {
     #[must_use]
     pub fn body(&self) -> &[HirStatement] {
         &self.body
+    }
+}
+
+impl HirIterationMatchArm {
+    #[must_use]
+    pub const fn case(&self) -> IterationCaseId {
+        self.case
+    }
+    #[must_use]
+    pub fn bindings(&self) -> &[HirMatchBinding] {
+        &self.bindings
+    }
+    #[must_use]
+    pub fn body(&self) -> &[HirStatement] {
+        &self.body
+    }
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
     }
 }
 
@@ -5641,6 +5938,83 @@ pub enum HirExpressionKind {
         list: Box<HirExpression>,
         value: Box<HirExpression>,
     },
+    ChannelCreate {
+        capacity: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelTrySend {
+        sender: Box<HirExpression>,
+        value: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelTryReceive {
+        receiver: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelClose {
+        endpoint: Box<HirExpression>,
+        direction: pop_types::ChannelDirection,
+    },
+    ChannelSendOutcomeTest {
+        outcome: Box<HirExpression>,
+        expected: pop_types::ChannelSendOutcomeKind,
+    },
+    ChannelReceiveItem {
+        outcome: Box<HirExpression>,
+        element: TypeId,
+    },
+    ChannelReceiveOutcomeTest {
+        outcome: Box<HirExpression>,
+        expected: pop_types::ChannelReceiveOutcomeKind,
+    },
+    ByteBufferCreate {
+        capacity: Option<Box<HirExpression>>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    ByteBufferLength {
+        buffer: Box<HirExpression>,
+    },
+    ByteBufferReserve {
+        buffer: Box<HirExpression>,
+        additional_capacity: Box<HirExpression>,
+    },
+    ByteBufferClear {
+        buffer: Box<HirExpression>,
+    },
+    ByteBufferWriteByte {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteBytes {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteView {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+    },
+    ByteBufferWriteInteger {
+        buffer: Box<HirExpression>,
+        value: Box<HirExpression>,
+        kind: IntegerKind,
+        order: ByteOrder,
+    },
+    ByteBufferMaterialize {
+        buffer: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8Encode {
+        view: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeView {
+        view: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
+    Utf8DecodeBuffer {
+        buffer: Box<HirExpression>,
+        allocation_site: pop_foundation::AllocationSiteId,
+    },
     RangeCreate {
         first: Box<HirExpression>,
         last: Box<HirExpression>,
@@ -5715,6 +6089,9 @@ pub enum HirExpressionKind {
     OptionalPropagate {
         optional: Box<HirExpression>,
         enclosing_result: TypeId,
+    },
+    OptionalInject {
+        value: Box<HirExpression>,
     },
     ResultPropagate {
         result: Box<HirExpression>,
@@ -5912,6 +6289,10 @@ pub enum HirExpressionKind {
         view: Box<HirExpression>,
         index: Box<HirExpression>,
     },
+    ViewGetRune {
+        view: Box<HirExpression>,
+        index: Box<HirExpression>,
+    },
     ViewMaterialize {
         kind: pop_types::ViewKind,
         view: Box<HirExpression>,
@@ -5920,6 +6301,12 @@ pub enum HirExpressionKind {
     NumericConvert {
         value: Box<HirExpression>,
         conversion: NumericConversionKind,
+    },
+    RuneFromCodePoint {
+        value: Box<HirExpression>,
+    },
+    RuneCodePoint {
+        value: Box<HirExpression>,
     },
 }
 

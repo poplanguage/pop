@@ -797,6 +797,29 @@ impl HirSchema {
                 });
             }
         }
+        let mut record_identities = BTreeSet::new();
+        for reference in bubble.nominal_references().records() {
+            let valid_owner = bubble
+                .dependencies()
+                .contains(&reference.identity().bubble());
+            let valid_schema = schema
+                .records
+                .get(&reference.symbol())
+                .is_some_and(|record| record.type_id == reference.type_id());
+            let valid_type = matches!(
+                arena.get(reference.type_id()),
+                Some(SemanticType::Record(_))
+            );
+            if !valid_owner
+                || !valid_schema
+                || !valid_type
+                || !record_identities.insert(reference.identity())
+            {
+                errors.push(HirVerificationError::InvalidNominalReference(
+                    reference.identity(),
+                ));
+            }
+        }
         for reference in bubble.nominal_references().interfaces() {
             let valid_owner = bubble
                 .dependencies()
@@ -1809,6 +1832,39 @@ impl Verifier<'_> {
             })
     }
 
+    fn verify_byte_buffer_write(
+        &mut self,
+        buffer: &HirExpression,
+        value: &HirExpression,
+        expected_value: &str,
+        expression: &HirExpression,
+        visible: &BTreeSet<LocalId>,
+    ) {
+        self.verify_expression(buffer, visible);
+        self.verify_expression(value, visible);
+        let expected_value_type = match expected_value {
+            "Bytes" => self.arena.find(&SemanticType::Builtin {
+                definition: pop_types::BYTES_TYPE_ID,
+                arguments: Vec::new(),
+            }),
+            "Bytes.View" => self.arena.find(&SemanticType::Builtin {
+                definition: pop_types::BYTES_VIEW_TYPE_ID,
+                arguments: Vec::new(),
+            }),
+            _ => self.arena.source_type(expected_value),
+        };
+        if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+            || expected_value.is_empty()
+            || expected_value_type != Some(value.type_id())
+            || self.arena.source_type("nil") != Some(expression.type_id())
+        {
+            self.errors.push(HirVerificationError::InvalidType {
+                type_id: expression.type_id(),
+                span: expression.span(),
+            });
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn verify_statements(&mut self, statements: &[HirStatement], visible: &BTreeSet<LocalId>) {
         let mut visible = visible.clone();
@@ -2087,6 +2143,13 @@ impl Verifier<'_> {
                         (HirIterationSource::Array, Some(SemanticType::Array(element))) => {
                             *element == *item_type
                         }
+                        (
+                            HirIterationSource::String,
+                            Some(SemanticType::Primitive(pop_types::PrimitiveType::String)),
+                        ) => self
+                            .arena
+                            .source_type("Rune")
+                            .is_some_and(|rune| rune == *item_type),
                         (HirIterationSource::Table, Some(SemanticType::Table { key, value })) => {
                             matches!(
                                 self.arena.get(*item_type),
@@ -2319,6 +2382,21 @@ impl Verifier<'_> {
                     scrutinee,
                     *result,
                     *result_type,
+                    arms,
+                    statement.span(),
+                    &visible,
+                ),
+                HirStatementKind::IterationMatch {
+                    scrutinee,
+                    iteration,
+                    iteration_type,
+                    item_type,
+                    arms,
+                } => self.verify_iteration_match(
+                    scrutinee,
+                    *iteration,
+                    *iteration_type,
+                    *item_type,
                     arms,
                     statement.span(),
                     &visible,
@@ -2903,6 +2981,248 @@ impl Verifier<'_> {
                     self.verify_expression_type(nil, expression);
                 }
             }
+            HirExpressionKind::ChannelCreate { capacity, element } => {
+                self.verify_expression(capacity, visible);
+                self.verify_type(*element, expression.span());
+                if self.arena.source_type("UInt64") != Some(capacity.type_id())
+                    || !self.is_optional_channel_endpoints(expression.type_id(), *element)
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelTrySend {
+                sender,
+                value,
+                element,
+            } => {
+                self.verify_expression(sender, visible);
+                self.verify_expression(value, visible);
+                self.verify_type(*element, expression.span());
+                self.verify_expression_type(*element, value);
+                if !self.is_builtin_definition(
+                    sender.type_id(),
+                    pop_types::CHANNEL_SENDER_TYPE_ID,
+                    &[*element],
+                ) || !self.is_builtin_definition(
+                    expression.type_id(),
+                    pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID,
+                    &[],
+                ) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelTryReceive { receiver, element } => {
+                self.verify_expression(receiver, visible);
+                self.verify_type(*element, expression.span());
+                if !self.is_builtin_definition(
+                    receiver.type_id(),
+                    pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                    &[*element],
+                ) || !self.is_builtin_definition(
+                    expression.type_id(),
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelClose {
+                endpoint,
+                direction,
+            } => {
+                self.verify_expression(endpoint, visible);
+                let definition = match direction {
+                    pop_types::ChannelDirection::Sender => pop_types::CHANNEL_SENDER_TYPE_ID,
+                    pop_types::ChannelDirection::Receiver => pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                };
+                if self
+                    .builtin_element(endpoint.type_id(), definition)
+                    .is_none()
+                    || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelSendOutcomeTest { outcome, .. } => {
+                self.verify_expression(outcome, visible);
+                if !self.is_builtin_definition(
+                    outcome.type_id(),
+                    pop_types::CHANNEL_SEND_OUTCOME_TYPE_ID,
+                    &[],
+                ) || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+                self.verify_expression(outcome, visible);
+                self.verify_type(*element, expression.span());
+                if !self.is_builtin_definition(
+                    outcome.type_id(),
+                    pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    &[*element],
+                ) || !self.is_optional_type(expression.type_id(), *element)
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+                self.verify_expression(outcome, visible);
+                if self
+                    .builtin_element(
+                        outcome.type_id(),
+                        pop_types::CHANNEL_RECEIVE_OUTCOME_TYPE_ID,
+                    )
+                    .is_none()
+                    || self.arena.source_type("Boolean") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+                if let Some(capacity) = capacity {
+                    self.verify_expression(capacity, visible);
+                    if let Some(integer) = self.arena.source_type("Int") {
+                        self.verify_expression_type(integer, capacity);
+                    }
+                }
+                if !self.is_builtin_type(expression.type_id(), "Bytes.Buffer", &[]) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferLength { buffer } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("Int") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferReserve {
+                buffer,
+                additional_capacity,
+            } => {
+                self.verify_expression(buffer, visible);
+                self.verify_expression(additional_capacity, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("Int") != Some(additional_capacity.type_id())
+                    || self.arena.source_type("nil") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferClear { buffer } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || self.arena.source_type("nil") != Some(expression.type_id())
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Byte", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Bytes", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+                self.verify_byte_buffer_write(buffer, value, "Bytes.View", expression, visible);
+            }
+            HirExpressionKind::ByteBufferWriteInteger {
+                buffer,
+                value,
+                kind,
+                ..
+            } => {
+                let expected = match kind {
+                    pop_types::IntegerKind::UInt16 => "UInt16",
+                    pop_types::IntegerKind::UInt32 => "UInt32",
+                    pop_types::IntegerKind::UInt64 => "UInt64",
+                    _ => "",
+                };
+                self.verify_byte_buffer_write(buffer, value, expected, expression, visible);
+            }
+            HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+                self.verify_expression(buffer, visible);
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || !self.is_builtin_type(expression.type_id(), "Bytes", &[])
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::Utf8Encode { view, .. } => {
+                self.verify_expression(view, visible);
+                if !self.is_builtin_type(view.type_id(), "Text.View", &[])
+                    || !self.is_builtin_type(expression.type_id(), "Bytes", &[])
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::Utf8DecodeView { view, .. } => {
+                self.verify_expression(view, visible);
+                let string = self.arena.source_type("String");
+                if !self.is_builtin_type(view.type_id(), "Bytes.View", &[])
+                    || string.is_none()
+                    || self.optional_inner_type(expression.type_id()) != string
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+                self.verify_expression(buffer, visible);
+                let string = self.arena.source_type("String");
+                if !self.is_builtin_type(buffer.type_id(), "Bytes.Buffer", &[])
+                    || string.is_none()
+                    || self.optional_inner_type(expression.type_id()) != string
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
             HirExpressionKind::RangeCreate { first, last, step } => {
                 self.verify_expression(first, visible);
                 self.verify_expression(last, visible);
@@ -2988,6 +3308,15 @@ impl Verifier<'_> {
                 {
                     self.errors.push(HirVerificationError::InvalidType {
                         type_id: *enclosing_result,
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::OptionalInject { value } => {
+                self.verify_expression(value, visible);
+                if self.optional_inner_type(expression.type_id()) != Some(value.type_id()) {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
                         span: expression.span(),
                     });
                 }
@@ -3941,6 +4270,33 @@ impl Verifier<'_> {
                     });
                 }
             }
+            HirExpressionKind::ViewGetRune { view, index } => {
+                self.verify_expression(view, visible);
+                self.verify_expression(index, visible);
+                let valid_view = matches!(
+                    self.arena.get(view.type_id()),
+                    Some(SemanticType::Builtin { definition, arguments })
+                        if *definition == pop_types::TEXT_VIEW_TYPE_ID && arguments.is_empty()
+                );
+                let rune = self.arena.source_type("Rune");
+                let nil = self.arena.source_type("nil");
+                let valid_result = matches!(
+                    self.arena.get(expression.type_id()),
+                    Some(SemanticType::Union(members))
+                        if members.len() == 2
+                            && rune.is_some_and(|rune| members.contains(&rune))
+                            && nil.is_some_and(|nil| members.contains(&nil))
+                );
+                if !valid_view
+                    || self.arena.source_type("Int") != Some(index.type_id())
+                    || !valid_result
+                {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
             HirExpressionKind::ViewMaterialize {
                 kind,
                 view,
@@ -3963,6 +4319,35 @@ impl Verifier<'_> {
                     }
                 };
                 if !valid_view || !expected {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::RuneFromCodePoint { value } => {
+                self.verify_expression(value, visible);
+                let rune = self.arena.source_type("Rune");
+                let nil = self.arena.source_type("nil");
+                let valid_result = matches!(
+                    self.arena.get(expression.type_id()),
+                    Some(SemanticType::Union(members))
+                        if members.len() == 2
+                            && rune.is_some_and(|rune| members.contains(&rune))
+                            && nil.is_some_and(|nil| members.contains(&nil))
+                );
+                if self.arena.source_type("UInt32") != Some(value.type_id()) || !valid_result {
+                    self.errors.push(HirVerificationError::InvalidType {
+                        type_id: expression.type_id(),
+                        span: expression.span(),
+                    });
+                }
+            }
+            HirExpressionKind::RuneCodePoint { value } => {
+                self.verify_expression(value, visible);
+                if self.arena.source_type("Rune") != Some(value.type_id())
+                    || self.arena.source_type("UInt32") != Some(expression.type_id())
+                {
                     self.errors.push(HirVerificationError::InvalidType {
                         type_id: expression.type_id(),
                         span: expression.span(),
@@ -4489,6 +4874,63 @@ impl Verifier<'_> {
         }
     }
 
+    fn verify_iteration_match(
+        &mut self,
+        scrutinee: &HirExpression,
+        iteration: pop_foundation::BuiltinTypeId,
+        iteration_type: TypeId,
+        item_type: TypeId,
+        arms: &[HirIterationMatchArm],
+        span: SourceSpan,
+        visible: &BTreeSet<LocalId>,
+    ) {
+        self.verify_expression(scrutinee, visible);
+        let protocol = embedded_bootstrap_schema()
+            .ok()
+            .and_then(|schema| schema.iteration_protocol());
+        let valid_type = matches!(
+            self.arena.get(iteration_type),
+            Some(SemanticType::Builtin { definition, arguments })
+                if *definition == iteration
+                    && arguments.as_slice() == [item_type]
+                    && protocol.is_some_and(|protocol| protocol.iteration() == iteration)
+        );
+        if scrutinee.type_id() != iteration_type || !valid_type {
+            self.errors
+                .push(HirVerificationError::InvalidIterationCase {
+                    case: IterationCaseId::from_raw(u32::MAX),
+                    span,
+                });
+        }
+        let Some(protocol) = protocol else {
+            return;
+        };
+        let mut seen = BTreeSet::new();
+        for arm in arms {
+            let expected = if arm.case == protocol.item_case() {
+                Some(std::slice::from_ref(&item_type))
+            } else if arm.case == protocol.end_case() {
+                Some(&[][..])
+            } else {
+                None
+            };
+            if !seen.insert(arm.case) || expected.is_none() {
+                self.errors
+                    .push(HirVerificationError::InvalidIterationCase {
+                        case: arm.case,
+                        span: arm.span,
+                    });
+            }
+            self.verify_match_bindings(&arm.bindings, expected, &arm.body, visible);
+        }
+        for case in [protocol.item_case(), protocol.end_case()] {
+            if !seen.contains(&case) {
+                self.errors
+                    .push(HirVerificationError::InvalidIterationCase { case, span });
+            }
+        }
+    }
+
     fn verify_match_bindings(
         &mut self,
         bindings: &[HirMatchBinding],
@@ -4826,7 +5268,8 @@ impl Verifier<'_> {
                 HirExpressionKind::Nil,
                 Some(SemanticType::Primitive(PrimitiveType::Nil))
             )
-        );
+        ) || matches!(expression.kind(), HirExpressionKind::Nil)
+            && self.optional_inner_type(expression.type_id()).is_some();
         if !valid {
             self.errors.push(HirVerificationError::InvalidType {
                 type_id: expression.type_id(),
@@ -4951,19 +5394,38 @@ impl Verifier<'_> {
     ) {
         let signature = match dispatch {
             HirCallDispatch::Standard { function } => {
-                if function.raw() == 0 {
-                    self.arena
-                        .source_type("Int")
-                        .map(|int| HirCallableSignature {
-                            is_async: false,
-                            type_parameters: Vec::new(),
-                            type_parameter_bounds: Vec::new(),
-                            parameters: vec![int],
-                            results: Vec::new(),
-                        })
-                } else {
-                    None
-                }
+                embedded_bootstrap_schema().ok().and_then(|schema| {
+                    if matches!(function.raw(), 25..=34) {
+                        return actor_standard_signature(
+                            self.arena,
+                            &schema,
+                            function.raw(),
+                            arguments,
+                            result,
+                        );
+                    }
+                    let entry = schema
+                        .standard_functions()
+                        .iter()
+                        .find(|entry| entry.id() == *function)?;
+                    let parameters = entry
+                        .parameter_types()
+                        .iter()
+                        .map(|name| standard_function_type(self.arena, &schema, name))
+                        .collect::<Option<Vec<_>>>()?;
+                    let results = entry
+                        .result_types()
+                        .iter()
+                        .map(|name| standard_function_type(self.arena, &schema, name))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(HirCallableSignature {
+                        is_async: false,
+                        type_parameters: Vec::new(),
+                        type_parameter_bounds: Vec::new(),
+                        parameters,
+                        results,
+                    })
+                })
             }
             HirCallDispatch::Direct { function } => {
                 self.verify_function(*function, span);
@@ -5540,13 +6002,71 @@ impl Verifier<'_> {
     fn list_element_type(&self, type_id: TypeId) -> Option<TypeId> {
         let schema = pop_types::embedded_bootstrap_schema().ok()?;
         let list = schema.iteration_protocol()?.list();
+        self.builtin_element(type_id, list)
+    }
+
+    fn builtin_element(&self, type_id: TypeId, definition: BuiltinTypeId) -> Option<TypeId> {
         match self.arena.get(type_id)? {
             SemanticType::Builtin {
-                definition,
+                definition: found,
                 arguments,
-            } if *definition == list && arguments.len() == 1 => Some(arguments[0]),
+            } if *found == definition && arguments.len() == 1 => Some(arguments[0]),
             _ => None,
         }
+    }
+
+    fn is_builtin_definition(
+        &self,
+        type_id: TypeId,
+        definition: BuiltinTypeId,
+        arguments: &[TypeId],
+    ) -> bool {
+        matches!(
+            self.arena.get(type_id),
+            Some(SemanticType::Builtin {
+                definition: found,
+                arguments: found_arguments,
+            }) if *found == definition && found_arguments == arguments
+        )
+    }
+
+    fn is_optional_type(&self, type_id: TypeId, value: TypeId) -> bool {
+        let nil = self.arena.source_type("nil");
+        matches!(
+            self.arena.get(type_id),
+            Some(SemanticType::Union(members))
+                if members.len() == 2
+                    && members.contains(&value)
+                    && nil.is_some_and(|nil| members.contains(&nil))
+        )
+    }
+
+    fn is_optional_channel_endpoints(&self, type_id: TypeId, element: TypeId) -> bool {
+        let Some(SemanticType::Union(members)) = self.arena.get(type_id) else {
+            return false;
+        };
+        let Some(nil) = self.arena.source_type("nil") else {
+            return false;
+        };
+        let Some(endpoints) = members.iter().copied().find(|member| *member != nil) else {
+            return false;
+        };
+        let Some(SemanticType::Tuple(elements)) = self.arena.get(endpoints) else {
+            return false;
+        };
+        members.len() == 2
+            && members.contains(&nil)
+            && elements.len() == 2
+            && self.is_builtin_definition(
+                elements[0],
+                pop_types::CHANNEL_SENDER_TYPE_ID,
+                &[element],
+            )
+            && self.is_builtin_definition(
+                elements[1],
+                pop_types::CHANNEL_RECEIVER_TYPE_ID,
+                &[element],
+            )
     }
 
     fn verify_list_get(
@@ -5660,6 +6180,115 @@ impl Verifier<'_> {
                 .push(HirVerificationError::UnknownFunction { function, span });
         }
     }
+}
+
+fn standard_function_type(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    name: &str,
+) -> Option<TypeId> {
+    if let Some(inner) = name.strip_suffix('?') {
+        let inner = standard_function_type(arena, schema, inner)?;
+        let nil = arena.source_type("nil")?;
+        return arena
+            .find(&SemanticType::Union(vec![inner, nil]))
+            .or_else(|| arena.find(&SemanticType::Union(vec![nil, inner])));
+    }
+    arena.source_type(name).or_else(|| {
+        let entry = schema.type_by_source_name(name)?;
+        (entry.arity() == 0).then(|| {
+            arena.find(&SemanticType::Builtin {
+                definition: entry.id(),
+                arguments: Vec::new(),
+            })
+        })?
+    })
+}
+
+fn actor_standard_signature(
+    arena: &TypeArena,
+    schema: &pop_types::BootstrapSchema,
+    function: u32,
+    arguments: &[HirExpression],
+    result: Option<TypeId>,
+) -> Option<HirCallableSignature> {
+    let boolean = arena.source_type("Boolean")?;
+    let uint64 = arena.source_type("UInt64")?;
+    let send_outcome = arena.find(&SemanticType::Builtin {
+        definition: schema.type_by_source_name("Actor.SendOutcome")?.id(),
+        arguments: Vec::new(),
+    })?;
+    let builtin_element = |value: TypeId, name: &str| {
+        let expected = schema.type_by_source_name(name)?.id();
+        match arena.get(value) {
+            Some(SemanticType::Builtin {
+                definition,
+                arguments,
+            }) if *definition == expected && arguments.len() == 1 => Some(arguments[0]),
+            _ => None,
+        }
+    };
+    let builtin = |name: &str, element: TypeId| {
+        arena.find(&SemanticType::Builtin {
+            definition: schema.type_by_source_name(name)?.id(),
+            arguments: vec![element],
+        })
+    };
+    let scalar_message = |element: TypeId| {
+        matches!(
+            arena.get(element),
+            Some(SemanticType::Primitive(PrimitiveType::Integer(_)))
+        )
+    };
+    let argument_types = arguments
+        .iter()
+        .map(HirExpression::type_id)
+        .collect::<Vec<_>>();
+    let (parameters, results) = match function {
+        25 if argument_types == [uint64, uint64, uint64] => {
+            let result = result?;
+            let inbox = optional_inner_type(arena, result)?;
+            let element = builtin_element(inbox, "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![result])
+        }
+        26 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![builtin("Actor.Ref", element)?])
+        }
+        27 if argument_types.len() == 2 => {
+            let element = builtin_element(argument_types[0], "Actor.Ref")?;
+            scalar_message(element).then_some(())?;
+            (
+                argument_types.clone(),
+                (argument_types[1] == element).then_some(vec![send_outcome])?,
+            )
+        }
+        28 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            let result = result?;
+            (
+                argument_types,
+                (optional_inner_type(arena, result) == Some(element)).then_some(vec![result])?,
+            )
+        }
+        29 | 30 if argument_types.len() == 1 => {
+            let element = builtin_element(argument_types[0], "Actor.Inbox")?;
+            scalar_message(element).then_some(())?;
+            (argument_types, vec![boolean])
+        }
+        31..=34 if argument_types == [send_outcome] => (argument_types, vec![boolean]),
+        _ => return None,
+    };
+    Some(HirCallableSignature {
+        is_async: false,
+        type_parameters: Vec::new(),
+        type_parameter_bounds: Vec::new(),
+        parameters,
+        results,
+    })
 }
 
 fn valid_hir_unary_operator(
@@ -5821,6 +6450,7 @@ fn hir_supports_default_equality(arena: &TypeArena, type_id: TypeId) -> bool {
                 PrimitiveType::Nil
                 | PrimitiveType::Boolean
                 | PrimitiveType::Integer(_)
+                | PrimitiveType::Rune
                 | PrimitiveType::String,
             )
             | SemanticType::Class { .. }
@@ -5943,6 +6573,16 @@ fn collect_local_binding_map(
                 }
             }
             HirStatementKind::ResultMatch { arms, .. } => {
+                for arm in arms {
+                    for binding in &arm.bindings {
+                        if let (Some(binding), Some(local)) = (binding.binding, binding.local) {
+                            local_bindings.insert(local, binding);
+                        }
+                    }
+                    collect_local_binding_map(&arm.body, local_bindings);
+                }
+            }
+            HirStatementKind::IterationMatch { arms, .. } => {
                 for arm in arms {
                     for binding in &arm.bindings {
                         if let (Some(binding), Some(local)) = (binding.binding, binding.local) {
@@ -6166,6 +6806,20 @@ fn collect_written_bindings(
                     );
                 }
             }
+            HirStatementKind::IterationMatch {
+                scrutinee, arms, ..
+            } => {
+                collect_cell_captures(scrutinee, written);
+                for arm in arms {
+                    collect_written_bindings(
+                        &arm.body,
+                        parameter_bindings,
+                        capture_bindings,
+                        local_bindings,
+                        written,
+                    );
+                }
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 collect_cell_captures(scrutinee, written);
                 for arm in arms {
@@ -6338,14 +6992,54 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
             collect_cell_captures(initial_value, written);
         }
         HirExpressionKind::ArrayLength { array } => collect_cell_captures(array, written),
-        HirExpressionKind::ListCreate { capacity } => {
+        HirExpressionKind::ListCreate { capacity }
+        | HirExpressionKind::ByteBufferCreate { capacity, .. } => {
             if let Some(capacity) = capacity {
                 collect_cell_captures(capacity, written);
             }
         }
+        HirExpressionKind::ChannelCreate { capacity, .. } => {
+            collect_cell_captures(capacity, written);
+        }
         HirExpressionKind::ListLength { list } => collect_cell_captures(list, written),
+        HirExpressionKind::ChannelTryReceive { receiver, .. } => {
+            collect_cell_captures(receiver, written);
+        }
+        HirExpressionKind::ChannelClose { endpoint, .. } => {
+            collect_cell_captures(endpoint, written);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, .. }
+        | HirExpressionKind::ChannelReceiveItem { outcome, .. }
+        | HirExpressionKind::ChannelReceiveOutcomeTest { outcome, .. } => {
+            collect_cell_captures(outcome, written);
+        }
+        HirExpressionKind::ByteBufferLength { buffer }
+        | HirExpressionKind::ByteBufferClear { buffer }
+        | HirExpressionKind::ByteBufferMaterialize { buffer, .. }
+        | HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            collect_cell_captures(buffer, written);
+        }
+        HirExpressionKind::Utf8Encode { view, .. }
+        | HirExpressionKind::Utf8DecodeView { view, .. } => {
+            collect_cell_captures(view, written);
+        }
         HirExpressionKind::ListAdd { list, value } => {
             collect_cell_captures(list, written);
+            collect_cell_captures(value, written);
+        }
+        HirExpressionKind::ChannelTrySend { sender, value, .. } => {
+            collect_cell_captures(sender, written);
+            collect_cell_captures(value, written);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity: value,
+        }
+        | HirExpressionKind::ByteBufferWriteByte { buffer, value }
+        | HirExpressionKind::ByteBufferWriteBytes { buffer, value }
+        | HirExpressionKind::ByteBufferWriteView { buffer, value }
+        | HirExpressionKind::ByteBufferWriteInteger { buffer, value, .. } => {
+            collect_cell_captures(buffer, written);
             collect_cell_captures(value, written);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
@@ -6472,7 +7166,8 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
             collect_cell_captures(fallback, written);
         }
         HirExpressionKind::OptionalPropagate { optional, .. }
-        | HirExpressionKind::OptionalNarrow { optional } => {
+        | HirExpressionKind::OptionalNarrow { optional }
+        | HirExpressionKind::OptionalInject { value: optional } => {
             collect_cell_captures(optional, written);
         }
         HirExpressionKind::ResultPropagate { result, .. } => {
@@ -6498,7 +7193,9 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
         | HirExpressionKind::CheckedNominalCast { value, .. } => {
             collect_cell_captures(value, written);
         }
-        HirExpressionKind::NumericConvert { value, .. } => {
+        HirExpressionKind::NumericConvert { value, .. }
+        | HirExpressionKind::RuneFromCodePoint { value }
+        | HirExpressionKind::RuneCodePoint { value } => {
             collect_cell_captures(value, written);
         }
         HirExpressionKind::ViewCreate { lender: value, .. }
@@ -6516,7 +7213,8 @@ fn collect_cell_captures(expression: &HirExpression, written: &mut BTreeSet<Bind
             collect_cell_captures(start, written);
             collect_cell_captures(length, written);
         }
-        HirExpressionKind::ViewGetByte { view, index } => {
+        HirExpressionKind::ViewGetByte { view, index }
+        | HirExpressionKind::ViewGetRune { view, index } => {
             collect_cell_captures(view, written);
             collect_cell_captures(index, written);
         }

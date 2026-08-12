@@ -22,6 +22,7 @@ pub enum TargetCapability {
     TailCalls,
     Threads,
     Atomics,
+    Networking,
     Coroutines,
     Simd,
     PreciseStackMaps,
@@ -126,6 +127,8 @@ impl TargetSpec {
                 .object_format(ObjectFormat::Elf)
                 .operating_system(OperatingSystem::Linux)
                 .capability(TargetCapability::Threads)
+                .capability(TargetCapability::Atomics)
+                .capability(TargetCapability::Networking)
                 .capability(TargetCapability::Exceptions)
                 .capability(TargetCapability::PreciseStackMaps)
                 .capability(TargetCapability::RelocatingNursery)

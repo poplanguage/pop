@@ -84,6 +84,8 @@ Exit criterion: core language tests execute through MIR without LLVM.
 - nominal interfaces and explicit implementation;
 - optimized record layout, arrays, and statically typed tables;
 - exhaustive tagged-union matching and missing-case quick fixes;
+- exhaustive reserved `Result<T, TError>` and `Iteration<T>` matching with
+  exact builtin case identities and typed payload projection;
 - closure conversion and captured variables;
 - allocation, precise stack/object maps, and bootstrap stop-the-world GC.
 - initial `Pop.Standard` collections, text, result, and iteration conformance;
@@ -238,6 +240,11 @@ semantics without C undefined behavior, and is invoked through `pop transpile
   bounded stress, and stale-token rejection;
 - ADR 0104 defines additive ABI 1.22 cyclic-site and native-iteration
   constructors plus closed constant-size layout families;
+- ADR 0114 defines additive ABI 1.23/2.1 validated Unicode-scalar Text-view
+  access while keeping prior descriptors immutable;
+- ADR 0116 defines additive ABI 1.24/2.2 linear owned-`String` iteration as
+  exactly `Iterable<Rune>` while preserving the non-iterable borrowed-view
+  boundary;
 - ADR 0106 supplies verified `Pop.Standard` to private editor analysis and
   permits exact local `Pop.Ffi` generated Modules to consume uniquely
   target-owned verified callback metadata without claiming complete Workspace

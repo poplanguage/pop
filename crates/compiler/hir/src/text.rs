@@ -629,6 +629,47 @@ fn dump_statements(
                 output.push_str(&indentation);
                 output.push_str("end\n");
             }
+            HirStatementKind::IterationMatch {
+                scrutinee,
+                iteration,
+                iteration_type,
+                item_type,
+                arms,
+            } => {
+                let _ = write!(
+                    output,
+                    "iterationMatch builtin#{}:{} item:{} ",
+                    iteration.raw(),
+                    type_text(*iteration_type, arena),
+                    type_text(*item_type, arena)
+                );
+                dump_expression(output, scrutinee, arena);
+                output.push('\n');
+                for arm in arms {
+                    output.push_str(&indentation);
+                    let _ = write!(output, "when iterationCase#{}", arm.case.raw());
+                    for binding in &arm.bindings {
+                        if binding.is_ignored() {
+                            let _ = write!(output, " _:{}", type_text(binding.type_id, arena));
+                        } else if let (Some(binding_id), Some(local)) =
+                            (binding.binding, binding.local)
+                        {
+                            let _ = write!(
+                                output,
+                                " bind#{} l{} {}:{}",
+                                binding_id.raw(),
+                                local.raw(),
+                                binding.name,
+                                type_text(binding.type_id, arena)
+                            );
+                        }
+                    }
+                    output.push('\n');
+                    dump_statements(output, &arm.body, arena, depth + 1);
+                }
+                output.push_str(&indentation);
+                output.push_str("end\n");
+            }
             HirStatementKind::CodecErrorMatch { scrutinee, arms } => {
                 output.push_str("codec.error.match ");
                 dump_expression(output, scrutinee, arena);
@@ -780,6 +821,10 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
         }
         HirExpressionKind::Boolean(value) => output.push_str(if *value { "true" } else { "false" }),
         HirExpressionKind::Nil => output.push_str("nil"),
+        HirExpressionKind::OptionalInject { value } => {
+            output.push_str("optional.inject ");
+            dump_expression(output, value, arena);
+        }
         HirExpressionKind::GeneratedCodecSchema(adapter) => {
             let _ = write!(output, "codec.schema sym#{}", adapter.raw());
         }
@@ -912,6 +957,128 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             dump_expression(output, list, arena);
             output.push(' ');
             dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ChannelCreate { capacity, element } => {
+            let _ = write!(
+                output,
+                "channel.create element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, capacity, arena);
+        }
+        HirExpressionKind::ChannelTrySend {
+            sender,
+            value,
+            element,
+        } => {
+            let _ = write!(
+                output,
+                "channel.trySend element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, sender, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ChannelTryReceive { receiver, element } => {
+            let _ = write!(
+                output,
+                "channel.tryReceive element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, receiver, arena);
+        }
+        HirExpressionKind::ChannelClose {
+            endpoint,
+            direction,
+        } => {
+            let _ = write!(output, "channel.close {direction:?} ");
+            dump_expression(output, endpoint, arena);
+        }
+        HirExpressionKind::ChannelSendOutcomeTest { outcome, expected } => {
+            let _ = write!(output, "channel.sendOutcomeIs {expected:?} ");
+            dump_expression(output, outcome, arena);
+        }
+        HirExpressionKind::ChannelReceiveItem { outcome, element } => {
+            let _ = write!(
+                output,
+                "channel.received element:{} ",
+                type_text(*element, arena)
+            );
+            dump_expression(output, outcome, arena);
+        }
+        HirExpressionKind::ChannelReceiveOutcomeTest { outcome, expected } => {
+            let _ = write!(output, "channel.receiveOutcomeIs {expected:?} ");
+            dump_expression(output, outcome, arena);
+        }
+        HirExpressionKind::ByteBufferCreate { capacity, .. } => {
+            output.push_str("byteBufferCreate");
+            if let Some(capacity) = capacity {
+                output.push(' ');
+                dump_expression(output, capacity, arena);
+            }
+        }
+        HirExpressionKind::ByteBufferLength { buffer } => {
+            output.push_str("byteBufferLength ");
+            dump_expression(output, buffer, arena);
+        }
+        HirExpressionKind::ByteBufferReserve {
+            buffer,
+            additional_capacity,
+        } => {
+            output.push_str("byteBufferReserve ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, additional_capacity, arena);
+        }
+        HirExpressionKind::ByteBufferClear { buffer } => {
+            output.push_str("byteBufferClear ");
+            dump_expression(output, buffer, arena);
+        }
+        HirExpressionKind::ByteBufferWriteByte { buffer, value } => {
+            output.push_str("byteBufferWriteByte ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteBytes { buffer, value } => {
+            output.push_str("byteBufferWriteBytes ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteView { buffer, value } => {
+            output.push_str("byteBufferWriteView ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferWriteInteger {
+            buffer,
+            value,
+            kind,
+            order,
+        } => {
+            let _ = write!(output, "byteBufferWriteInteger {kind:?} {order:?} ");
+            dump_expression(output, buffer, arena);
+            output.push(' ');
+            dump_expression(output, value, arena);
+        }
+        HirExpressionKind::ByteBufferMaterialize { buffer, .. } => {
+            output.push_str("byteBufferMaterialize ");
+            dump_expression(output, buffer, arena);
+        }
+        HirExpressionKind::Utf8Encode { view, .. } => {
+            output.push_str("utf8Encode ");
+            dump_expression(output, view, arena);
+        }
+        HirExpressionKind::Utf8DecodeView { view, .. } => {
+            output.push_str("utf8DecodeView ");
+            dump_expression(output, view, arena);
+        }
+        HirExpressionKind::Utf8DecodeBuffer { buffer, .. } => {
+            output.push_str("utf8DecodeBuffer ");
+            dump_expression(output, buffer, arena);
         }
         HirExpressionKind::RangeCreate { first, last, step } => {
             output.push_str("range.create ");
@@ -1456,6 +1623,13 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
             dump_expression(output, index, arena);
             output.push(')');
         }
+        HirExpressionKind::ViewGetRune { view, index } => {
+            output.push_str("view.get-rune(");
+            dump_expression(output, view, arena);
+            output.push_str(", ");
+            dump_expression(output, index, arena);
+            output.push(')');
+        }
         HirExpressionKind::ViewMaterialize {
             kind,
             view,
@@ -1472,6 +1646,16 @@ fn dump_expression(output: &mut String, expression: &HirExpression, arena: &Type
         }
         HirExpressionKind::NumericConvert { value, conversion } => {
             let _ = write!(output, "convert.{}(", conversion_text(*conversion));
+            dump_expression(output, value, arena);
+            output.push(')');
+        }
+        HirExpressionKind::RuneFromCodePoint { value } => {
+            output.push_str("rune.from-code-point(");
+            dump_expression(output, value, arena);
+            output.push(')');
+        }
+        HirExpressionKind::RuneCodePoint { value } => {
+            output.push_str("rune.code-point(");
             dump_expression(output, value, arena);
             output.push(')');
         }
