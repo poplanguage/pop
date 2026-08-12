@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_implementation_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 526);
+    assert_eq!(baseline.entries().len(), 527);
 
     let prelude_names = baseline
         .entries()
@@ -528,6 +528,7 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_implementation_boundaries(
             ("Pop.File", "exists"),
             ("Pop.File", "isFile"),
             ("Pop.Directory", "exists"),
+            ("Pop.File", "read"),
         ]
     );
 }

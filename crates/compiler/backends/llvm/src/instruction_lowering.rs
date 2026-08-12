@@ -640,6 +640,14 @@ pub(crate) fn lower_instruction(
                 };
                 format!("{result} = call i1 @{symbol}(i64 %v{})", arguments[0].raw())
             }
+            199 if arguments.len() == 3 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_read(i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                )
+            }
             _ => {
                 return Err(LlvmLoweringError::UnsupportedInstruction {
                     function: FunctionId::from_raw(u32::MAX),

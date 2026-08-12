@@ -21,6 +21,8 @@ pub const fn runtime_symbol(operation: RuntimeOperation) -> Option<&'static str>
 #[allow(unsafe_code)]
 unsafe extern "C" {
     fn pop_rt_string_read(reference: u64, target: *mut u8, capacity: u64) -> u64;
+    fn pop_rt_byte_buffer_clear(reference: u64) -> u8;
+    fn pop_rt_byte_buffer_write_byte(reference: u64, value: u8) -> u8;
 }
 
 /// Copies a bootstrap managed `String` through the trusted runtime ABI.
@@ -36,4 +38,20 @@ pub fn string_bytes(reference: u64) -> Option<Vec<u8>> {
     let copied =
         unsafe { pop_rt_string_read(reference, bytes.as_mut_ptr(), u64::try_from(length).ok()?) };
     (copied == encoded_length).then_some(bytes)
+}
+
+/// Clears one caller-owned native byte buffer.
+#[must_use]
+#[allow(unsafe_code)]
+pub fn byte_buffer_clear(reference: u64) -> bool {
+    // SAFETY: the runtime owns validation of the opaque buffer token.
+    unsafe { pop_rt_byte_buffer_clear(reference) != 0 }
+}
+
+/// Appends one byte to one caller-owned native byte buffer.
+#[must_use]
+#[allow(unsafe_code)]
+pub fn byte_buffer_write_byte(reference: u64, value: u8) -> bool {
+    // SAFETY: the runtime owns validation of the opaque buffer token.
+    unsafe { pop_rt_byte_buffer_write_byte(reference, value) != 0 }
 }

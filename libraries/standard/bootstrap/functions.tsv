@@ -199,3 +199,4 @@ functionId	sourceName	ownerBubble	parameterTypes	resultTypes	effects	prelude
 196	File.exists	Pop.Standard	String	Boolean	AmbientIo	false
 197	File.isFile	Pop.Standard	String	Boolean	AmbientIo	false
 198	Directory.exists	Pop.Standard	String	Boolean	AmbientIo	false
+199	File.read	Pop.Standard	String,Bytes.Buffer,UInt64	Int	AmbientIo,Allocates,MayTrap	false

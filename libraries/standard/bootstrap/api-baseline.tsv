@@ -526,3 +526,4 @@ api:447	Api	Pop.Standard	Pop.Environment	has	has(String)->Boolean	standard	imple
 api:448	Api	Pop.Standard	Pop.File	exists	exists(String)->Boolean	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
 api:449	Api	Pop.Standard	Pop.File	isFile	isFile(String)->Boolean	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
 api:450	Api	Pop.Standard	Pop.Directory	exists	exists(String)->Boolean	standard	implemented	false	architecture/22.2-system-network-security-catalog.md
+api:451	Api	Pop.Standard	Pop.File	read	read(String,Bytes.Buffer,UInt64)->Int	standard	implemented	false	architecture/22.2-system-network-security-catalog.md

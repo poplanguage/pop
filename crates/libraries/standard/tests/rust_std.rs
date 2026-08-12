@@ -7,7 +7,7 @@ use pop_standard::{
 
 #[test]
 fn rust_std_host_bridge_has_typed_exports() {
-    assert_eq!(RUST_STD_EXPORTS.len(), 16);
+    assert_eq!(RUST_STD_EXPORTS.len(), 17);
     assert!(
         RUST_STD_EXPORTS
             .iter()
@@ -17,9 +17,17 @@ fn rust_std_host_bridge_has_typed_exports() {
         export.parameters().is_empty() && export.effects() == [NativeEffect::AmbientIo]
     }));
     assert!(
-        RUST_STD_EXPORTS[8..]
+        RUST_STD_EXPORTS[9..]
             .iter()
             .all(|export| export.effects().is_empty())
+    );
+    assert_eq!(
+        RUST_STD_EXPORTS[8].effects(),
+        [
+            NativeEffect::AmbientIo,
+            NativeEffect::Allocates,
+            NativeEffect::MayTrap
+        ]
     );
     assert_eq!(RUST_STD_EXPORTS[0].namespace(), "Pop.Process");
     assert_eq!(RUST_STD_EXPORTS[0].name(), "id");

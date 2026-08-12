@@ -1,6 +1,6 @@
 //! Direct Rust-standard-library implementations for Pop Standard host APIs.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
@@ -60,6 +60,50 @@ pub extern "C" fn pop_std_rust_stderr_is_terminal() -> bool {
 fn managed_string(reference: u64) -> Option<String> {
     let bytes = pop_internal::runtime::string_bytes(reference)?;
     String::from_utf8(bytes).ok()
+}
+
+const MAX_FILE_READ_BYTES: u64 = 64 * 1024 * 1024;
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.File",
+    name = "read",
+    parameters(String, ManagedReference, UInt64),
+    results(Int),
+    effects(AmbientIo, Allocates, MayTrap),
+)]
+pub extern "C" fn pop_std_rust_file_read(path: u64, buffer: u64, maximum: u64) -> i64 {
+    let Some(path) = managed_string(path) else {
+        return -1;
+    };
+    if maximum > MAX_FILE_READ_BYTES {
+        return -1;
+    }
+    // SAFETY: these are the stable native byte-buffer ABI functions and the
+    // caller supplies an opaque buffer token produced by Pop.Bytes.
+    if !pop_internal::runtime::byte_buffer_clear(buffer) {
+        return -1;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return -1;
+    };
+    let Ok(limit) = usize::try_from(maximum) else {
+        return -1;
+    };
+    let mut bytes = Vec::new();
+    if file.by_ref().take(maximum).read_to_end(&mut bytes).is_err() {
+        return -1;
+    }
+    if bytes.len() > limit {
+        return -1;
+    }
+    for byte in bytes.iter().copied() {
+        // SAFETY: `buffer` remains an opaque buffer token for this call.
+        if !pop_internal::runtime::byte_buffer_write_byte(buffer, byte) {
+            return -1;
+        }
+    }
+    i64::try_from(bytes.len()).unwrap_or(-1)
 }
 
 #[poplib(
@@ -235,6 +279,7 @@ pub const RUST_STD_EXPORTS: &[NativeExport] = &[
     POP_STD_RUST_FILE_EXISTS_POPLIB_EXPORT,
     POP_STD_RUST_FILE_IS_FILE_POPLIB_EXPORT,
     POP_STD_RUST_DIRECTORY_EXISTS_POPLIB_EXPORT,
+    POP_STD_RUST_FILE_READ_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_LINK_LOCAL_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_MULTICAST_POPLIB_EXPORT,
     POP_STD_RUST_NET_IPV4_IS_BROADCAST_POPLIB_EXPORT,

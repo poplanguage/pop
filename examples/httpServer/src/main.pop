@@ -39,6 +39,11 @@ private function serve(stream: Net.Tcp.Stream)
     elseif Pop.Text.startsWith(request, "GET /api/host ") then
         local body = "working directory exists: " .. `{File.exists(".")}` .. "\nPATH is present: " .. `{Environment.has("PATH")}` .. "\n"
         sendResponse(stream, "200 OK", "text/plain; charset=utf-8", body)
+    elseif Pop.Text.startsWith(request, "GET /api/file ") then
+        local buffer = Bytes.withCapacity(1024)
+        local count = File.read("bubble.toml", buffer, UInt64(1024))
+        local body = "read " .. `{count}` .. " bytes from bubble.toml\n"
+        sendResponse(stream, "200 OK", "text/plain; charset=utf-8", body)
     else
         sendResponse(stream, "404 Not Found", "text/plain; charset=utf-8", "not found\n")
     end

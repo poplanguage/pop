@@ -4767,6 +4767,53 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 };
                 MirValue::Boolean(result)
             }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if function.raw() == 199 => {
+                if arguments.len() != 3 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(path) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::ByteBuffer(buffer) = value(values, arguments[1])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let maximum = integer_u64(&value(values, arguments[2])?.visible)?;
+                if maximum > 64 * 1024 * 1024 {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                }
+                self.runtime
+                    .byte_buffer_clear(buffer)
+                    .map_err(ExecutionError::Runtime)?;
+                let Ok(mut file) = std::fs::File::open(path) else {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                };
+                let mut bytes = Vec::new();
+                if std::io::Read::by_ref(&mut file)
+                    .take(maximum)
+                    .read_to_end(&mut bytes)
+                    .is_err()
+                    || self.runtime.byte_buffer_append(buffer, &bytes).is_err()
+                {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                }
+                MirValue::Integer(
+                    IntegerValue::parse_decimal(&bytes.len().to_string(), IntegerKind::Int64)
+                        .map_err(|_| ExecutionError::TypeMismatch)?,
+                )
+            }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
                 ForeignAddress::new(raw).map_or(MirValue::Nil, MirValue::FfiPointer)
