@@ -69,6 +69,138 @@ const INTERNAL_PACKAGE_NAME: &str = "Pop.Internal";
 const STANDARD_PACKAGE_NAME: &str = "Pop.Standard";
 const FFI_PACKAGE_NAME: &str = "Pop.Ffi";
 const NATIVE_PLATFORM_TARGET: &str = "x86_64-unknown-linux-gnu";
+const EMBEDDED_STANDARD_MANIFEST: &str =
+    include_str!("../../../libraries/standard/pop/bubble.toml");
+const EMBEDDED_STANDARD_SOURCES: &[(&str, &str)] = &[
+    (
+        "src/lib.pop",
+        include_str!("../../../libraries/standard/pop/src/lib.pop"),
+    ),
+    (
+        "src/math.pop",
+        include_str!("../../../libraries/standard/pop/src/math.pop"),
+    ),
+    (
+        "src/bytes.pop",
+        include_str!("../../../libraries/standard/pop/src/bytes.pop"),
+    ),
+    (
+        "src/unicode.pop",
+        include_str!("../../../libraries/standard/pop/src/unicode.pop"),
+    ),
+    (
+        "src/text.pop",
+        include_str!("../../../libraries/standard/pop/src/text.pop"),
+    ),
+    (
+        "src/sequence.pop",
+        include_str!("../../../libraries/standard/pop/src/sequence.pop"),
+    ),
+    (
+        "src/random.pop",
+        include_str!("../../../libraries/standard/pop/src/random.pop"),
+    ),
+    (
+        "src/file.pop",
+        include_str!("../../../libraries/standard/pop/src/file.pop"),
+    ),
+    (
+        "src/process.pop",
+        include_str!("../../../libraries/standard/pop/src/process.pop"),
+    ),
+    (
+        "src/io.pop",
+        include_str!("../../../libraries/standard/pop/src/io.pop"),
+    ),
+    (
+        "src/csv.pop",
+        include_str!("../../../libraries/standard/pop/src/csv.pop"),
+    ),
+    (
+        "src/glob.pop",
+        include_str!("../../../libraries/standard/pop/src/glob.pop"),
+    ),
+    (
+        "src/guid.pop",
+        include_str!("../../../libraries/standard/pop/src/guid.pop"),
+    ),
+    (
+        "src/locale.pop",
+        include_str!("../../../libraries/standard/pop/src/locale.pop"),
+    ),
+    (
+        "src/mime.pop",
+        include_str!("../../../libraries/standard/pop/src/mime.pop"),
+    ),
+    (
+        "src/net.pop",
+        include_str!("../../../libraries/standard/pop/src/net.pop"),
+    ),
+    (
+        "src/netAddress.pop",
+        include_str!("../../../libraries/standard/pop/src/netAddress.pop"),
+    ),
+    (
+        "src/netDns.pop",
+        include_str!("../../../libraries/standard/pop/src/netDns.pop"),
+    ),
+    (
+        "src/netFacts.pop",
+        include_str!("../../../libraries/standard/pop/src/netFacts.pop"),
+    ),
+    (
+        "src/netFamilyValues.pop",
+        include_str!("../../../libraries/standard/pop/src/netFamilyValues.pop"),
+    ),
+    (
+        "src/netIpv4Endpoint.pop",
+        include_str!("../../../libraries/standard/pop/src/netIpv4Endpoint.pop"),
+    ),
+    (
+        "src/netIpv6.pop",
+        include_str!("../../../libraries/standard/pop/src/netIpv6.pop"),
+    ),
+    (
+        "src/netIpv6Endpoint.pop",
+        include_str!("../../../libraries/standard/pop/src/netIpv6Endpoint.pop"),
+    ),
+    (
+        "src/netScope.pop",
+        include_str!("../../../libraries/standard/pop/src/netScope.pop"),
+    ),
+    (
+        "src/path.pop",
+        include_str!("../../../libraries/standard/pop/src/path.pop"),
+    ),
+    (
+        "src/time.pop",
+        include_str!("../../../libraries/standard/pop/src/time.pop"),
+    ),
+    (
+        "src/timeClock.pop",
+        include_str!("../../../libraries/standard/pop/src/timeClock.pop"),
+    ),
+    (
+        "src/timeDate.pop",
+        include_str!("../../../libraries/standard/pop/src/timeDate.pop"),
+    ),
+    (
+        "src/timeDateTime.pop",
+        include_str!("../../../libraries/standard/pop/src/timeDateTime.pop"),
+    ),
+    (
+        "src/uri.pop",
+        include_str!("../../../libraries/standard/pop/src/uri.pop"),
+    ),
+    (
+        "src/version.pop",
+        include_str!("../../../libraries/standard/pop/src/version.pop"),
+    ),
+    (
+        "src/platform.pop",
+        include_str!("../../../libraries/standard/pop/src/platform.pop"),
+    ),
+];
 
 static CLI_RENDERING: OnceLock<RenderContext> = OnceLock::new();
 static CLI_DIAGNOSTICS: OnceLock<DiagnosticOptions> = OnceLock::new();
@@ -678,11 +810,22 @@ fn parse_diagnostic_selector(
 fn parse_arguments(
     arguments: impl IntoIterator<Item = OsString>,
 ) -> Result<CommandLine, UsageError> {
+    let arguments = arguments.into_iter().collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .take_while(|argument| argument.as_os_str() != OsStr::new("--"))
+        .any(|argument| argument == "--help" || argument == "-h")
+    {
+        return Ok(CommandLine::Help);
+    }
     let mut arguments = arguments.into_iter();
     let Some(command) = arguments.next() else {
         return Err(UsageError::simple("cli.missingCommand"));
     };
-    if command == "--help" || command == "-h" {
+    if command == "help" || command == "--help" || command == "-h" {
+        if arguments.next().is_some() {
+            return Err(unexpected_arguments("help"));
+        }
         return Ok(CommandLine::Help);
     }
     if command == "new" || command == "initialize" {
@@ -1453,12 +1596,12 @@ fn bpf_requires(option: &str) -> UsageError {
 }
 
 fn write_help() -> ExitCode {
-    if let Err(error) = writeln!(
-        io::stdout().lock(),
-        "{}\n\n{}",
+    let text = format!(
+        "{}\n\n{}\n\nTip: use `pop help` or `pop <command> --help` for a quick command reference.",
         localized("cli.usage", &[]),
         localized("cli.presentationOptions", &[])
-    ) {
+    );
+    if let Err(error) = presentation::write_help(&text) {
         emit_localized(
             "cli.writeHelpFailed",
             &[LocalizedArgument::external("detail", error)],
@@ -2693,6 +2836,7 @@ struct LoweredPackageBubble {
     version: String,
     source_sha256: String,
     edition: String,
+    required_capabilities: Vec<String>,
     name: String,
     kind: BubbleKind,
     root_package: bool,
@@ -2992,6 +3136,40 @@ fn lower_package_recursive(
                 .cloned()
                 .collect(),
         )?;
+        let missing_host_capability = program.mir.functions().iter().find_map(|function| {
+            function
+                .blocks()
+                .iter()
+                .flat_map(|block| block.instructions())
+                .find_map(|instruction| {
+                    let pop_mir::MirInstructionKind::CallStandard { function, .. } =
+                        instruction.kind()
+                    else {
+                        return None;
+                    };
+                    let required = match function.raw() {
+                        195 | 200 => "environmentAccess",
+                        196 | 197 | 199 | 201 | 202 | 203 | 204 | 205 | 210 | 211 | 212 | 217
+                        | 218 | 221 | 226 => "fileAccess",
+                        206 | 207 | 208 | 209 | 213 | 214 | 215 | 216 | 224 | 225 => {
+                            "directoryAccess"
+                        }
+                        198 => "directoryAccess",
+                        _ => return None,
+                    };
+                    (!manifest
+                        .required_capabilities()
+                        .iter()
+                        .any(|capability| capability == required))
+                    .then_some(required)
+                })
+        });
+        if let Some(required) = missing_host_capability {
+            tool_failure!(
+                "pop: host operation requires package capability `{required}` in requiredCapabilities"
+            );
+            return None;
+        }
         validate_foreign_link_aliases(&program.mir, &native_link_plan)
             .map_err(|error| tool_failure!("pop: {error}"))
             .ok()?;
@@ -3015,6 +3193,7 @@ fn lower_package_recursive(
             version: manifest.version().to_owned(),
             source_sha256: source_sha256.clone(),
             edition: manifest.edition().to_owned(),
+            required_capabilities: manifest.required_capabilities().to_vec(),
             name: bubble.name().to_owned(),
             kind: bubble.kind(),
             root_package,
@@ -3826,6 +4005,11 @@ fn reference_type_text(reference: &ReferenceType, type_parameters: &[&str]) -> S
             identity.bubble().raw(),
             identity.symbol().raw()
         ),
+        ReferenceType::Enum(identity) => format!(
+            "enum:b{}:s{}",
+            identity.bubble().raw(),
+            identity.symbol().raw()
+        ),
         ReferenceType::Class(nominal) | ReferenceType::Interface(nominal) => {
             let arguments = nominal
                 .arguments()
@@ -4221,12 +4405,17 @@ fn build_selected_package_to(
                 bubble.program.reference_metadata.clone(),
             )
             .with_dependencies(bubble.dependencies.clone())
-            .with_required_capabilities(vec![
-                "exceptions".to_owned(),
-                "preciseStackMaps".to_owned(),
-                "relocatingNursery".to_owned(),
-                "threads".to_owned(),
-            ])
+            .with_required_capabilities(
+                [
+                    "exceptions".to_owned(),
+                    "preciseStackMaps".to_owned(),
+                    "relocatingNursery".to_owned(),
+                    "threads".to_owned(),
+                ]
+                .into_iter()
+                .chain(bubble.required_capabilities.iter().cloned())
+                .collect(),
+            )
             .with_native_link_plan(bubble.native_link_plan.clone())
             .with_resolved_native_providers(resolved_native_providers)
             .with_documentation(documentation.into_bytes())
@@ -4716,6 +4905,18 @@ fn package_content_hash(
     Some(sha256_hex(&payload))
 }
 
+fn embedded_package_content_hash(
+    manifest: &str,
+    sources: &BTreeMap<String, &'static str>,
+) -> String {
+    let mut payload = Vec::new();
+    append_hash_input(&mut payload, "bubble.toml", manifest.as_bytes());
+    for (relative, source) in sources {
+        append_hash_input(&mut payload, relative, source.as_bytes());
+    }
+    sha256_hex(&payload)
+}
+
 fn append_hash_input(payload: &mut Vec<u8>, path: &str, bytes: &[u8]) {
     payload.extend_from_slice(&(path.len() as u64).to_le_bytes());
     payload.extend_from_slice(path.as_bytes());
@@ -4956,28 +5157,18 @@ fn lower_native_source(source_path: &Path) -> Option<NativeProgram> {
     )
 }
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("driver crate is below repository root")
-        .to_path_buf()
-}
-
 fn lower_toolchain_standard() -> Option<(ResolvedPackageLibrary, LoweredPackageBubble)> {
-    let package_root = repository_root().join("crates/libraries/standard/pop");
-    let manifest_path = package_root.join("bubble.toml");
-    let manifest_text = fs::read_to_string(&manifest_path)
-        .map_err(|error| tool_failure!("pop: could not read reserved Standard manifest: {error}"))
-        .ok()?;
-    let manifest = parse_package_manifest(&manifest_text)
+    let manifest = parse_package_manifest(EMBEDDED_STANDARD_MANIFEST)
         .map_err(|error| tool_failure!("pop: invalid reserved Standard manifest: {error}"))
         .ok()?;
     if manifest.name() != STANDARD_PACKAGE_NAME {
         tool_failure!("pop: reserved Standard manifest has the wrong identity");
         return None;
     }
-    let source_paths = collect_package_sources(&package_root).ok()?;
+    let source_paths = EMBEDDED_STANDARD_SOURCES
+        .iter()
+        .map(|(path, source)| ((*path).to_owned(), *source))
+        .collect::<BTreeMap<_, _>>();
     let relative_paths = source_paths.keys().map(String::as_str).collect::<Vec<_>>();
     let discovered = discover_conventional_bubbles(&manifest, &relative_paths)
         .map_err(|error| tool_failure!("pop: could not discover reserved Standard: {error}"))
@@ -4993,16 +5184,19 @@ fn lower_toolchain_standard() -> Option<(ResolvedPackageLibrary, LoweredPackageB
     let modules = bubble
         .modules()
         .iter()
-        .map(|relative| {
-            source_paths
-                .get(relative)
-                .cloned()
-                .map(|source| (PathBuf::from(relative), source))
+        .enumerate()
+        .map(|(index, relative)| {
+            source_paths.get(relative).map(|source| {
+                let file = u32::try_from(index).expect("embedded Standard Module count is bounded");
+                let source = SourceFile::new(FileId::from_raw(file), relative.as_str(), *source)
+                    .expect("repository-validated embedded Pop.Standard source");
+                FrontEndModule::new(ModuleId::from_raw(file), source)
+            })
         })
         .collect::<Option<Vec<_>>>()?;
-    let program = lower_native_bubble(
+    let program = lower_native_modules(
         STANDARD_BUBBLE,
-        &modules,
+        modules,
         false,
         Vec::new(),
         Vec::new(),
@@ -5013,7 +5207,7 @@ fn lower_toolchain_standard() -> Option<(ResolvedPackageLibrary, LoweredPackageB
     let reference = encode_reference_metadata(&program.reference_metadata)
         .map_err(|error| tool_failure!("pop: Standard metadata encoding failed: {error}"))
         .ok()?;
-    let source_sha256 = package_content_hash(&manifest_path, &source_paths)?;
+    let source_sha256 = embedded_package_content_hash(EMBEDDED_STANDARD_MANIFEST, &source_paths);
     let library = ResolvedPackageLibrary {
         package: manifest.name().to_owned(),
         version: manifest.version().to_owned(),
@@ -5029,6 +5223,7 @@ fn lower_toolchain_standard() -> Option<(ResolvedPackageLibrary, LoweredPackageB
         version: manifest.version().to_owned(),
         source_sha256,
         edition: manifest.edition().to_owned(),
+        required_capabilities: Vec::new(),
         name: bubble.name().to_owned(),
         kind: BubbleKind::Library,
         root_package: false,
@@ -5087,6 +5282,29 @@ fn lower_native_bubble(
         })
         .collect::<Result<Vec<_>, ()>>()
         .ok()?;
+    lower_native_modules(
+        bubble,
+        modules,
+        requires_entry,
+        dependency_metadata,
+        dependency_retained_adapters_popc,
+        additional_dependencies,
+        ffi_dependency,
+        verified_ffi_bindings,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_native_modules(
+    bubble: BubbleId,
+    modules: Vec<FrontEndModule>,
+    requires_entry: bool,
+    dependency_metadata: Vec<ReferenceMetadata>,
+    dependency_retained_adapters_popc: Vec<(BubbleId, Vec<u8>)>,
+    additional_dependencies: Vec<BubbleId>,
+    ffi_dependency: Option<BubbleId>,
+    verified_ffi_bindings: Vec<VerifiedFfiGeneratedBindings>,
+) -> Option<NativeProgram> {
     let diagnostic_sources = modules
         .iter()
         .map(|module| module.source().clone())

@@ -173,6 +173,68 @@ pub(crate) fn write_stderr_line(text: &str, tone: Tone) -> io::Result<()> {
     write_stderr(&line, tone)
 }
 
+/// Renders command help as documentation rather than as a diagnostic. Colors
+/// distinguish headings, invocations, and options without changing its text.
+pub(crate) fn write_help(text: &str) -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
+    if !options().color_enabled {
+        return stdout.write_all(text.as_bytes());
+    }
+
+    for line in text.split_inclusive('\n') {
+        let (content, newline) = line
+            .strip_suffix('\n')
+            .map_or((line, ""), |content| (content, "\n"));
+        if content.ends_with(':') {
+            stdout.write_all(Tone::Information.bold_ansi().as_bytes())?;
+            stdout.write_all(content.as_bytes())?;
+            stdout.write_all(Tone::Neutral.ansi().as_bytes())?;
+        } else {
+            write_help_line(&mut stdout, content)?;
+        }
+        stdout.write_all(newline.as_bytes())?;
+    }
+    stdout.write_all(Tone::Neutral.ansi().as_bytes())
+}
+
+fn write_help_line(stdout: &mut dyn Write, line: &str) -> io::Result<()> {
+    let mut cursor = line;
+    while !cursor.is_empty() {
+        let pop = cursor.find("pop");
+        let option = cursor.find("--");
+        let next = [pop, option].into_iter().flatten().min();
+        let Some(index) = next else {
+            return stdout.write_all(cursor.as_bytes());
+        };
+        stdout.write_all(cursor[..index].as_bytes())?;
+        cursor = &cursor[index..];
+        if cursor.starts_with("pop")
+            && (cursor.len() == 3
+                || cursor
+                    .as_bytes()
+                    .get(3)
+                    .is_some_and(u8::is_ascii_whitespace))
+        {
+            stdout.write_all(Tone::Success.bold_ansi().as_bytes())?;
+            stdout.write_all(b"pop")?;
+            stdout.write_all(Tone::Neutral.ansi().as_bytes())?;
+            cursor = &cursor[3..];
+            continue;
+        }
+        if cursor.starts_with("--") {
+            let end = cursor.find(char::is_whitespace).unwrap_or(cursor.len());
+            stdout.write_all(Tone::Warning.ansi().as_bytes())?;
+            stdout.write_all(cursor[..end].as_bytes())?;
+            stdout.write_all(Tone::Neutral.ansi().as_bytes())?;
+            cursor = &cursor[end..];
+            continue;
+        }
+        stdout.write_all(&cursor.as_bytes()[..1])?;
+        cursor = &cursor[1..];
+    }
+    Ok(())
+}
+
 fn write_status_line(text: &str, tone: Tone) -> io::Result<()> {
     suspend_interactive_rendering();
     let mut stderr = io::stderr().lock();
