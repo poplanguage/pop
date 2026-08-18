@@ -530,6 +530,48 @@ fn dependency_free_package_modules_are_analyzed_as_one_bubble() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn local_package_dependency_metadata_resolves_editor_names() {
+    let root = std::env::temp_dir().join(format!("PopLspLocalDependency{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("dependencies/http/src")).unwrap();
+    std::fs::create_dir_all(root.join("application/src")).unwrap();
+    std::fs::write(
+        root.join("dependencies/http/bubble.toml"),
+        "[package]\nname = \"Pop.Http\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("dependencies/http/src/lib.pop"),
+        "namespace Pop.Http\npublic record Header\n    name: String\nend\npublic function header(name: String): Header\n    local value: Header = { name = name }\n    return value\nend\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("application/bubble.toml"),
+        "[package]\nname = \"Studio.Application\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n[dependencies]\nPopHttp = { path = \"../dependencies/http\", version = \"0.1.0\", bubble = \"Pop.Http\" }\n",
+    )
+    .unwrap();
+    let source = "namespace Studio.Application\nusing Pop.Http\nfunction make(): Header\n    return header(\"content-type\")\nend\n";
+    let source_path = root.join("application/src/main.pop");
+    std::fs::write(&source_path, source).unwrap();
+    let uri = DocumentUri::new(format!("file://{}", source_path.display())).unwrap();
+    let mut server = LanguageServer::initialize(Some("en")).unwrap();
+    let analysis = server
+        .open(
+            uri,
+            DocumentVersion::new(1),
+            source,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "direct local dependency names must resolve in the editor: {:?}",
+        analysis.diagnostics()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn callback_descriptor(platform_target: &str) -> String {
     let callback_layout = format!(
         concat!(

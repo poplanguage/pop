@@ -28,6 +28,25 @@ users, or sequences where fragments risk ambiguity.
 If options conflict, choose one preserving most invariants. Stop when any would
 be violated; resolve architecture/test inconsistency first.
 
+## LLVM-first delivery mode
+
+LLVM is the only actively delivered backend. Treat the C backend and future VM
+as parked experiments: do not add parity work, tests, matrices, or design
+ceremony for them unless a task explicitly asks for it.
+
+For a local implementation or bug fix that follows an existing public contract,
+work directly: inspect the nearby code and tests, add or adjust one focused
+deterministic regression when behavior changes, implement the smallest change,
+and run the narrow LLVM check or test that proves it. Do not require a full
+architecture sweep, ADR, cross-backend proof, broad documentation pass, or
+pre-feature failure demonstration for ordinary incremental work.
+
+Use the full Architecture → Tests → Implementation loop only when changing a
+public Pop contract, language semantics, MIR invariants, runtime/GC safety,
+package format, or capability/security boundary. In those cases, keep the
+existing authority and conformance rules. Otherwise, prefer shipping the
+working LLVM slice over plans, checkpoint rituals, or speculative future-proofing.
+
 ## Mandatory loop
 
 1. Orient: outcome, owners, public contracts, architecture impact.

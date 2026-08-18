@@ -243,6 +243,28 @@ fn help_documents_complete_presentation_options() {
 }
 
 #[test]
+fn help_is_a_successful_command_with_scoped_color() {
+    let output = run(&["help", "--color", "always"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(output.stderr.is_empty(), "{}", text(&output.stderr));
+    let stdout = text(&output.stdout);
+    assert!(stdout.contains("\u{1b}[1;36mUsage:\u{1b}[0m"), "{stdout:?}");
+    assert!(stdout.contains("\u{1b}[1;32mpop\u{1b}[0m"), "{stdout:?}");
+    assert!(
+        stdout.contains("\u{1b}[33m--interactive\u{1b}[0m"),
+        "{stdout:?}"
+    );
+    assert!(
+        !stdout.starts_with("\u{1b}[31m"),
+        "help must not be an error: {stdout:?}"
+    );
+
+    let subcommand = run(&["check", "--help", "--color", "never"]);
+    assert!(subcommand.status.success(), "{}", text(&subcommand.stderr));
+    assert!(text(&subcommand.stdout).contains("pop check"));
+}
+
+#[test]
 fn json_feedback_is_schema_stable_and_bypasses_terminal_presentation() {
     let source = fixture("invalid.pop");
     let plain_request = Command::new(env!("CARGO_BIN_EXE_pop"))

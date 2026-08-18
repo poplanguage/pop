@@ -254,6 +254,12 @@ fields while HIR/MIR retain the producer identity. Defaults, generic records,
 class/interface fields, cycles, and dangling record identities fail closed in
 the first slice. Ordinary records require no FFI catalog and gain no ABI claim.
 
+ADR 0184 extends the isolated projection to ordinary non-generic public
+payload-free enums. Exact declaration-ordered cases and discriminants recreate
+one nominal consumer type keyed by the producer `SymbolIdentity`; enum values
+remain nominal and no integer, string, source-loading, or reflection fallback
+is permitted.
+
 Concrete `AllocationSiteId`, `LifetimeId`, `RegionId`, `StoragePlan`, view
 ranges, and proof graphs remain verified implementation/capsule facts rather
 than consumer names or reflection. When serialized for execution or portable

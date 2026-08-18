@@ -1,0 +1,431 @@
+namespace Pop.Http
+using Pop.Net
+using Pop.Text
+
+public enum Method
+    Get
+    Head
+    Post
+    Put
+    Delete
+    Patch
+    Options
+    Connect
+    Trace
+end
+
+public record Header
+    name: String
+    value: String
+end
+
+public record Request
+    method: Method
+    target: String
+    headers: List<Header>
+    body: String
+end
+
+--- <summary>
+--- Holds one bounded HTTP response after transport decoding.
+--- </summary>
+public record Response
+    status: UInt16
+    reason: String
+    headers: List<Header>
+    body: String
+end
+
+private record ParsedHeaders
+    headers: List<Header>
+    contentLength: Int
+end
+
+private record MessageParts
+    lines: List<String>
+    headers: List<Header>
+    body: String
+end
+
+private function hasLineBreak(value: String): Boolean
+    return contains(value, "\r") or contains(value, "\n")
+end
+
+private function scalarLength(value: String): Int
+    local length = 0
+    for _ in value do
+        length = length + 1
+    end
+    return length
+end
+
+private function substring(value: String, start: Int, length: Int): String
+    return Text.toString(Text.slice(value, start, length))
+end
+
+private function methodFromName(value: String): Method?
+    if value == "GET" then
+        return Method.Get
+    elseif value == "HEAD" then
+        return Method.Head
+    elseif value == "POST" then
+        return Method.Post
+    elseif value == "PUT" then
+        return Method.Put
+    elseif value == "DELETE" then
+        return Method.Delete
+    elseif value == "PATCH" then
+        return Method.Patch
+    elseif value == "OPTIONS" then
+        return Method.Options
+    elseif value == "CONNECT" then
+        return Method.Connect
+    elseif value == "TRACE" then
+        return Method.Trace
+    end
+    return nil
+end
+
+private function parseHeaders(lines: List<String>): ParsedHeaders?
+    local headers = List.create<<Header>>()
+    local contentLength = -1
+    local count = List.length(lines)
+    local index = 2
+    while index <= count do
+        local line = List.get(lines, index)
+        local separator = indexOf(line, ": ", 1) ?? 0
+        if separator <= 1 then
+            return nil
+        end
+        local name = substring(line, 1, separator - 1)
+        local valueLength = scalarLength(line) - separator - 1
+        local value = substring(line, separator + 2, valueLength)
+        if equalsAsciiIgnoreCase(name, "Transfer-Encoding") then
+            return nil
+        end
+        if equalsAsciiIgnoreCase(name, "Content-Length") then
+            if contentLength >= 0 then
+                return nil
+            end
+            contentLength = parseInt(value) ?? -1
+            if contentLength < 0 or `{contentLength}` ~= value then
+                return nil
+            end
+        end
+        if name == "" or hasLineBreak(name) or hasLineBreak(value) then
+            return nil
+        end
+        local parsed: Header = { name = name, value = value }
+        List.add(headers, parsed)
+        index = index + 1
+    end
+    if contentLength < 0 then
+        return nil
+    end
+    local result: ParsedHeaders = { headers = headers, contentLength = contentLength }
+    return result
+end
+
+private function messageParts(value: String, maximum: UInt64): MessageParts?
+    if maximum > UInt64(16777216) then
+        return nil
+    end
+    local boundary = indexOf(value, "\r\n\r\n", 1) ?? 0
+    if boundary <= 1 then
+        return nil
+    end
+    local head = substring(value, 1, boundary - 1)
+    if Bytes.length(Bytes.view(Text.encodeUtf8(head))) > 65536 then
+        return nil
+    end
+    local lines = split(head, "\r\n")
+    if List.length(lines) < 2 then
+        return nil
+    end
+    local totalLength = scalarLength(value)
+    local bodyStart = boundary + 4
+    local bodyLength = totalLength - bodyStart + 1
+    local body = ""
+    if bodyLength > 0 then
+        body = substring(value, bodyStart, bodyLength)
+    end
+    local parsed = parseHeaders(lines)?
+    local byteLength = Bytes.length(Bytes.view(Text.encodeUtf8(body)))
+    if byteLength ~= parsed.contentLength or UInt64(byteLength) > maximum then
+        return nil
+    end
+    local result: MessageParts = { lines = lines, headers = parsed.headers, body = body }
+    return result
+end
+
+--- <summary>
+--- Creates a validated HTTP header.
+--- </summary>
+public function header(name: String, value: String): Header?
+    if name == "" or hasLineBreak(name) or hasLineBreak(value) then
+        return nil
+    end
+    local result: Header = { name = name, value = value }
+    return result
+end
+
+--- <summary>
+--- Returns the wire spelling of an HTTP method.
+--- </summary>
+public function methodName(method: Method): String
+    if method == Method.Get then
+        return "GET"
+    elseif method == Method.Head then
+        return "HEAD"
+    elseif method == Method.Post then
+        return "POST"
+    elseif method == Method.Put then
+        return "PUT"
+    elseif method == Method.Delete then
+        return "DELETE"
+    elseif method == Method.Patch then
+        return "PATCH"
+    elseif method == Method.Options then
+        return "OPTIONS"
+    elseif method == Method.Connect then
+        return "CONNECT"
+    else
+        return "TRACE"
+    end
+end
+
+--- <summary>
+--- Creates a request after validating its target and header values.
+--- </summary>
+public function request(
+    method: Method,
+    target: String,
+    headers: List<Header>,
+    body: String,
+): Request?
+    if target == "" or hasLineBreak(target) then
+        return nil
+    end
+    for item in headers do
+        if item.name == "" or hasLineBreak(item.name) or hasLineBreak(item.value) then
+            return nil
+        end
+    end
+    local result: Request = { method = method, target = target, headers = headers, body = body }
+    return result
+end
+
+private function contentLength(body: String): String
+    local encoded = Text.encodeUtf8(body)
+    return `{Bytes.length(Bytes.view(encoded))}`
+end
+
+--- <summary>
+--- Serializes one request as bounded HTTP/1.1 text.
+--- </summary>
+public function formatRequest(value: Request): String
+    local output = methodName(value.method) .. " " .. value.target .. " HTTP/1.1\r\n"
+    local hasLength = false
+    for item in value.headers do
+        if equalsAsciiIgnoreCase(item.name, "Content-Length") then
+            hasLength = true
+        end
+        output = output .. item.name .. ": " .. item.value .. "\r\n"
+    end
+    if not hasLength then
+        output = output .. "Content-Length: " .. contentLength(value.body) .. "\r\n"
+    end
+    return output .. "Connection: close\r\n\r\n" .. value.body
+end
+
+--- <summary>
+--- Parses one complete bounded UTF-8 HTTP/1.1 request.
+--- </summary>
+public function parseRequest(value: String, maximumBody: UInt64): Request?
+    local parts = messageParts(value, maximumBody)?
+    local lines = parts.lines
+    local body = parts.body
+    local startLine = List.get(lines, 1)
+    local firstSpace = indexOf(startLine, " ", 1) ?? 0
+    local secondSpace = indexOf(startLine, " ", firstSpace + 1) ?? 0
+    if firstSpace <= 1 or secondSpace <= firstSpace + 1 then
+        return nil
+    end
+    local method = methodFromName(substring(startLine, 1, firstSpace - 1))?
+    local target = substring(startLine, firstSpace + 1, secondSpace - firstSpace - 1)
+    local version = substring(startLine, secondSpace + 1, scalarLength(startLine) - secondSpace)
+    if version ~= "HTTP/1.1" then
+        return nil
+    end
+    return request(method, target, parts.headers, body)
+end
+
+--- <summary>
+--- Sends one complete request through an existing TCP stream.
+--- </summary>
+public function send(stream: Net.Tcp.Stream, value: Request): Boolean
+    local encoded = Text.encodeUtf8(formatRequest(value))
+    local transfer = Net.Tcp.send(stream, encoded)
+    while Net.transferWouldBlock(transfer) do
+        transfer = Net.Tcp.send(stream, encoded)
+    end
+    return Net.transferProgress(transfer)
+end
+
+--- <summary>
+--- Receives and parses one complete bounded HTTP/1.1 response.
+--- </summary>
+---
+--- <param name="stream">
+--- The caller-owned TCP stream to read until its peer closes the write half.
+--- </param>
+---
+--- <param name="maximumBody">
+--- The maximum permitted UTF-8 response-body length in bytes.
+--- </param>
+---
+--- <returns>
+--- The parsed response, or nil for an I/O failure, invalid UTF-8, or an
+--- invalid, incomplete, or oversized HTTP message.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates one bounded reusable receive buffer and the parsed response.
+--- </allocation>
+public function receiveResponse(stream: Net.Tcp.Stream, maximumBody: UInt64): Response?
+    if maximumBody > UInt64(16777216) then
+        return nil
+    end
+    local limit = Int(maximumBody) + 65536
+    local buffer = Bytes.withCapacity(limit)
+    while true do
+        local transfer = Net.Tcp.receive(stream, buffer, UInt64(8192))
+        while Net.transferWouldBlock(transfer) do
+            transfer = Net.Tcp.receive(stream, buffer, UInt64(8192))
+        end
+        if Net.transferProgress(transfer) then
+            if Bytes.length(buffer) > limit then
+                return nil
+            end
+        elseif Net.transferClosed(transfer) then
+            local text = Text.decodeUtf8(buffer) ?? ""
+            return parseResponse(text, maximumBody)
+        else
+            return nil
+        end
+    end
+    return nil
+end
+
+--- <summary>
+--- Sends one request, closes the stream write half, and receives one response.
+--- </summary>
+---
+--- <param name="stream">
+--- The caller-owned TCP stream. This function never closes it.
+--- </param>
+---
+--- <param name="value">
+--- The validated request to serialize and send.
+--- </param>
+---
+--- <param name="maximumResponseBody">
+--- The maximum permitted UTF-8 response-body length in bytes.
+--- </param>
+---
+--- <returns>
+--- The complete parsed response, or nil when sending, shutdown, receiving, or
+--- parsing fails.
+--- </returns>
+---
+--- <complexity time="O(n)" space="O(n)"/>
+---
+--- <allocation>
+--- Allocates only the request encoding and the bounded response receive buffer.
+--- </allocation>
+public function exchange(
+    stream: Net.Tcp.Stream,
+    value: Request,
+    maximumResponseBody: UInt64,
+): Response?
+    if not send(stream, value) or not Net.Tcp.shutdownWrite(stream) then
+        return nil
+    end
+    return receiveResponse(stream, maximumResponseBody)
+end
+
+--- <summary>
+--- Creates a response with a validated status and header set.
+--- </summary>
+public function response(
+    status: UInt16,
+    reason: String,
+    headers: List<Header>,
+    body: String,
+): Response?
+    if status < UInt16(100) or status > UInt16(599) or hasLineBreak(reason) then
+        return nil
+    end
+    local result: Response = { status = status, reason = reason, headers = headers, body = body }
+    return result
+end
+
+--- <summary>
+--- Serializes one response as bounded HTTP/1.1 text.
+--- </summary>
+public function formatResponse(value: Response): String
+    local output = "HTTP/1.1 " .. `{value.status}` .. " " .. value.reason .. "\r\n"
+    local hasLength = false
+    for item in value.headers do
+        if equalsAsciiIgnoreCase(item.name, "Content-Length") then
+            hasLength = true
+        end
+        output = output .. item.name .. ": " .. item.value .. "\r\n"
+    end
+    if not hasLength then
+        output = output .. "Content-Length: " .. contentLength(value.body) .. "\r\n"
+    end
+    return output .. "Connection: close\r\n\r\n" .. value.body
+end
+
+--- <summary>
+--- Parses one complete bounded UTF-8 HTTP/1.1 response.
+--- </summary>
+public function parseResponse(value: String, maximumBody: UInt64): Response?
+    local parts = messageParts(value, maximumBody)?
+    local lines = parts.lines
+    local body = parts.body
+    local startLine = List.get(lines, 1)
+    if not startsWith(startLine, "HTTP/1.1 ") or scalarLength(startLine) < 13 then
+        return nil
+    end
+    local statusText = substring(startLine, 10, 3)
+    local separator = substring(startLine, 13, 1)
+    if separator ~= " " then
+        return nil
+    end
+    local status = parseInt(statusText) ?? 0
+    if status < 100 or status > 599 or `{status}` ~= statusText then
+        return nil
+    end
+    local reasonLength = scalarLength(startLine) - 13
+    local reason = ""
+    if reasonLength > 0 then
+        reason = substring(startLine, 14, reasonLength)
+    end
+    return response(UInt16(status), reason, parts.headers, body)
+end
+
+--- <summary>
+--- Sends one complete response through an existing TCP stream.
+--- </summary>
+public function sendResponse(stream: Net.Tcp.Stream, value: Response): Boolean
+    local encoded = Text.encodeUtf8(formatResponse(value))
+    local transfer = Net.Tcp.send(stream, encoded)
+    while Net.transferWouldBlock(transfer) do
+        transfer = Net.Tcp.send(stream, encoded)
+    end
+    return Net.transferProgress(transfer)
+end

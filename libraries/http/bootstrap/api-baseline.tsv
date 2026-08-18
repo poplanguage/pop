@@ -1,0 +1,15 @@
+schemaVersion	1
+identity	kind	ownerBubble	namespace	name	signature	tier	status	prelude	documentation
+namespace:0	Namespace	Pop.Http	Pop	Http	namespace Pop.Http	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:0	Api	Pop.Http	Pop.Http	Method	enum Method	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:1	Api	Pop.Http	Pop.Http	Header	record Header(String,String)	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:2	Api	Pop.Http	Pop.Http	Request	record Request(Http.Method,String,List<Http.Header>,String)	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:3	Api	Pop.Http	Pop.Http	Response	record Response(UInt16,String,List<Http.Header>,String)	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:4	Api	Pop.Http	Pop.Http	header	header(String,String)->Http.Header?	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:5	Api	Pop.Http	Pop.Http	methodName	methodName(Http.Method)->String	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:6	Api	Pop.Http	Pop.Http	request	request(Http.Method,String,List<Http.Header>,String)->Http.Request?	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:7	Api	Pop.Http	Pop.Http	formatRequest	formatRequest(Http.Request)->String	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:8	Api	Pop.Http	Pop.Http	send	send(Net.Tcp.Stream,Http.Request)->Boolean	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:9	Api	Pop.Http	Pop.Http	response	response(UInt16,String,List<Http.Header>,String)->Http.Response?	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:10	Api	Pop.Http	Pop.Http	formatResponse	formatResponse(Http.Response)->String	official	implemented	false	architecture/decisions/0183-bounded-http-core.md
+api:11	Api	Pop.Http	Pop.Http	sendResponse	sendResponse(Net.Tcp.Stream,Http.Response)->Boolean	official	implemented	false	architecture/decisions/0183-bounded-http-core.md

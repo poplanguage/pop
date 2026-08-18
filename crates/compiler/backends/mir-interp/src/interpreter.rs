@@ -61,6 +61,7 @@ use std::net::{
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Once};
 use std::thread;
@@ -69,6 +70,20 @@ use std::time::{Duration, Instant};
 const MAX_CODEC_NESTING_DEPTH: u8 = 32;
 const MAX_CODEC_EVENTS: usize = 65_536;
 const MAX_CODEC_SEQUENCE_ELEMENTS: usize = 65_535;
+
+fn scoped_file_path(root: &Path, relative: &str) -> Option<PathBuf> {
+    let path = Path::new(relative);
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir
+        )
+    }) {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(root.join(path)).ok()?;
+    canonical.starts_with(root).then_some(canonical)
+}
 
 #[derive(Clone)]
 struct InterpreterInterfaceAddress {
@@ -1875,6 +1890,11 @@ enum PrivateValue {
     AtomicBoolean(AtomicBoolean),
     TcpListener(TcpListener),
     TcpStream(TcpStream),
+    FileAccess(PathBuf),
+    DirectoryAccess(PathBuf),
+    FileHandle(std::fs::File),
+    FileWriteHandle(std::fs::File),
+    DirectorySnapshot(Vec<String>),
     TlsClientConfig(Arc<ClientConfig>),
     TlsServerConfig(Arc<ServerConfig>),
     TlsClientStream(rustls::StreamOwned<ClientConnection, TcpStream>),
@@ -4687,6 +4707,29 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                 function,
                 arguments,
                 ..
+            } if function.raw() == 227 && arguments.is_empty() => std::env::current_exe()
+                .ok()
+                .and_then(|path| path.into_os_string().into_string().ok())
+                .map_or(MirValue::Nil, MirValue::String),
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 230..=231) && arguments.is_empty() => {
+                let value = if function.raw() == 230 {
+                    pop_standard::pop_std_rust_native_operating_system()
+                } else {
+                    pop_standard::pop_std_rust_native_architecture()
+                };
+                MirValue::Integer(
+                    IntegerValue::parse_decimal(&value.to_string(), IntegerKind::UInt8)
+                        .map_err(|_| ExecutionError::TypeMismatch)?,
+                )
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
             } if matches!(function.raw(), 187..=194) => {
                 let unsigned = |index: usize| {
                     arguments
@@ -4745,6 +4788,662 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     _ => return Err(ExecutionError::InvalidControlFlow),
                 };
                 MirValue::Boolean(result)
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 195..=198) => {
+                if arguments.len() != 1 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(path) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let result = match function.raw() {
+                    195 => std::env::var_os(path).is_some(),
+                    196 => Path::new(path).exists(),
+                    197 => Path::new(path).is_file(),
+                    198 => Path::new(path).is_dir(),
+                    _ => return Err(ExecutionError::InvalidControlFlow),
+                };
+                MirValue::Boolean(result)
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if function.raw() == 199 => {
+                if arguments.len() != 3 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(path) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let MirValue::ByteBuffer(buffer) = value(values, arguments[1])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let maximum = integer_u64(&value(values, arguments[2])?.visible)?;
+                if maximum > 64 * 1024 * 1024 {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                }
+                self.runtime
+                    .byte_buffer_clear(buffer)
+                    .map_err(ExecutionError::Runtime)?;
+                let Ok(mut file) = std::fs::File::open(path) else {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                };
+                let mut bytes = Vec::new();
+                if std::io::Read::by_ref(&mut file)
+                    .take(maximum)
+                    .read_to_end(&mut bytes)
+                    .is_err()
+                    || self.runtime.byte_buffer_append(buffer, &bytes).is_err()
+                {
+                    return Ok(RuntimeValue::visible(MirValue::Integer(
+                        IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                    )));
+                }
+                MirValue::Integer(
+                    IntegerValue::parse_decimal(&bytes.len().to_string(), IntegerKind::Int64)
+                        .map_err(|_| ExecutionError::TypeMismatch)?,
+                )
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if function.raw() == 200 => {
+                if arguments.len() != 1 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(name) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                match std::env::var_os(name).and_then(|value| value.into_string().ok()) {
+                    Some(value) => MirValue::String(value),
+                    None => MirValue::Nil,
+                }
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 219..=220 | 228) => {
+                if arguments.len() != 1 {
+                    return Err(ExecutionError::WrongArity);
+                }
+                let MirValue::String(value) = &value(values, arguments[0])?.visible else {
+                    return Err(ExecutionError::TypeMismatch);
+                };
+                let _ = value;
+                MirValue::Boolean(true)
+            }
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if function.raw() == 229 && arguments.is_empty() => MirValue::Boolean(true),
+            MirInstructionKind::CallStandard {
+                function,
+                arguments,
+                ..
+            } if matches!(function.raw(), 201..=226) => {
+                let argument = |index: usize| value(values, arguments[index]);
+                match function.raw() {
+                    201 if arguments.len() == 1 => {
+                        let MirValue::String(root) = &argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let Ok(root) = std::fs::canonicalize(root) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        if !root.is_dir() {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        }
+                        let symbol = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(symbol, PrivateValue::FileAccess(root));
+                        MirValue::FfiHandle(u64::from(symbol.raw()))
+                    }
+                    202 if arguments.len() == 1 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        MirValue::Boolean(matches!(
+                            self.private_values.remove(&symbol),
+                            Some(PrivateValue::FileAccess(_))
+                        ))
+                    }
+                    203 | 204 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileAccess(root)) = self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Boolean(false)));
+                        };
+                        let path = scoped_file_path(root, relative);
+                        MirValue::Boolean(match function.raw() {
+                            203 => path.is_some_and(|path| path.exists()),
+                            204 => path.is_some_and(|path| path.is_file()),
+                            _ => return Err(ExecutionError::InvalidControlFlow),
+                        })
+                    }
+                    205 if arguments.len() == 4 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::ByteBuffer(buffer) = argument(2)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let maximum = integer_u64(&argument(3)?.visible)?;
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileAccess(root)) = self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let Some(path) = scoped_file_path(root, relative) else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        if maximum > 64 * 1024 * 1024 {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        self.runtime
+                            .byte_buffer_clear(buffer)
+                            .map_err(ExecutionError::Runtime)?;
+                        let Ok(mut file) = std::fs::File::open(path) else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let mut bytes = Vec::new();
+                        if std::io::Read::by_ref(&mut file)
+                            .take(maximum)
+                            .read_to_end(&mut bytes)
+                            .is_err()
+                            || self.runtime.byte_buffer_append(buffer, &bytes).is_err()
+                        {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(
+                                &bytes.len().to_string(),
+                                IntegerKind::Int64,
+                            )
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    206 if arguments.len() == 1 => {
+                        let MirValue::String(root) = &argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let Ok(root) = std::fs::canonicalize(root) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        if !root.is_dir() {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        }
+                        let symbol = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(symbol, PrivateValue::DirectoryAccess(root));
+                        MirValue::FfiHandle(u64::from(symbol.raw()))
+                    }
+                    207 if arguments.len() == 1 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        MirValue::Boolean(matches!(
+                            self.private_values.remove(&symbol),
+                            Some(PrivateValue::DirectoryAccess(_))
+                        ))
+                    }
+                    208 | 209 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::DirectoryAccess(root)) =
+                            self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Boolean(false)));
+                        };
+                        let path = scoped_file_path(root, relative);
+                        MirValue::Boolean(match function.raw() {
+                            208 => path.is_some_and(|path| path.exists()),
+                            209 => path.is_some_and(|path| path.is_dir()),
+                            _ => return Err(ExecutionError::InvalidControlFlow),
+                        })
+                    }
+                    224 | 225 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::DirectoryAccess(root)) =
+                            self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Boolean(false)));
+                        };
+                        let relative_path = Path::new(relative);
+                        if relative_path.components().any(|component| {
+                            matches!(
+                                component,
+                                Component::RootDir | Component::Prefix(_) | Component::ParentDir
+                            )
+                        }) {
+                            return Ok(RuntimeValue::visible(MirValue::Boolean(false)));
+                        }
+                        let candidate = root.join(relative_path);
+                        let result = if function.raw() == 224 {
+                            !candidate.exists()
+                                && candidate.starts_with(root)
+                                && std::fs::create_dir(candidate).is_ok()
+                        } else {
+                            scoped_file_path(root, relative)
+                                .is_some_and(|path| std::fs::remove_dir(path).is_ok())
+                        };
+                        MirValue::Boolean(result)
+                    }
+                    210 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileAccess(root)) = self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Some(path) = scoped_file_path(root, relative) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Ok(file) = std::fs::File::open(path) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let handle = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(handle, PrivateValue::FileHandle(file));
+                        MirValue::FfiHandle(u64::from(handle.raw()))
+                    }
+                    211 if arguments.len() == 3 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::ByteBuffer(buffer) = argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let maximum = integer_u64(&argument(2)?.visible)?;
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        if maximum > 64 * 1024 * 1024
+                            || self.runtime.byte_buffer_clear(buffer).is_err()
+                        {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        let Some(PrivateValue::FileHandle(file)) =
+                            self.private_values.get_mut(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let mut bytes = Vec::new();
+                        if file.take(maximum).read_to_end(&mut bytes).is_err()
+                            || self.runtime.byte_buffer_append(buffer, &bytes).is_err()
+                        {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(
+                                &bytes.len().to_string(),
+                                IntegerKind::Int64,
+                            )
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    212 if arguments.len() == 1 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        MirValue::Boolean(matches!(
+                            self.private_values.remove(&symbol),
+                            Some(PrivateValue::FileHandle(_))
+                                | Some(PrivateValue::FileWriteHandle(_))
+                        ))
+                    }
+                    217 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileAccess(root)) = self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Some(path) = scoped_file_path(root, relative) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let handle = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(handle, PrivateValue::FileWriteHandle(file));
+                        MirValue::FfiHandle(u64::from(handle.raw()))
+                    }
+                    226 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileAccess(root)) = self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let relative_path = Path::new(relative);
+                        if relative_path.components().any(|component| {
+                            matches!(
+                                component,
+                                Component::RootDir | Component::Prefix(_) | Component::ParentDir
+                            )
+                        }) {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        }
+                        let candidate = root.join(relative_path);
+                        let Some(parent) = candidate.parent() else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Ok(parent) = std::fs::canonicalize(parent) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        if candidate.exists() || !parent.starts_with(root) {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        }
+                        let Ok(file) = std::fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(candidate)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let handle = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(handle, PrivateValue::FileWriteHandle(file));
+                        MirValue::FfiHandle(u64::from(handle.raw()))
+                    }
+                    218 if arguments.len() == 3 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::ByteBuffer(buffer) = argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let maximum = integer_u64(&argument(2)?.visible)?;
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::FileWriteHandle(file)) =
+                            self.private_values.get_mut(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let Ok(length) = self.runtime.byte_buffer_length(buffer) else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let length = length.min(maximum).min(64 * 1024 * 1024);
+                        let Ok(length) = usize::try_from(length) else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let mut bytes = vec![0_u8; length];
+                        if self
+                            .runtime
+                            .byte_buffer_read(buffer, 0, &mut bytes)
+                            .is_err()
+                            || file.write_all(&bytes).is_err()
+                        {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(
+                                &bytes.len().to_string(),
+                                IntegerKind::Int64,
+                            )
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    221 if arguments.len() == 3 => {
+                        let MirValue::FfiHandle(source_raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::FfiHandle(destination_raw) = argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let maximum = integer_u64(&argument(2)?.visible)?;
+                        let source_symbol =
+                            SymbolId::from_raw(u32::try_from(source_raw).unwrap_or(u32::MAX));
+                        let destination_symbol =
+                            SymbolId::from_raw(u32::try_from(destination_raw).unwrap_or(u32::MAX));
+                        if source_symbol == destination_symbol || maximum > 64 * 1024 * 1024 {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        let Some(PrivateValue::FileHandle(mut input)) =
+                            self.private_values.remove(&source_symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let Some(PrivateValue::FileWriteHandle(mut output)) =
+                            self.private_values.remove(&destination_symbol)
+                        else {
+                            self.private_values
+                                .insert(source_symbol, PrivateValue::FileHandle(input));
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        let mut copied = 0_u64;
+                        let mut buffer = vec![0_u8; 64 * 1024];
+                        let mut failed = false;
+                        while copied < maximum {
+                            let chunk =
+                                usize::try_from((maximum - copied).min(buffer.len() as u64))
+                                    .map_err(|_| ExecutionError::TypeMismatch)?;
+                            let Ok(read) = input.read(&mut buffer[..chunk]) else {
+                                failed = true;
+                                break;
+                            };
+                            if read == 0 {
+                                break;
+                            }
+                            if output.write_all(&buffer[..read]).is_err() {
+                                failed = true;
+                                break;
+                            }
+                            copied = copied
+                                .checked_add(
+                                    u64::try_from(read)
+                                        .map_err(|_| ExecutionError::TypeMismatch)?,
+                                )
+                                .ok_or(ExecutionError::TypeMismatch)?;
+                        }
+                        self.private_values
+                            .insert(source_symbol, PrivateValue::FileHandle(input));
+                        self.private_values
+                            .insert(destination_symbol, PrivateValue::FileWriteHandle(output));
+                        if failed {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("-1", IntegerKind::Int64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        }
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(&copied.to_string(), IntegerKind::Int64)
+                                .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    213 if arguments.len() == 3 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let MirValue::String(relative) = &argument(1)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let maximum = integer_u64(&argument(2)?.visible)?;
+                        if maximum > 65_536 {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        }
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::DirectoryAccess(root)) =
+                            self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Some(path) = scoped_file_path(root, relative) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let Ok(entries) = std::fs::read_dir(path) else {
+                            return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                        };
+                        let limit =
+                            usize::try_from(maximum).map_err(|_| ExecutionError::TypeMismatch)?;
+                        let mut names = Vec::new();
+                        for entry in entries {
+                            let Ok(entry) = entry else {
+                                return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                            };
+                            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                                return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                            };
+                            names.push(name);
+                            if names.len() > limit {
+                                return Ok(RuntimeValue::visible(MirValue::FfiHandle(0)));
+                            }
+                        }
+                        names.sort();
+                        let snapshot = self.fresh_private_symbol();
+                        self.private_values
+                            .insert(snapshot, PrivateValue::DirectorySnapshot(names));
+                        MirValue::FfiHandle(u64::from(snapshot.raw()))
+                    }
+                    214 if arguments.len() == 1 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        MirValue::Boolean(matches!(
+                            self.private_values.remove(&symbol),
+                            Some(PrivateValue::DirectorySnapshot(_))
+                        ))
+                    }
+                    215 if arguments.len() == 1 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::DirectorySnapshot(names)) =
+                            self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Integer(
+                                IntegerValue::parse_decimal("0", IntegerKind::UInt64)
+                                    .map_err(|_| ExecutionError::TypeMismatch)?,
+                            )));
+                        };
+                        MirValue::Integer(
+                            IntegerValue::parse_decimal(
+                                &names.len().to_string(),
+                                IntegerKind::UInt64,
+                            )
+                            .map_err(|_| ExecutionError::TypeMismatch)?,
+                        )
+                    }
+                    216 if arguments.len() == 2 => {
+                        let MirValue::FfiHandle(raw) = argument(0)?.visible else {
+                            return Err(ExecutionError::TypeMismatch);
+                        };
+                        let index = integer_u64(&argument(1)?.visible)?;
+                        let symbol = SymbolId::from_raw(u32::try_from(raw).unwrap_or(u32::MAX));
+                        let Some(PrivateValue::DirectorySnapshot(names)) =
+                            self.private_values.get(&symbol)
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Nil));
+                        };
+                        let Some(name) = usize::try_from(index)
+                            .ok()
+                            .and_then(|index| names.get(index))
+                        else {
+                            return Ok(RuntimeValue::visible(MirValue::Nil));
+                        };
+                        MirValue::String(name.clone())
+                    }
+                    _ => return Err(ExecutionError::WrongArity),
+                }
             }
             MirInstructionKind::FfiUnsafePointerFromAddress { address, .. } => {
                 let raw = integer_u64(&value(values, *address)?.visible)?;
@@ -7185,6 +7884,7 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                     }
                     (1, MirValue::String(value)) => pop_standard::print_string(value),
                     (0 | 1, _) => return Err(ExecutionError::TypeMismatch),
+                    (219 | 220, MirValue::String(_)) => {}
                     _ => return Err(ExecutionError::InvalidControlFlow),
                 }
                 return Ok(());
@@ -7769,6 +8469,11 @@ impl<R: RuntimeAdapter> Engine<'_, '_, R> {
                         | PrivateValue::AtomicBoolean(_)
                         | PrivateValue::TcpListener(_)
                         | PrivateValue::TcpStream(_)
+                        | PrivateValue::FileAccess(_)
+                        | PrivateValue::DirectoryAccess(_)
+                        | PrivateValue::FileHandle(_)
+                        | PrivateValue::FileWriteHandle(_)
+                        | PrivateValue::DirectorySnapshot(_)
                         | PrivateValue::TlsClientConfig(_)
                         | PrivateValue::TlsServerConfig(_)
                         | PrivateValue::TlsClientStream(_)

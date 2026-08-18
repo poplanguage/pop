@@ -786,6 +786,110 @@ fn ordinary_public_records_round_trip_into_dependent_hir_and_mir() {
 }
 
 #[test]
+fn ordinary_public_enums_and_containing_records_cross_bubble_boundaries() {
+    let library_bubble = BubbleId::from_raw(31);
+    let library = analyze_bubble(FrontEndBubbleInput::new(
+        library_bubble,
+        NamespaceId::from_raw(31),
+        Vec::new(),
+        vec![module(
+            0,
+            "src/http.pop",
+            "namespace Pop.Http\n\
+             public enum Method\n\
+                 Get\n\
+                 Post\n\
+             end\n\
+             internal enum Hidden\n\
+                 Value\n\
+             end\n\
+             public record Header\n\
+                 name: String\n\
+                 value: String\n\
+             end\n\
+             public record Request\n\
+                 method: Method\n\
+                 headers: List<Header>\n\
+             end\n\
+             public function methodName(method: Method): String\n\
+                 if method == Method.Get then\n\
+                     return \"GET\"\n\
+                 end\n\
+                 return \"POST\"\n\
+             end\n\
+             public function request(method: Method, headers: List<Header>): Request\n\
+                 local value: Request = { method = method, headers = headers }\n\
+                 return value\n\
+             end\n\
+             public function defaultRequest(): Request\n\
+                 local headers = List.create<<Header>>()\n\
+                 return request(Method.Get, headers)\n\
+             end\n",
+        )],
+    ));
+    assert!(
+        library.diagnostics().is_empty(),
+        "{}",
+        library.diagnostic_snapshot()
+    );
+    let metadata = library
+        .reference_metadata()
+        .expect("ordinary public enum metadata");
+    let [enumeration] = metadata.enums() else {
+        panic!("only the public enum enters metadata");
+    };
+    assert_eq!(enumeration.name(), "Method");
+    assert_eq!(
+        enumeration.cases(),
+        &[("Get".to_owned(), 0), ("Post".to_owned(), 1)]
+    );
+    let encoded = encode_reference_metadata(metadata).expect("encode enum metadata");
+    let metadata = decode_reference_metadata(&encoded).expect("decode enum metadata");
+
+    let application = analyze_bubble(
+        FrontEndBubbleInput::new(
+            BubbleId::from_raw(32),
+            NamespaceId::from_raw(32),
+            vec![library_bubble],
+            vec![module(
+                0,
+                "src/main.pop",
+                "namespace Application\n\
+                 using Pop.Http\n\
+                 public function run(): String\n\
+                     local value = defaultRequest()\n\
+                     if value.method ~= Method.Get then\n\
+                         return \"invalid\"\n\
+                     end\n\
+                     return methodName(value.method)\n\
+                 end\n",
+            )],
+        )
+        .with_reference_metadata(vec![metadata]),
+    );
+    assert!(
+        application.diagnostics().is_empty(),
+        "{}",
+        application.diagnostic_snapshot()
+    );
+    let hir = application.hir().expect("enum consumer HIR");
+    let dump = hir.dump(application.types());
+    assert!(dump.contains("enum.case"), "{dump}");
+    let mir = lower_hir_bubble(hir, application.types()).expect("enum consumer MIR");
+    let dump = mir.dump();
+    assert!(dump.contains("enum.case"), "{dump}");
+    verify_mir_bubble(&mir, application.types()).expect("verified enum consumer MIR");
+    let target = TargetSpec::for_triple(mir.ffi_layouts().target()).expect("MIR target");
+    lower_mir_to_llvm_ir(
+        &mir,
+        application.types(),
+        &target,
+        LlvmLoweringOptions::default(),
+    )
+    .expect("LLVM lowers a referenced enum inside a referenced record");
+}
+
+#[test]
 fn malformed_ordinary_public_record_metadata_fails_before_hir() {
     let bubble = BubbleId::from_raw(2);
     let library = analyze_bubble(FrontEndBubbleInput::new(

@@ -1,0 +1,53 @@
+namespace Example.Concurrency
+
+--- <summary>
+--- Consumes one integer from the shared channel and transforms it.
+--- </summary>
+private async function worker(receiver: Channel.Receiver<Int>): Int
+    local outcome: Channel.ReceiveOutcome<Int> = Channel.tryReceive(receiver)
+    local value = Channel.received(outcome) ?? 0
+    return value * 2
+end
+
+--- <summary>
+--- Runs two structured workers over one bounded typed channel.
+--- </summary>
+---
+--- <returns>
+--- The sum produced by both workers, which is 60.
+--- </returns>
+---
+--- <example>
+--- <code language="pop" test="true">
+--- local result = await run()
+--- </code>
+--- </example>
+public async function run(): Int
+    local source = Task.cancellationSource()
+    local cancel = Task.cancelToken(source)
+    local grouped: Task<Int> = Task.group(cancel, async function(group: Task.Group): Int
+        if local endpoints = Channel.bounded<<Int>>(UInt64(2)) then
+            local sender = endpoints[1]
+            local receiver = endpoints[2]
+            local firstSend = Channel.trySend(sender, 10)
+            local secondSend = Channel.trySend(sender, 20)
+            if not Channel.sendAccepted(firstSend) or not Channel.sendAccepted(secondSend) then
+                Channel.close(sender)
+                Channel.closeReceiver(receiver)
+                return 0
+            end
+            Channel.close(sender)
+
+            local first: Task<Int> = Task.start(group, worker(receiver))
+            local second: Task<Int> = Task.start(group, worker(receiver))
+            local firstValue = await first
+            local secondValue = await second
+            Channel.closeReceiver(receiver)
+            return firstValue + secondValue
+        end
+        return 0
+    end)
+    local result = await grouped
+    Task.cancel(source)
+    return result
+end

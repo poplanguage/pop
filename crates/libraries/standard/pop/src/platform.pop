@@ -1,0 +1,77 @@
+namespace Pop.Platform
+
+public enum OperatingSystem
+    Unknown
+    Linux
+    Windows
+    Macos
+    Android
+    Ios
+    Web
+    Posix
+end
+
+public enum Architecture
+    Unknown
+    X86
+    X86_64
+    Arm
+    Arm64
+    Wasm32
+    Wasm64
+end
+
+--- <summary>
+--- Returns the closed operating-system fact for the current target.
+--- </summary>
+public function operatingSystem(): OperatingSystem
+    local code = Platform.nativeOperatingSystem()
+    if code == Byte(1) then
+        return OperatingSystem.Linux
+    end
+    if code == Byte(2) then
+        return OperatingSystem.Windows
+    end
+    if code == Byte(3) then
+        return OperatingSystem.Macos
+    end
+    if code == Byte(4) then
+        return OperatingSystem.Android
+    end
+    if code == Byte(5) then
+        return OperatingSystem.Ios
+    end
+    if code == Byte(6) then
+        return OperatingSystem.Web
+    end
+    if code == Byte(7) then
+        return OperatingSystem.Posix
+    end
+    return OperatingSystem.Unknown
+end
+
+--- <summary>
+--- Returns the closed architecture fact for the current target.
+--- </summary>
+public function architecture(): Architecture
+    local code = Platform.nativeArchitecture()
+    if code == Byte(1) then
+        return Architecture.X86
+    end
+    if code == Byte(2) then
+        return Architecture.X86_64
+    end
+    if code == Byte(3) then
+        return Architecture.Arm
+    end
+    if code == Byte(4) then
+        return Architecture.Arm64
+    end
+    if code == Byte(5) then
+        return Architecture.Wasm32
+    end
+    if code == Byte(6) then
+        return Architecture.Wasm64
+    end
+    return Architecture.Unknown
+end

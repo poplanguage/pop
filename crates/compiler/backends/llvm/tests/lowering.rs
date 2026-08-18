@@ -78,14 +78,20 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
         vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
     ));
     assert!(front_end.diagnostics().is_empty());
-    let mir =
-        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("verified MIR");
+    let hir = front_end.hir().expect("HIR");
+    let entry = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "main")
+        .expect("entry")
+        .symbol();
+    let mir = lower_hir_bubble(hir, front_end.types()).expect("verified MIR");
 
     let module = lower_mir_to_llvm_ir(
         &mir,
         front_end.types(),
         &target(),
-        LlvmLoweringOptions::default(),
+        LlvmLoweringOptions::default().with_entry_point(entry),
     )
     .expect("LLVM lowering");
     let text = module.to_string();
@@ -118,6 +124,128 @@ fn lowers_verified_mir_through_private_ir_to_deterministic_llvm_ir() {
         !text.contains("pop_rt_semantic"),
         "runtime operations must use closed PLRI identities"
     );
+}
+
+#[test]
+fn optimized_optional_returns_lower_to_native_llvm() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/optionalReturn.pop",
+        "namespace Main\n\
+         private function main(value: Boolean): Int?\n\
+             if value then\n\
+                 return 1\n\
+             end\n\
+             return nil\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(front_end.diagnostics().is_empty());
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("verified MIR");
+    let optimized = optimize_mir(mir, front_end.types()).expect("verified optimized MIR");
+
+    let module = lower_mir_to_llvm_ir(
+        &optimized,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default(),
+    )
+    .expect("optimized optional return lowers to LLVM");
+    module.verify().expect("optimized optional return LLVM");
+}
+
+#[test]
+fn checked_integer_conversion_keeps_short_circuit_phi_predecessors() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/checkedConversionShortCircuit.pop",
+        "namespace Main\n\
+         private function main(value: Int, maximum: UInt64, accepted: Boolean): Boolean\n\
+             return accepted or UInt64(value) > maximum\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(front_end.diagnostics().is_empty());
+    let mir =
+        lower_hir_bubble(front_end.hir().expect("HIR"), front_end.types()).expect("verified MIR");
+    let optimized = optimize_mir(mir, front_end.types()).expect("verified optimized MIR");
+
+    let module = lower_mir_to_llvm_ir(
+        &optimized,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default(),
+    )
+    .expect("checked conversion short circuit lowers to LLVM");
+    module
+        .verify()
+        .expect("checked conversion short circuit LLVM");
+}
+
+#[test]
+fn record_construction_keeps_its_declared_field_order_when_fields_are_shared() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/recordFieldOrder.pop",
+        "namespace Main\n\
+         private record ShortRecord\n\
+             name: String\n\
+             value: String\n\
+         end\n\
+         private record LongRecord\n\
+             prefix: String\n\
+             name: String\n\
+             value: String\n\
+         end\n\
+         private function main(): Int\n\
+             local value: ShortRecord = { name = \"name\", value = \"value\" }\n\
+             if value.name == \"name\" and value.value == \"value\" then\n\
+                 return 0\n\
+             end\n\
+             return 1\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(front_end.diagnostics().is_empty());
+    let hir = front_end.hir().expect("HIR");
+    let entry = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "main")
+        .expect("entry")
+        .symbol();
+    let mir = lower_hir_bubble(hir, front_end.types()).expect("verified MIR");
+    let optimized = optimize_mir(mir, front_end.types()).expect("verified optimized MIR");
+
+    let module = lower_mir_to_llvm_ir(
+        &optimized,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(entry),
+    )
+    .expect("shared field records lower to LLVM");
+    module.verify().expect("shared field record LLVM");
+    let result = link_with_runtime_and_run(&module, "shared-record-field-layout");
+    assert_eq!(result.status.code(), Some(0), "{module}");
 }
 
 #[test]
@@ -2412,6 +2540,56 @@ fn optional_scalar_collection_reads_execute_without_a_zero_sentinel() {
 }
 
 #[test]
+fn optional_managed_absence_does_not_enter_a_presence_binding() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/optionalManaged.pop",
+        "namespace Main\n\
+         private record Header\n\
+             name: String\n\
+         end\n\
+         private function missing(): Header?\n\
+             return nil\n\
+         end\n\
+         function main(): Int\n\
+             if local value = missing() then\n\
+                 return 1\n\
+             end\n\
+             return 0\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+    let hir = front_end.hir().expect("HIR");
+    let entry = hir
+        .functions()
+        .iter()
+        .find(|function| function.name() == "main")
+        .expect("entry")
+        .symbol();
+    let mir = lower_hir_bubble(hir, front_end.types()).expect("verified optional managed MIR");
+    let module = lower_mir_to_llvm_ir(
+        &mir,
+        front_end.types(),
+        &target(),
+        LlvmLoweringOptions::default().with_entry_point(entry),
+    )
+    .expect("LLVM optional managed lowering");
+    let result = link_with_runtime_and_run(&module, "optional-managed-absence");
+    assert_eq!(result.status.code(), Some(0), "{module}");
+}
+
+#[test]
 fn specialized_generic_data_and_calls_execute_natively() {
     let source = SourceFile::new(
         FileId::from_raw(0),
@@ -3390,7 +3568,7 @@ fn optimized_abi_two_execution_rejects_stale_tokens_after_forced_relocation() {
         "ABI 2 entry must declare exact descriptor negotiation: {text}"
     );
     assert!(
-        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 4)"),
+        text.contains("call i8 @pop_rt_supports_abi(i16 2, i16 5)"),
         "ABI 2 entry must validate the complete linked descriptor: {text}"
     );
     let result = link_with_forced_relocation_runtime_and_run(&text, "abi-two-relocation");
@@ -6140,6 +6318,10 @@ fn emitted_llvm_executes_canonical_ipv4_values() {
             include_str!("../../../../libraries/standard/pop/src/net.pop"),
         ),
         (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
             "src/main.pop",
             "namespace Main\n\
              using Pop.Net\n\
@@ -6158,8 +6340,11 @@ fn emitted_llvm_executes_canonical_ipv4_values() {
                  if not isIpv4Private(parseIpv4(\"10.0.0.1\")?) or not isIpv4Private(parseIpv4(\"172.31.255.255\")?) or isIpv4Private(parseIpv4(\"172.32.0.0\")?) then\n\
                      return 4\n\
                  end\n\
-                 if parseIpv4(\"01.2.3.4\") ~= nil or parseIpv4(\"256.0.0.1\") ~= nil or parseIpv4(\"1.2.3\") ~= nil or parseIpv4(\"1.2.3.4.5\") ~= nil then\n\
+                 if not isIpv4LinkLocal(parseIpv4(\"169.254.1.1\")?) or not isIpv4Multicast(parseIpv4(\"239.1.1.1\")?) or not isIpv4Broadcast(parseIpv4(\"255.255.255.255\")?) or not isIpv4Documentation(parseIpv4(\"198.51.100.1\")?) then\n\
                      return 5\n\
+                 end\n\
+                 if parseIpv4(\"01.2.3.4\") ~= nil or parseIpv4(\"256.0.0.1\") ~= nil or parseIpv4(\"1.2.3\") ~= nil or parseIpv4(\"1.2.3.4.5\") ~= nil then\n\
+                     return 6\n\
                  end\n\
                  return 42\n\
              end\n\
@@ -6323,6 +6508,9 @@ fn emitted_llvm_executes_closed_ip_address_union() {
                  end\n\
                  if parseAddress(\"2001:DB8::1\") ~= nil then\n\
                      return 5\n\
+                 end\n\
+                 if not isIpv6Multicast(parseIpv6(\"ff00::1\")?) or not isIpv6UniqueLocal(parseIpv6(\"fd00::1\")?) or not isIpv6UnicastLinkLocal(parseIpv6(\"fe80::1\")?) or not isIpv6Documentation(parseIpv6(\"2001:db8::1\")?) then\n\
+                     return 6\n\
                  end\n\
                  return 42\n\
              end\n\
@@ -8729,7 +8917,7 @@ fn link_with_forced_relocation_runtime_and_run(llvm: &str, name: &str) -> Output
             "static uint8_t foreign_active;\n",
             "int32_t native_poll(int32_t value) { return value + 1; }\n",
             "uint8_t pop_rt_supports_abi(uint16_t major, uint16_t minor) {\n",
-            "  return major == 2 && minor <= 4;\n",
+            "  return major == 2 && minor <= 5;\n",
             "}\n",
             "uint64_t pop_rt_allocate_array(uint64_t length, uint8_t references) {\n",
             "  (void)length; (void)references; current_token = 41; return current_token;\n",
@@ -8851,7 +9039,7 @@ fn link_with_forced_relocation_unwind_runtime_and_run(llvm: &str, name: &str) ->
             "  _Unwind_ForcedUnwind(&forced_exception, stop_unwind, nullptr); std::abort();\n",
             "}\n",
             "extern \"C\" std::uint8_t pop_rt_supports_abi(std::uint16_t major, std::uint16_t minor) {\n",
-            "  return major == 2 && minor <= 4;\n",
+            "  return major == 2 && minor <= 5;\n",
             "}\n",
             "extern \"C\" std::uint64_t pop_rt_allocate_array(std::uint64_t, std::uint8_t) {\n",
             "  current_token = 41; return current_token;\n",

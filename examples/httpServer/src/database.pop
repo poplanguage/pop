@@ -1,0 +1,11 @@
+@Ffi.Link("Sqlite")
+namespace Example.HttpServer.Database
+
+@Ffi.Foreign("sqlite3_libversion_number")
+internal function sqliteVersionNumber(): Ffi.C.Int
+end
+
+internal function sqliteAvailable(): Boolean
+    sqliteVersionNumber()
+    return true
+end

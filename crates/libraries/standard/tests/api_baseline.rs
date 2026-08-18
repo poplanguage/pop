@@ -36,10 +36,10 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 
 #[allow(clippy::too_many_lines)]
 #[test]
-fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
+fn frozen_standard_api_baseline_has_exact_prelude_and_implementation_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 522);
+    assert_eq!(baseline.entries().len(), 566);
 
     let prelude_names = baseline
         .entries()
@@ -63,12 +63,10 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
         .filter(|entry| entry.status() == ApiStatus::Prototype)
         .map(|entry| entry.identity())
         .collect::<Vec<_>>();
-    assert_eq!(prototypes.len(), 61);
-    assert_eq!(
-        &prototypes[..4],
-        ["namespace:0", "namespace:1", "function:0", "function:1"]
+    assert!(
+        prototypes.is_empty(),
+        "implemented Standard APIs remain prototypes: {prototypes:?}"
     );
-    assert_eq!(prototypes.last(), Some(&"api:84"));
 
     let portable_names = baseline
         .entries()
@@ -526,6 +524,50 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_prototype_boundaries() {
             ("Pop.Net.Tcp", "setKeepAliveIdleMilliseconds"),
             ("Pop.Net.Tcp", "setLingerMilliseconds"),
             ("Pop.Net.Tcp", "lingerMilliseconds"),
+            ("Pop.Environment", "has"),
+            ("Pop.File", "exists"),
+            ("Pop.File", "isFile"),
+            ("Pop.Directory", "exists"),
+            ("Pop.File", "read"),
+            ("Pop.Environment", "get"),
+            ("Pop.File.Access", "open"),
+            ("Pop.File.Access", "close"),
+            ("Pop.File", "exists"),
+            ("Pop.File", "isFile"),
+            ("Pop.File", "read"),
+            ("Pop.Directory.Access", "open"),
+            ("Pop.Directory.Access", "close"),
+            ("Pop.Directory", "exists"),
+            ("Pop.Directory", "isDirectory"),
+            ("Pop.File", "open"),
+            ("Pop.File", "read"),
+            ("Pop.File", "close"),
+            ("Pop.Directory", "list"),
+            ("Pop.Directory.Snapshot", "close"),
+            ("Pop.Directory.Snapshot", "count"),
+            ("Pop.Directory.Snapshot", "name"),
+            ("Pop.File", "readText"),
+            ("Pop.File", "openWrite"),
+            ("Pop.File", "write"),
+            ("Pop.Terminal", "write"),
+            ("Pop.Terminal", "writeLine"),
+            ("Pop.Io", "copyFiles"),
+            ("Pop.Process", "argumentCount"),
+            ("Pop.Process", "argument"),
+            ("Pop.Directory", "create"),
+            ("Pop.Directory", "remove"),
+            ("Pop.Io", "copy"),
+            ("Pop.Io", "readAll"),
+            ("Pop.File", "create"),
+            ("Pop.Process", "executable"),
+            ("Pop.Terminal", "writeError"),
+            ("Pop.Terminal", "flush"),
+            ("Pop.Platform", "OperatingSystem"),
+            ("Pop.Platform", "Architecture"),
+            ("Pop.Platform", "nativeOperatingSystem"),
+            ("Pop.Platform", "nativeArchitecture"),
+            ("Pop.Platform", "operatingSystem"),
+            ("Pop.Platform", "architecture"),
         ]
     );
 }

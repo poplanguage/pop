@@ -897,6 +897,46 @@ fn optional_control_lowers_to_typed_presence_cfg_without_backend_reconstruction(
 }
 
 #[test]
+fn while_body_locals_do_not_escape_the_loop_exit_state() {
+    let source = SourceFile::new(
+        FileId::from_raw(0),
+        "src/whileScopes.pop",
+        "namespace Main\n\
+         public function run(value: String): String?\n\
+             local count = 1\n\
+             local index = 0\n\
+             local result = \"\"\n\
+             while index < count do\n\
+                 local line = value\n\
+                 if line == \"\" then\n\
+                     return nil\n\
+                 end\n\
+                 local header = line .. \"!\"\n\
+                 result = header\n\
+                 index = index + 1\n\
+             end\n\
+             return result\n\
+         end\n",
+    )
+    .expect("source");
+    let front_end = analyze_bubble(FrontEndBubbleInput::new(
+        BubbleId::from_raw(0),
+        NamespaceId::from_raw(0),
+        Vec::new(),
+        vec![FrontEndModule::new(ModuleId::from_raw(0), source)],
+    ));
+    assert!(
+        front_end.diagnostics().is_empty(),
+        "{}",
+        front_end.diagnostic_snapshot()
+    );
+
+    let mir = lower_hir_bubble(front_end.hir().expect("while HIR"), front_end.types())
+        .expect("while body locals stay inside the loop state");
+    assert!(verify_mir_bubble(&mir, front_end.types()).is_ok());
+}
+
+#[test]
 fn optional_member_returns_lower_to_explicit_backend_neutral_injection() {
     let source = SourceFile::new(
         FileId::from_raw(0),

@@ -4232,6 +4232,7 @@ impl<'hir> FunctionBuilder<'hir> {
     fn lower_while(&mut self, condition: &HirExpression, body: &'hir [HirStatement]) {
         let state = self.live_state(condition.span());
         let initial_values = self.state_values(&state);
+        let outer_locals = self.locals.clone();
         let (condition_block, condition_arguments) = self.new_block_with_arguments(&state.specs);
         let body_block = self.new_block();
         let exit_edge = self.new_block();
@@ -4258,10 +4259,13 @@ impl<'hir> FunctionBuilder<'hir> {
             .pop()
             .expect("while loop context was pushed");
         self.branch_with_state_if_open(condition_block, &state);
+
+        self.locals = outer_locals.clone();
         self.current = exit_edge;
         self.install_state(&state, &condition_arguments);
         self.branch_with_state_if_open(exit_block, &state);
         self.current = exit_block;
+        self.locals = outer_locals;
         self.install_state(&state, &exit_arguments);
     }
 
@@ -4274,6 +4278,7 @@ impl<'hir> FunctionBuilder<'hir> {
     ) {
         let state = self.live_state(initializer.span());
         let initial_values = self.state_values(&state);
+        let outer_locals = self.locals.clone();
         let (condition_block, condition_arguments) = self.new_block_with_arguments(&state.specs);
         let body_block = self.new_block();
         let exit_edge = self.new_block();
@@ -4314,11 +4319,12 @@ impl<'hir> FunctionBuilder<'hir> {
             .expect("optional while loop context was pushed");
         self.branch_with_state_if_open(condition_block, &state);
 
+        self.locals = outer_locals.clone();
         self.current = exit_edge;
         self.install_state(&state, &condition_arguments);
         self.branch_with_state_if_open(exit_block, &state);
         self.current = exit_block;
-        self.locals.remove(&local);
+        self.locals = outer_locals;
         self.install_state(&state, &exit_arguments);
     }
 

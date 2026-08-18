@@ -12,7 +12,7 @@ Environment	Pop.Standard	host	planned	architecture/22.2-system-network-security-
 File	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Glob	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Guid	Pop.Standard	core	partial	architecture/22.1-core-and-portable-library-catalog.md
-Http	Pop.Http	networkProtocol	planned	architecture/22.2-system-network-security-catalog.md
+Http	Pop.Http	networkProtocol	partial	architecture/22.2-system-network-security-catalog.md
 Io	Pop.Standard	host	planned	architecture/22.2-system-network-security-catalog.md
 Json	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md
 Locale	Pop.Standard	formats	planned	architecture/22.1-core-and-portable-library-catalog.md

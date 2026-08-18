@@ -104,6 +104,11 @@ pub enum PopAbiType {
     Boolean,
     Byte,
     String,
+    OptionalString,
+    FileAccess,
+    DirectoryAccess,
+    FileHandle,
+    DirectorySnapshot,
     ManagedReference,
 }
 

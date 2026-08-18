@@ -293,6 +293,8 @@ pub enum ReferenceType {
     TypeParameter(u16),
     /// One public nominal record declaration in the producer Bubble.
     Record(SymbolIdentity),
+    /// One public nominal enum declaration in the producer Bubble.
+    Enum(SymbolIdentity),
     /// One fully applied public nominal class identity.
     Class(ReferenceNominalType),
     /// One fully applied public nominal interface identity.
@@ -366,6 +368,43 @@ pub struct ReferenceRecord {
     #[serde(default)]
     pub(crate) ffi_c_layout: bool,
     pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReferenceEnum {
+    pub(crate) identity: SymbolIdentity,
+    pub(crate) module: ModuleId,
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) cases: Vec<(String, u32)>,
+    pub(crate) span: SourceSpan,
+}
+
+impl ReferenceEnum {
+    #[must_use]
+    pub const fn identity(&self) -> SymbolIdentity {
+        self.identity
+    }
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    #[must_use]
+    pub fn cases(&self) -> &[(String, u32)] {
+        &self.cases
+    }
+    #[must_use]
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
 }
 
 impl ReferenceRecord {
@@ -897,6 +936,8 @@ pub struct ReferenceMetadata {
     #[serde(default)]
     pub(crate) records: Vec<ReferenceRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) enums: Vec<ReferenceEnum>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) interfaces: Vec<ReferenceInterface>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) classes: Vec<ReferenceClass>,
@@ -921,6 +962,11 @@ impl ReferenceMetadata {
     #[must_use]
     pub fn records(&self) -> &[ReferenceRecord] {
         &self.records
+    }
+
+    #[must_use]
+    pub fn enums(&self) -> &[ReferenceEnum] {
+        &self.enums
     }
 
     #[must_use]
@@ -1082,6 +1128,11 @@ const fn pop_abi_type_name(value: PopAbiType) -> &'static str {
         PopAbiType::Boolean => "Boolean",
         PopAbiType::Byte => "Byte",
         PopAbiType::String => "String",
+        PopAbiType::OptionalString => "String?",
+        PopAbiType::FileAccess => "File.Access",
+        PopAbiType::DirectoryAccess => "Directory.Access",
+        PopAbiType::FileHandle => "File.Handle",
+        PopAbiType::DirectorySnapshot => "Directory.Snapshot",
         PopAbiType::ManagedReference => "ManagedReference",
     }
 }

@@ -1,56 +1,41 @@
 namespace Example.HttpServer
 using Pop.Net
 using Pop.Text
+using Pop.File
+using Pop.Http
+using Example.HttpServer.Site
 
-private function sendResponse(
-    stream: Net.Tcp.Stream,
-    status: String,
-    contentType: String,
-    body: String,
-)
-    local bodyBytes = Text.encodeUtf8(body)
-    local response = "HTTP/1.1 " .. status .. "\r\nContent-Type: " .. contentType .. "\r\nContent-Length: " .. `{Bytes.length(Bytes.view(bodyBytes))}` .. "\r\nConnection: close\r\n\r\n" .. body
-    local encoded = Text.encodeUtf8(response)
-    local transfer = Net.Tcp.send(stream, encoded)
-    while Net.transferWouldBlock(transfer) do
-        transfer = Net.Tcp.send(stream, encoded)
-    end
-end
-
-private function homePage(): String
-    return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Pop HTTP server</title><style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;color:#202124}code{background:#f1f3f4;padding:.2rem .4rem;border-radius:.25rem}</style></head><body><h1>Pop HTTP server</h1><p>This page is served by a Pop Lang program using only <code>Pop.Standard</code>.</p><p>Try <a href=\"/health\">/health</a> or <a href=\"/api/info\">/api/info</a>.</p></body></html>"
-end
-
-private function serve(stream: Net.Tcp.Stream)
+private function serve(stream: Net.Tcp.Stream, access: File.Access)
     local input = Bytes.withCapacity(8192)
     local transfer = Net.Tcp.receive(stream, input, UInt64(8192))
     while Net.transferWouldBlock(transfer) do
         transfer = Net.Tcp.receive(stream, input, UInt64(8192))
     end
 
-    local request = Text.decodeUtf8(input) ?? ""
-    if Pop.Text.startsWith(request, "GET / ") then
-        sendResponse(stream, "200 OK", "text/html; charset=utf-8", homePage())
-    elseif Pop.Text.startsWith(request, "GET /health ") then
-        sendResponse(stream, "200 OK", "text/plain; charset=utf-8", "ok\n")
-    elseif Pop.Text.startsWith(request, "GET /api/info ") then
-        local body = "Pop Lang process " .. `{Process.id()}` .. " with " .. `{Process.availableParallelism()}` .. " workers\n"
-        sendResponse(stream, "200 OK", "text/plain; charset=utf-8", body)
-    else
-        sendResponse(stream, "404 Not Found", "text/plain; charset=utf-8", "not found\n")
+    if local text = Text.decodeUtf8(input) then
+        if local request = parseRequest(text, UInt64(8192)) then
+            if local reply = route(request, access) then
+                sendResponse(stream, reply)
+            end
+        else
+            if local reply = routeGet(text, access) then
+                sendResponse(stream, reply)
+            end
+        end
     end
     Net.Tcp.shutdownWrite(stream)
     Net.Tcp.closeStream(stream)
 end
 
-function main()
-    local listener = Net.Tcp.listen(UInt16(8080))
-    print("Pop HTTP server listening on 127.0.0.1:8080")
+private function main()
+    local access = File.Access.open(".")
+    local listener = Net.Tcp.listen(UInt16(18080))
+    print("Pop HTTP server listening on 127.0.0.1:18080")
 
     while true do
         local stream = Net.Tcp.accept(listener)
         if stream ~= nil then
-            serve(stream)
+            serve(stream, access)
         end
     end
 end

@@ -205,7 +205,8 @@ fn validate_function(item: &TokenStream) -> Result<String, String> {
 fn rust_type(name: &str) -> Result<&'static str, String> {
     match name {
         "Int" | "Int64" => Ok("i64"),
-        "UInt64" | "String" | "ManagedReference" => Ok("u64"),
+        "UInt64" | "String" | "OptionalString" | "FileAccess" | "DirectoryAccess"
+        | "FileHandle" | "DirectorySnapshot" | "ManagedReference" => Ok("u64"),
         "Float" => Ok("f64"),
         "Boolean" => Ok("bool"),
         "Byte" => Ok("u8"),

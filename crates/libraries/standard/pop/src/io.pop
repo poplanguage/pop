@@ -1,0 +1,73 @@
+namespace Pop.Io
+using Pop.Io
+
+private function maxReadAllBytes(): UInt64
+    return UInt64(64 * 1024 * 1024)
+end
+
+private function chunkBytes(): UInt64
+    return UInt64(64 * 1024)
+end
+
+--- <summary>
+--- Copies bytes between two already-open file handles.
+--- </summary>
+--- <param name="source">
+--- An open readable file handle.
+--- </param>
+---
+--- <param name="destination">
+--- An open writable file handle.
+--- </param>
+---
+--- <param name="maximum">
+--- The maximum number of bytes to copy.
+--- </param>
+---
+--- <returns>
+--- The number of bytes copied, or -1 on failure.
+--- </returns>
+--- <complexity time="O(n)" space="O(1)"/>
+public function copy(source: File.Handle, destination: File.Handle, maximum: UInt64): Int
+    return Io.copyFiles(source, destination, maximum)
+end
+
+--- <summary>
+--- Reads a bounded file handle to independently owned bytes.
+--- </summary>
+--- <param name="handle">
+--- An open readable file handle.
+--- </param>
+---
+--- <param name="maximum">
+--- The maximum result size in bytes.
+--- </param>
+---
+--- <returns>
+--- The bytes read, or nil on failure or an excessive limit.
+--- </returns>
+--- <complexity time="O(n)" space="O(n)"/>
+public function readAll(handle: File.Handle, maximum: UInt64): Bytes?
+    if maximum > maxReadAllBytes() then
+        return nil
+    end
+    local output = Bytes.create()
+    local chunk = Bytes.withCapacity(Int(chunkBytes()))
+    local remaining = maximum
+    while remaining > 0 do
+        local count = File.read(handle, chunk, remaining)
+        if count < 0 then
+            return nil
+        end
+        if count == 0 then
+            break
+        end
+        local chunkValue = Bytes.toBytes(chunk)
+        local length = Bytes.length(Bytes.view(chunkValue))
+        for index = 1, length do
+            Bytes.write(output, Bytes.get(Bytes.view(chunkValue), index) ?? Byte(0))
+        end
+        remaining = remaining - UInt64(count)
+    end
+    return Bytes.toBytes(output)
+end

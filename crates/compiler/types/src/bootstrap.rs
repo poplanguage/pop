@@ -510,6 +510,10 @@ pub const NET_ROUTES_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(1
 pub const NET_TLS_CLIENT_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(156);
 pub const NET_TLS_SERVER_CONFIG_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(157);
 pub const NET_TLS_STREAM_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(158);
+pub const FILE_ACCESS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(159);
+pub const DIRECTORY_ACCESS_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(160);
+pub const FILE_HANDLE_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(161);
+pub const DIRECTORY_SNAPSHOT_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(162);
 /// Stable compiler-known identity of the sealed `Codec.Error` value kind.
 pub const CODEC_ERROR_TYPE_ID: BuiltinTypeId = BuiltinTypeId::from_raw(121);
 
@@ -1301,6 +1305,10 @@ fn validate_types(entries: &[BootstrapTypeEntry]) -> Result<(), BootstrapSchemaE
         (NET_TLS_CLIENT_CONFIG_TYPE_ID, "Net.Tls.ClientConfig"),
         (NET_TLS_SERVER_CONFIG_TYPE_ID, "Net.Tls.ServerConfig"),
         (NET_TLS_STREAM_TYPE_ID, "Net.Tls.Stream"),
+        (FILE_ACCESS_TYPE_ID, "File.Access"),
+        (DIRECTORY_ACCESS_TYPE_ID, "Directory.Access"),
+        (FILE_HANDLE_TYPE_ID, "File.Handle"),
+        (DIRECTORY_SNAPSHOT_TYPE_ID, "Directory.Snapshot"),
     ] {
         let Some(entry) = entries
             .iter()
@@ -1496,7 +1504,7 @@ fn validate_compiler_attributes(
 fn validate_standard_functions(
     entries: &[BootstrapStandardFunctionEntry],
 ) -> Result<(), BootstrapSchemaError> {
-    if entries.len() != 195 {
+    if entries.len() != 232 {
         return Err(error(
             "standard function",
             2,
@@ -2458,6 +2466,158 @@ fn validate_standard_functions(
             "Boolean",
             "-",
         ),
+        ("Environment.has", "String", "Boolean", "AmbientIo"),
+        ("File.exists", "String", "Boolean", "AmbientIo"),
+        ("File.isFile", "String", "Boolean", "AmbientIo"),
+        ("Directory.exists", "String", "Boolean", "AmbientIo"),
+        (
+            "File.read",
+            "String,Bytes.Buffer,UInt64",
+            "Int",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        (
+            "Environment.get",
+            "String",
+            "String?",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        (
+            "File.Access.open",
+            "String",
+            "File.Access",
+            "AmbientIo,MayTrap",
+        ),
+        ("File.Access.close", "File.Access", "Boolean", "AmbientIo"),
+        (
+            "File.exists",
+            "File.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.isFile",
+            "File.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.read",
+            "File.Access,String,Bytes.Buffer,UInt64",
+            "Int",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        (
+            "Directory.Access.open",
+            "String",
+            "Directory.Access",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Directory.Access.close",
+            "Directory.Access",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Directory.exists",
+            "Directory.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Directory.isDirectory",
+            "Directory.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.open",
+            "File.Access,String",
+            "File.Handle",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.read",
+            "File.Handle,Bytes.Buffer,UInt64",
+            "Int",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        ("File.close", "File.Handle", "Boolean", "AmbientIo"),
+        (
+            "Directory.list",
+            "Directory.Access,String,UInt64",
+            "Directory.Snapshot",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        (
+            "Directory.Snapshot.close",
+            "Directory.Snapshot",
+            "Boolean",
+            "AmbientIo",
+        ),
+        (
+            "Directory.Snapshot.count",
+            "Directory.Snapshot",
+            "UInt64",
+            "AmbientIo",
+        ),
+        (
+            "Directory.Snapshot.name",
+            "Directory.Snapshot,UInt64",
+            "String?",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        (
+            "File.openWrite",
+            "File.Access,String",
+            "File.Handle",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.write",
+            "File.Handle,Bytes.Buffer,UInt64",
+            "Int",
+            "AmbientIo,MayTrap",
+        ),
+        ("Terminal.write", "String", "Boolean", "AmbientIo"),
+        ("Terminal.writeLine", "String", "Boolean", "AmbientIo"),
+        (
+            "Io.copyFiles",
+            "File.Handle,File.Handle,UInt64",
+            "Int",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        ("Process.argumentCount", "Array<String>", "Int", "-"),
+        ("Process.argument", "Array<String>,Int", "String?", "-"),
+        (
+            "Directory.create",
+            "Directory.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Directory.remove",
+            "Directory.Access,String",
+            "Boolean",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "File.create",
+            "File.Access,String",
+            "File.Handle",
+            "AmbientIo,MayTrap",
+        ),
+        (
+            "Process.executable",
+            "-",
+            "String?",
+            "AmbientIo,Allocates,MayTrap",
+        ),
+        ("Terminal.writeError", "String", "Boolean", "AmbientIo"),
+        ("Terminal.flush", "-", "Boolean", "AmbientIo"),
+        ("Platform.nativeOperatingSystem", "-", "Byte", "-"),
+        ("Platform.nativeArchitecture", "-", "Byte", "-"),
     ];
     for (offset, (entry, expected)) in entries[2..].iter().zip(atomic).enumerate() {
         let parameters = schema_list(expected.1);

@@ -1,0 +1,92 @@
+namespace Example.HttpServer.Site
+using Pop.File
+using Pop.Http
+using Pop.Net
+using Pop.Text
+using Pop.Time
+using Example.HttpServer.Database
+
+private function textResponse(status: UInt16, reason: String, contentType: String, body: String): Response?
+    local headers = List.create<<Header>>()
+    if local contentTypeHeader = header("Content-Type", contentType) then
+        List.add(headers, contentTypeHeader)
+        return response(status, reason, headers, body)
+    end
+    return nil
+end
+
+private function homePage(): String
+    return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Pop dashboard</title><link rel=\"stylesheet\" href=\"/assets/site.css\"></head><body><main><p class=\"eyebrow\">Pop Lang capability site</p><h1>Typed HTTP, workers, native calls.</h1><p>This multi-module website routes HTTP requests through typed values, owns TCP streams explicitly, keeps host access scoped, and calls SQLite through a declared foreign symbol.</p><section><a href=\"/api/info\">Runtime</a><a href=\"/api/network\">Network</a><a href=\"/api/deadline\">Deadline</a><a href=\"/api/sqlite\">SQLite</a><a href=\"/api/file\">File</a></section></main></body></html>"
+end
+
+private function stylesheet(): String
+    return "@import url('https://fonts.googleapis.com/css2?family=DM+Mono&family=Space+Grotesk:wght@500;700&display=swap');*{box-sizing:border-box}body{margin:0;background:#101521;color:#edf2ff;font:18px/1.6 'DM Mono',monospace}main{max-width:52rem;margin:12vh auto;padding:3rem;background:linear-gradient(140deg,#1a2438,#101521);border:1px solid #31415e;border-radius:1rem}.eyebrow{color:#7dd3fc;text-transform:uppercase;font-size:.78rem;letter-spacing:.12em}h1{font:700 clamp(2.4rem,8vw,5.4rem)/.95 'Space Grotesk',sans-serif;max-width:12ch}section{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:2rem}a{color:#101521;background:#a7f3d0;padding:.7rem 1rem;border-radius:.45rem;text-decoration:none}a:hover{background:#7dd3fc}"
+end
+
+private function networkFacts(): String
+    if local loopback = parseIpv4("127.0.0.1") then
+        return "address: " .. formatIpv4(loopback) .. "\nloopback: " .. `{isIpv4Loopback(loopback)}` .. "\nprivate: " .. `{isIpv4Private(loopback)}` .. "\n"
+    end
+    return "could not construct loopback address\n"
+end
+
+private function deadlineFacts(): String
+    local clock = Time.monotonicClock()
+    local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(1000))
+    local expired = Time.liveDeadlineExpired(clock, deadline)
+    local deadlineClosed = Time.closeLiveDeadline(deadline)
+    local clockClosed = Time.closeMonotonicClock(clock)
+    return "expired immediately: " .. `{expired}` .. "\ndeadline closed: " .. `{deadlineClosed}` .. "\nclock closed: " .. `{clockClosed}` .. "\n"
+end
+
+internal function routeTarget(target: String, access: File.Access): Response?
+    if target == "/" then
+        return textResponse(UInt16(200), "OK", "text/html; charset=utf-8", homePage())
+    elseif target == "/assets/site.css" then
+        return textResponse(UInt16(200), "OK", "text/css; charset=utf-8", stylesheet())
+    elseif target == "/health" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", "ok\n")
+    elseif target == "/api/info" then
+        local executable = Process.executable() ?? "unavailable"
+        local body = "process id: " .. `{Process.id()}` .. "\navailable parallelism: " .. `{Process.availableParallelism()}` .. "\nexecutable: " .. executable .. "\n"
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", body)
+    elseif target == "/api/network" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", networkFacts())
+    elseif target == "/api/deadline" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", deadlineFacts())
+    elseif target == "/api/sqlite" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", "sqlite native entry point called: " .. `{sqliteAvailable()}` .. "\n")
+    elseif target == "/api/file" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", readText(access, "bubble.toml", UInt64(1024)) ?? "read failed\n")
+    elseif target == "/api/workers" then
+        return textResponse(UInt16(200), "OK", "text/plain; charset=utf-8", "dashboard worker pipeline: bounded channel, structured task group, cancellation scope\n")
+    end
+    return textResponse(UInt16(404), "Not Found", "text/plain; charset=utf-8", "not found\n")
+end
+
+internal function route(request: Request, access: File.Access): Response?
+    return routeTarget(request.target, access)
+end
+
+internal function routeGet(raw: String, access: File.Access): Response?
+    if startsWith(raw, "GET / ") then
+        return routeTarget("/", access)
+    elseif startsWith(raw, "GET /assets/site.css ") then
+        return routeTarget("/assets/site.css", access)
+    elseif startsWith(raw, "GET /health ") then
+        return routeTarget("/health", access)
+    elseif startsWith(raw, "GET /api/info ") then
+        return routeTarget("/api/info", access)
+    elseif startsWith(raw, "GET /api/network ") then
+        return routeTarget("/api/network", access)
+    elseif startsWith(raw, "GET /api/deadline ") then
+        return routeTarget("/api/deadline", access)
+    elseif startsWith(raw, "GET /api/sqlite ") then
+        return routeTarget("/api/sqlite", access)
+    elseif startsWith(raw, "GET /api/file ") then
+        return routeTarget("/api/file", access)
+    elseif startsWith(raw, "GET /api/workers ") then
+        return routeTarget("/api/workers", access)
+    end
+    return nil
+end

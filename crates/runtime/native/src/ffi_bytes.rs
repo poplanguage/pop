@@ -2,7 +2,44 @@
 
 use pop_runtime_interface::{FfiBytesBorrowId, ManagedReference, RuntimeAdapter};
 
-use crate::state::lock_abi_runtime;
+use crate::state::{abi_byte_buffers, lock_abi_runtime};
+
+/// Copies a validated byte-buffer range into caller-owned storage.
+///
+/// # Safety
+///
+/// `target` must address at least `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_rt_byte_buffer_read(
+    reference: u64,
+    offset: u64,
+    target: *mut u8,
+    capacity: u64,
+) -> u64 {
+    if capacity > 0 && target.is_null() {
+        return 0;
+    }
+    let Ok(offset) = usize::try_from(offset) else {
+        return 0;
+    };
+    let Ok(capacity) = usize::try_from(capacity) else {
+        return 0;
+    };
+    let Ok(buffers) = abi_byte_buffers().lock() else {
+        return 0;
+    };
+    let Some(buffer) = buffers.get(&reference) else {
+        return 0;
+    };
+    let Some(bytes) = buffer.get(offset..offset.saturating_add(capacity)) else {
+        return 0;
+    };
+    // SAFETY: the caller provided a writable region of exactly `capacity`
+    // bytes, and `bytes` is bounded by that capacity.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), target, bytes.len()) };
+    u64::try_from(bytes.len()).unwrap_or(0)
+}
 
 /// Allocates the trusted packed immutable-byte representation for native
 /// library adapters and tests.

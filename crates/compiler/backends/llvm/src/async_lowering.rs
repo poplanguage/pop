@@ -21,7 +21,7 @@ use crate::lowering::{
     async_nested_poll_name, initialize_array_outputs, initialize_safe_point_root_arrays,
     native_runtime_symbol, replace_llvm_value_token,
 };
-use crate::module_lowering::ClassRuntimeKeys;
+use crate::module_lowering::{ClassRuntimeKeys, FieldLayout};
 
 #[derive(Clone, Copy)]
 struct FrameValue {
@@ -131,7 +131,7 @@ pub(crate) fn lower_async_function(
     ffi_layouts: &MirFfiLayoutCatalog,
     foreign_functions: &BTreeMap<SymbolId, &pop_mir::MirForeignFunction>,
     options: LlvmLoweringOptions,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
@@ -170,7 +170,7 @@ pub(crate) fn lower_async_nested(
     ffi_layouts: &MirFfiLayoutCatalog,
     foreign_functions: &BTreeMap<SymbolId, &pop_mir::MirForeignFunction>,
     options: LlvmLoweringOptions,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
@@ -216,7 +216,7 @@ fn lower_async_parts(
     ffi_layouts: &MirFfiLayoutCatalog,
     foreign_functions: &BTreeMap<SymbolId, &pop_mir::MirForeignFunction>,
     options: LlvmLoweringOptions,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,

@@ -1438,11 +1438,26 @@ fn foundation_native_adapters_use_typed_poplib_descriptors() {
 
     let standard = fs::read_to_string(root.join("crates/libraries/standard/src/native_output.rs"))
         .expect("read native standard adapters");
-    assert_eq!(standard.matches("#[poplib(").count(), 2);
+    let rust_standard = fs::read_to_string(root.join("crates/libraries/standard/src/rust_std.rs"))
+        .expect("read Rust standard adapters");
+    assert_eq!(standard.matches("#[poplib(").count(), 6);
     assert!(!standard.contains("#[unsafe(no_mangle)]"));
+    assert!(!rust_standard.contains("#[unsafe(no_mangle)]"));
     assert!(standard.contains("pub const NATIVE_EXPORTS"));
+    assert!(rust_standard.contains("pub const RUST_STD_EXPORTS"));
     assert!(standard.contains("POP_STD_PRINT_INT_POPLIB_EXPORT"));
     assert!(standard.contains("POP_STD_PRINT_STRING_POPLIB_EXPORT"));
+    for binding in [
+        "POP_STD_TERMINAL_WRITE_POPLIB_EXPORT",
+        "POP_STD_TERMINAL_WRITE_LINE_POPLIB_EXPORT",
+        "POP_STD_TERMINAL_WRITE_ERROR_POPLIB_EXPORT",
+        "POP_STD_TERMINAL_FLUSH_POPLIB_EXPORT",
+    ] {
+        assert!(
+            rust_standard.contains(binding),
+            "missing typed adapter `{binding}`"
+        );
+    }
 
     let internal = fs::read_to_string(root.join("crates/libraries/internal/src/lib.rs"))
         .expect("read internal foundation root");
@@ -3537,6 +3552,10 @@ fn standard_bootstrap_preserves_the_adr_0058_prelude() {
             "156\tNet.Tls.ClientConfig\tPop.Standard\t0\tNominal\tfalse",
             "157\tNet.Tls.ServerConfig\tPop.Standard\t0\tNominal\tfalse",
             "158\tNet.Tls.Stream\tPop.Standard\t0\tNominal\tfalse",
+            "159\tFile.Access\tPop.Standard\t0\tNominal\tfalse",
+            "160\tDirectory.Access\tPop.Standard\t0\tNominal\tfalse",
+            "161\tFile.Handle\tPop.Standard\t0\tNominal\tfalse",
+            "162\tDirectory.Snapshot\tPop.Standard\t0\tNominal\tfalse",
         ],
         "ADR 0058 prelude inventory drifted"
     );
@@ -3863,6 +3882,11 @@ fn essential_library_profile_covers_the_complete_modern_foundation() {
         );
 
         if *status == "partial" {
+            let baseline = if *package == "Pop.Http" {
+                read_required(root.join("libraries/http/bootstrap/api-baseline.tsv"))
+            } else {
+                baseline.clone()
+            };
             let namespace = format!("\tPop.{public_root}\t");
             assert!(
                 baseline.contains(&namespace),
@@ -3883,6 +3907,50 @@ fn essential_library_profile_covers_the_complete_modern_foundation() {
         actual, expected,
         "essential profile must contain every standard root plus Http/WebSocket"
     );
+}
+
+#[test]
+fn http_package_owns_its_source_manifest_and_api_baseline() {
+    let root = repository_root();
+    let manifest = read_required(root.join("crates/extensions/http/bubble.toml"));
+    assert!(manifest.contains("name = \"Pop.Http\""));
+    assert!(manifest.contains("version = \"0.1.0\""));
+
+    let source = read_required(root.join("crates/extensions/http/src/http.pop"));
+    assert!(source.starts_with("namespace Pop.Http\n"));
+    for declaration in [
+        "public enum Method",
+        "public record Header",
+        "public record Request",
+        "public record Response",
+        "public function header(",
+        "public function request(",
+        "public function formatRequest(",
+        "public function send(",
+        "public function response(",
+        "public function formatResponse(",
+        "public function sendResponse(",
+    ] {
+        assert!(source.contains(declaration), "missing {declaration}");
+    }
+
+    let standard = read_required(root.join("libraries/standard/bootstrap/api-baseline.tsv"));
+    assert!(
+        !standard.contains("\tPop.Http\t"),
+        "independent HTTP APIs must not enter the reserved Standard baseline"
+    );
+    let baseline = read_required(root.join("libraries/http/bootstrap/api-baseline.tsv"));
+    assert!(baseline.ends_with('\n'));
+    let rows = baseline.lines().skip(2).collect::<Vec<_>>();
+    assert_eq!(rows.len(), 13, "one namespace and twelve HTTP APIs");
+    for row in rows {
+        let columns = row.split('\t').collect::<Vec<_>>();
+        assert_eq!(columns.len(), 10, "invalid HTTP API baseline row: {row}");
+        assert_eq!(columns[2], "Pop.Http", "wrong owner in row: {row}");
+        assert_eq!(columns[7], "implemented", "non-executable row: {row}");
+        assert_eq!(columns[8], "false", "HTTP must never enter the prelude");
+        assert!(root.join(columns[9]).is_file(), "missing authority: {row}");
+    }
 }
 
 fn parse_root_inventory(
