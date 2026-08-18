@@ -6,3 +6,7 @@ requiredCapabilities = ["environmentAccess", "fileAccess"]
 
 [dependencies]
 PopHttp = { path = "../../crates/extensions/http", version = "0.1.0", bubble = "Pop.Http" }
+PopFfi = { path = "../../crates/extensions/ffi", version = "0.1.0", bubble = "Pop.Ffi" }
+
+[nativeLibraries]
+Sqlite = { kind = "system", name = "sqlite3" }

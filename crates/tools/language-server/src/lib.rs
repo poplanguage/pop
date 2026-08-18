@@ -26,8 +26,8 @@ use pop_localization::{
     Argument, Language, LocalizationError, RenderContext, select_process_language,
 };
 use pop_projects::{
-    BubbleKind, DependencySource, DiscoveredBubble, PackageManifest, discover_conventional_bubbles,
-    parse_package_manifest,
+    BubbleKind, DependencyRequirement, DependencySource, DiscoveredBubble, PackageManifest,
+    discover_conventional_bubbles, parse_package_manifest,
 };
 use pop_query::CancellationToken;
 use pop_source::SourceFile;
@@ -38,6 +38,7 @@ pub use transport::{ExitStatus, TransportError, TransportLimits, serve};
 
 pub const PUBLIC_PROTOCOL_PACKAGE: &str = pop_extension_lsp::PACKAGE;
 const TOOLING_FFI_BUBBLE: BubbleId = BubbleId::from_raw(3);
+const TOOLING_FIRST_PACKAGE_DEPENDENCY_BUBBLE: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LanguageServerSession {
@@ -1072,7 +1073,7 @@ fn package_analysis_input(
         }
         modules.push(FrontEndModule::new(module, source));
     }
-    let (bubble, dependencies, reference_metadata) = match selection.foundation {
+    let (bubble, mut dependencies, mut reference_metadata) = match selection.foundation {
         Some(FoundationSourceKind::Internal) => (TOOLING_INTERNAL_BUBBLE, Vec::new(), Vec::new()),
         Some(FoundationSourceKind::Standard) => (
             TOOLING_STANDARD_BUBBLE,
@@ -1085,6 +1086,18 @@ fn package_analysis_input(
             vec![tooling_standard_reference_metadata().clone()],
         ),
     };
+    let has_ffi_dependency =
+        selection.foundation.is_none() && has_verified_direct_pop_ffi_dependency(active);
+    if selection.foundation.is_none() {
+        for (dependency, metadata) in package_dependency_references(&selection, has_ffi_dependency)?
+        {
+            dependencies.push(dependency);
+            reference_metadata.push(metadata);
+        }
+    }
+    if has_ffi_dependency {
+        dependencies.push(TOOLING_FFI_BUBBLE);
+    }
     let input = FrontEndBubbleInput::new(
         bubble,
         NamespaceId::from_raw(bubble.raw()),
@@ -1092,10 +1105,98 @@ fn package_analysis_input(
         modules,
     )
     .with_reference_metadata(reference_metadata);
+    let input = if has_ffi_dependency {
+        input.with_ffi_dependency(TOOLING_FFI_BUBBLE)
+    } else {
+        input
+    };
     Some(if let Some(module) = implicit_main {
         input.with_implicit_main_entry(module)
     } else {
         input
+    })
+}
+
+fn package_dependency_references(
+    selection: &PackageAnalysisSelection,
+    has_ffi_dependency: bool,
+) -> Option<Vec<(BubbleId, pop_driver::ReferenceMetadata)>> {
+    let manifest = fs::read_to_string(&selection.manifest)
+        .ok()
+        .and_then(|text| parse_package_manifest(&text).ok())?;
+    let mut references = Vec::new();
+    for requirement in manifest.dependencies() {
+        if has_ffi_dependency && requirement.bubble() == Some("Pop.Ffi") {
+            continue;
+        }
+        let raw = TOOLING_FIRST_PACKAGE_DEPENDENCY_BUBBLE
+            .checked_add(u32::try_from(references.len()).ok()?)?;
+        let bubble = BubbleId::from_raw(raw);
+        let metadata = local_dependency_reference(&selection.root, requirement, bubble)?;
+        references.push((bubble, metadata));
+    }
+    Some(references)
+}
+
+fn local_dependency_reference(
+    package_root: &Path,
+    requirement: &DependencyRequirement,
+    bubble: BubbleId,
+) -> Option<pop_driver::ReferenceMetadata> {
+    let DependencySource::LocalPath(relative) = requirement.source() else {
+        return None;
+    };
+    let dependency_root = package_root.join(relative);
+    let manifest_path = dependency_root.join("bubble.toml");
+    if fs::symlink_metadata(&manifest_path)
+        .ok()
+        .is_none_or(|metadata| !metadata.is_file() || metadata.file_type().is_symlink())
+    {
+        return None;
+    }
+    let manifest = fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| parse_package_manifest(&text).ok())?;
+    if requirement.version_requirement() != Some(manifest.version())
+        || !manifest.dependencies().is_empty()
+        || !manifest.platform_dependencies().is_empty()
+        || !manifest.development_dependencies().is_empty()
+    {
+        return None;
+    }
+    let bubble_name = requirement.bubble().unwrap_or(manifest.name());
+    let files = conventional_pop_files(&dependency_root)?;
+    let bubble_definition = discover_conventional_bubbles(&manifest, &files)
+        .ok()?
+        .into_iter()
+        .find(|candidate| {
+            candidate.kind() == BubbleKind::Library && candidate.name() == bubble_name
+        })?;
+    let mut modules = Vec::new();
+    for (index, relative) in bubble_definition.modules().iter().enumerate() {
+        let raw = u32::try_from(index).ok()?;
+        let source = SourceFile::new(
+            FileId::from_raw(u32::MAX.checked_sub(raw)?),
+            Arc::<str>::from(relative.as_str()),
+            fs::read_to_string(dependency_root.join(relative)).ok()?,
+        )
+        .ok()?;
+        modules.push(FrontEndModule::new(ModuleId::from_raw(raw), source));
+    }
+    let result = analyze_bubble(
+        FrontEndBubbleInput::new(
+            bubble,
+            NamespaceId::from_raw(bubble.raw()),
+            vec![TOOLING_STANDARD_BUBBLE],
+            modules,
+        )
+        .with_reference_metadata(vec![tooling_standard_reference_metadata().clone()]),
+    );
+    result.diagnostics().is_empty().then(|| {
+        result
+            .reference_metadata()
+            .expect("diagnostic-free direct dependency publishes metadata")
+            .clone()
     })
 }
 
@@ -1300,12 +1401,7 @@ fn package_analysis_selection(active: &SourceFile) -> Option<PackageAnalysisSele
     let manifest_text = fs::read_to_string(&manifest_path).ok()?;
     let manifest = parse_package_manifest(&manifest_text).ok()?;
     let foundation = foundation_source_kind(&manifest);
-    if foundation.is_none()
-        && (!manifest.dependencies().is_empty()
-            || !manifest.platform_dependencies().is_empty()
-            || !manifest.native_libraries().is_empty()
-            || !manifest.platform_native_libraries().is_empty())
-    {
+    if foundation.is_none() && !manifest.platform_dependencies().is_empty() {
         return None;
     }
     let files = conventional_pop_files(&package_root)?;

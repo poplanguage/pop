@@ -3,43 +3,7 @@ using Pop.Net
 using Pop.Text
 using Pop.File
 using Pop.Http
-using Pop.Time
-
-private function writeResponse(
-    stream: Net.Tcp.Stream,
-    status: UInt16,
-    reason: String,
-    contentType: String,
-    body: String,
-)
-    local headers = List.create<<Header>>()
-    if local contentTypeHeader = header("Content-Type", contentType) then
-        List.add(headers, contentTypeHeader)
-        if local response = response(status, reason, headers, body) then
-            sendResponse(stream, response)
-        end
-    end
-end
-
-private function homePage(): String
-    return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Pop standard library server</title><style>body{font-family:system-ui,sans-serif;max-width:44rem;margin:4rem auto;padding:0 1rem;color:#202124}code{background:#f1f3f4;padding:.2rem .4rem;border-radius:.25rem}li{margin:.5rem 0}</style></head><body><h1>Pop standard library server</h1><p>A typed Pop Lang server using <code>Pop.Http</code> over <code>Pop.Standard</code>.</p><ul><li><a href=\"/health\">/health</a> — HTTP response path</li><li><a href=\"/api/info\">/api/info</a> — process facts</li><li><a href=\"/api/host\">/api/host</a> — scoped environment and files</li><li><a href=\"/api/network\">/api/network</a> — typed IPv4 values</li><li><a href=\"/api/deadline\">/api/deadline</a> — monotonic deadline lifecycle</li><li><a href=\"/api/file\">/api/file</a> — bounded file read</li></ul></body></html>"
-end
-
-private function networkFacts(): String
-    if local loopback = parseIpv4("127.0.0.1") then
-        return "address: " .. formatIpv4(loopback) .. "\nloopback: " .. `{isIpv4Loopback(loopback)}` .. "\nprivate: " .. `{isIpv4Private(loopback)}` .. "\n"
-    end
-    return "could not construct loopback address\n"
-end
-
-private function deadlineFacts(): String
-    local clock = Time.monotonicClock()
-    local deadline = Time.deadlineAfterMilliseconds(clock, UInt64(1000))
-    local expired = Time.liveDeadlineExpired(clock, deadline)
-    local deadlineClosed = Time.closeLiveDeadline(deadline)
-    local clockClosed = Time.closeMonotonicClock(clock)
-    return "expired immediately: " .. `{expired}` .. "\ndeadline closed: " .. `{deadlineClosed}` .. "\nclock closed: " .. `{clockClosed}` .. "\n"
-end
+using Example.HttpServer.Site
 
 private function serve(stream: Net.Tcp.Stream, access: File.Access)
     local input = Bytes.withCapacity(8192)
@@ -48,41 +12,22 @@ private function serve(stream: Net.Tcp.Stream, access: File.Access)
         transfer = Net.Tcp.receive(stream, input, UInt64(8192))
     end
 
-    local request = Text.decodeUtf8(input) ?? ""
-    if Pop.Text.startsWith(request, "GET / ") then
-        writeResponse(stream, UInt16(200), "OK", "text/html; charset=utf-8", homePage())
-    elseif Pop.Text.startsWith(request, "GET /health ") then
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", "ok\n")
-    elseif Pop.Text.startsWith(request, "GET /api/info ") then
-        local executable = Process.executable() ?? "unavailable"
-        local body = "process id: " .. `{Process.id()}` .. "\navailable parallelism: " .. `{Process.availableParallelism()}` .. "\nexecutable: " .. executable .. "\n"
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", body)
-    elseif Pop.Text.startsWith(request, "GET /api/host ") then
-        local path = Environment.get("PATH") ?? ""
-        local body = "working directory exists: " .. `{File.exists(access, ".")}` .. "\nPATH is present: " .. `{Environment.has("PATH")}` .. "\nPATH value is readable: " .. `{path ~= ""}` .. "\n"
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", body)
-    elseif Pop.Text.startsWith(request, "GET /api/file ") then
-        local body = readText(access, "bubble.toml", UInt64(1024)) ?? "read failed\n"
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", body)
-    elseif Pop.Text.startsWith(request, "GET /api/network ") then
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", networkFacts())
-    elseif Pop.Text.startsWith(request, "GET /api/deadline ") then
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", deadlineFacts())
-    elseif Pop.Text.startsWith(request, "GET /api/write ") then
-        local handle = File.openWrite(access, "bubble.toml")
-        local empty = Bytes.withCapacity(0)
-        local count = File.write(handle, empty, UInt64(0))
-        local closed = File.close(handle)
-        local body = "write probe: " .. `{count}` .. " bytes, closed: " .. `{closed}` .. "\n"
-        writeResponse(stream, UInt16(200), "OK", "text/plain; charset=utf-8", body)
-    else
-        writeResponse(stream, UInt16(404), "Not Found", "text/plain; charset=utf-8", "not found\n")
+    if local text = Text.decodeUtf8(input) then
+        if local request = parseRequest(text, UInt64(8192)) then
+            if local reply = route(request, access) then
+                sendResponse(stream, reply)
+            end
+        else
+            if local reply = routeGet(text, access) then
+                sendResponse(stream, reply)
+            end
+        end
     end
     Net.Tcp.shutdownWrite(stream)
     Net.Tcp.closeStream(stream)
 end
 
-function main()
+private function main()
     local access = File.Access.open(".")
     local listener = Net.Tcp.listen(UInt16(18080))
     print("Pop HTTP server listening on 127.0.0.1:18080")

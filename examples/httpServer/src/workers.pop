@@ -1,0 +1,33 @@
+namespace Example.HttpServer.Workers
+
+private async function score(receiver: Channel.Receiver<Int>): Int
+    local outcome: Channel.ReceiveOutcome<Int> = Channel.tryReceive(receiver)
+    local value = Channel.received(outcome) ?? 0
+    return value * value
+end
+
+--- <summary>
+--- Runs a bounded structured worker group for the dashboard workload.
+--- </summary>
+internal async function dashboardWorkload(): Int
+    local source = Task.cancellationSource()
+    local cancellation = Task.cancelToken(source)
+    local grouped: Task<Int> = Task.group(cancellation, async function(group: Task.Group): Int
+        if local endpoints = Channel.bounded<<Int>>(UInt64(2)) then
+            local sender = endpoints[1]
+            local receiver = endpoints[2]
+            Channel.trySend(sender, 3)
+            Channel.trySend(sender, 4)
+            Channel.close(sender)
+            local first: Task<Int> = Task.start(group, score(receiver))
+            local second: Task<Int> = Task.start(group, score(receiver))
+            local total = await first + await second
+            Channel.closeReceiver(receiver)
+            return total
+        end
+        return 0
+    end)
+    local result = await grouped
+    Task.cancel(source)
+    return result
+end
