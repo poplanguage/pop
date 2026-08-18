@@ -404,3 +404,85 @@ public function isIpv6Unspecified(address: Ipv6Address): Boolean
     end
     return address.fourth == UInt32(0)
 end
+
+--- <summary>
+--- Reports whether an IPv6 address has multicast scope.
+--- </summary>
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for an IPv6 multicast address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6Multicast(address: Ipv6Address): Boolean
+    return ipv6SegmentValue(address, 1) >= 65280
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fc00::/7.
+--- </summary>
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for an IPv6 unique-local address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6UniqueLocal(address: Ipv6Address): Boolean
+    local first = ipv6SegmentValue(address, 1)
+    return first >= 64512 and first <= 65023
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to fe80::/10.
+--- </summary>
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for an IPv6 unicast link-local address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6UnicastLinkLocal(address: Ipv6Address): Boolean
+    local first = ipv6SegmentValue(address, 1)
+    return first >= 65152 and first <= 65215
+end
+
+--- <summary>
+--- Reports whether an IPv6 address belongs to 2001:db8::/32.
+--- </summary>
+--- <param name="address">
+--- The address to classify.
+--- </param>
+---
+--- <returns>
+--- True for an IPv6 documentation address.
+--- </returns>
+---
+--- <complexity time="O(1)" space="O(1)"/>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function isIpv6Documentation(address: Ipv6Address): Boolean
+    return ipv6SegmentValue(address, 1) == 8193 and ipv6SegmentValue(address, 2) == 3512
+end

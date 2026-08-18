@@ -2,3 +2,7 @@
 name = "Example.HttpServer"
 version = "0.1.0"
 edition = "2026"
+requiredCapabilities = ["environmentAccess", "fileAccess"]
+
+[dependencies]
+PopHttp = { path = "../../crates/extensions/http", version = "0.1.0", bubble = "Pop.Http" }

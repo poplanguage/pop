@@ -1131,6 +1131,66 @@ fn package_test_executes_every_test_bubble_and_reports_ordered_results() {
 }
 
 #[test]
+fn package_test_lowers_exported_records_with_iterable_fields() {
+    let package = temporary_package(
+        "exported-iterable-record",
+        "namespace Studio.Entry\n\
+         public record Header\n\
+             name: String\n\
+         end\n\
+         public record Request\n\
+             headers: List<Header>\n\
+         end\n\
+         public function request(headers: List<Header>): Request\n\
+             local result: Request = { headers = headers }\n\
+             return result\n\
+         end\n\
+         public function hasHost(value: Request): Boolean\n\
+             for item in value.headers do\n\
+                 if item.name == \"Host\" then\n\
+                     return true\n\
+                 end\n\
+             end\n\
+             return false\n\
+         end\n",
+        "namespace Studio.Entry\n\
+         function main(): Int\n\
+             return 0\n\
+         end\n",
+    );
+    std::fs::create_dir_all(package.join("tests")).expect("create integration tests");
+    std::fs::write(
+        package.join("tests/core.pop"),
+        "namespace Studio.Entry.Tests\n\
+         using Studio.Entry\n\
+         function main(): Int\n\
+             local headers = List.create<<Header>>()\n\
+             local host: Header = { name = \"Host\" }\n\
+             List.add(headers, host)\n\
+             if not hasHost(request(headers)) then\n\
+                 return 1\n\
+             end\n\
+             return 0\n\
+         end\n",
+    )
+    .expect("write iterable record test Bubble");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_pop"))
+        .args(["test", "--manifestPath"])
+        .arg(package.join("bubble.toml"))
+        .output()
+        .expect("pop test runs iterable record Package");
+    assert!(
+        output.status.success(),
+        "iterable record Package failed:\nstdout: {}\nstderr: {}",
+        output_text(&output.stdout),
+        output_text(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(package).expect("remove temporary Package");
+}
+
+#[test]
 fn package_test_scopes_development_dependencies_and_locks_test_bubbles() {
     let workspace =
         std::env::temp_dir().join(format!("pop-development-dependency-{}", std::process::id()));

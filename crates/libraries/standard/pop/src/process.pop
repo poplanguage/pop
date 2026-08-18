@@ -1,0 +1,46 @@
+namespace Pop.Process
+
+--- <summary>
+--- Returns the number of command-line arguments after the executable path.
+--- </summary>
+---
+--- <param name="arguments">
+--- The typed argument array received by `main`.
+--- </param>
+---
+--- <returns>
+--- The exact argument count.
+--- </returns>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function argumentCount(arguments: Array<String>): Int
+    return Array.length(arguments)
+end
+
+--- <summary>
+--- Returns one command-line argument using a zero-based index.
+--- </summary>
+---
+--- <param name="arguments">
+--- The typed argument array received by `main`.
+--- </param>
+---
+--- <param name="index">
+--- The zero-based argument index.
+--- </param>
+---
+--- <returns>
+--- The argument, or nil when the index is outside the array.
+--- </returns>
+---
+--- <allocation>
+--- Does not allocate.
+--- </allocation>
+public function argument(arguments: Array<String>, index: Int): String?
+    if index < 0 or index >= Array.length(arguments) then
+        return nil
+    end
+    return Array.get(arguments, index)
+end

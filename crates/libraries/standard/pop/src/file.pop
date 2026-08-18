@@ -1,0 +1,35 @@
+namespace Pop.File
+
+--- <summary>
+--- Reads a bounded UTF-8 text file through an explicit file capability.
+--- </summary>
+---
+--- <param name="access">
+--- The capability that confines the file operation.
+--- </param>
+---
+--- <param name="path">
+--- A relative path inside the capability root.
+--- </param>
+---
+--- <param name="maximum">
+--- The maximum number of bytes to read.
+--- </param>
+---
+--- <returns>
+--- The decoded text, or nil when opening, reading, or UTF-8 decoding fails.
+--- </returns>
+---
+--- <allocation>
+--- Allocates one reusable buffer and one decoded String on success.
+--- </allocation>
+public function readText(access: File.Access, path: String, maximum: UInt64): String?
+    local handle = File.open(access, path)
+    local buffer = Bytes.withCapacity(Int(maximum))
+    local count = File.read(handle, buffer, maximum)
+    File.close(handle)
+    if count < 0 then
+        return nil
+    end
+    return Text.decodeUtf8(buffer)
+end

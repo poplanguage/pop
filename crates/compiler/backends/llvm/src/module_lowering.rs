@@ -818,12 +818,33 @@ const fn llvm_runtime_abi_type(value: RuntimeAbiType) -> &'static str {
     }
 }
 
-pub(crate) fn collect_field_layout(bubble: &MirBubble) -> BTreeMap<FieldId, u32> {
-    let mut layout = BTreeMap::new();
+pub(crate) struct FieldLayout {
+    legacy_slots: BTreeMap<FieldId, u32>,
+    slots_by_owner: BTreeMap<(TypeId, FieldId), u32>,
+}
+
+impl std::ops::Deref for FieldLayout {
+    type Target = BTreeMap<FieldId, u32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.legacy_slots
+    }
+}
+
+impl FieldLayout {
+    #[must_use]
+    pub(crate) fn slot(&self, owner: TypeId, field: FieldId) -> Option<u32> {
+        self.slots_by_owner.get(&(owner, field)).copied()
+    }
+}
+
+pub(crate) fn collect_field_layout(bubble: &MirBubble) -> FieldLayout {
+    let mut legacy_slots = BTreeMap::new();
+    let mut slots_by_owner = BTreeMap::new();
     for declaration in bubble.declarations() {
-        let (fields, reserved_slots) = match declaration.kind() {
-            MirDeclarationKind::Record(record) => (record.fields(), 0_u32),
-            MirDeclarationKind::Class(class) => (class.fields(), 1_u32),
+        let (owner, fields, reserved_slots) = match declaration.kind() {
+            MirDeclarationKind::Record(record) => (record.type_id(), record.fields(), 0_u32),
+            MirDeclarationKind::Class(class) => (class.type_id(), class.fields(), 1_u32),
             MirDeclarationKind::Union(_)
             | MirDeclarationKind::Error(_)
             | MirDeclarationKind::Enum(_)
@@ -831,11 +852,16 @@ pub(crate) fn collect_field_layout(bubble: &MirBubble) -> BTreeMap<FieldId, u32>
         };
         for (slot, field) in fields.iter().enumerate() {
             if let Ok(slot) = u32::try_from(slot) {
-                layout.insert(field.field(), slot + reserved_slots + 1);
+                let slot = slot + reserved_slots + 1;
+                legacy_slots.insert(field.field(), slot);
+                slots_by_owner.insert((owner, field.field()), slot);
             }
         }
     }
-    layout
+    FieldLayout {
+        legacy_slots,
+        slots_by_owner,
+    }
 }
 
 pub(crate) fn collect_record_fields(bubble: &MirBubble) -> BTreeMap<SymbolId, Vec<FieldId>> {

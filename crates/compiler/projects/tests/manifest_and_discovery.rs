@@ -31,6 +31,44 @@ fn minimal_manifest_has_typed_package_identity_and_sorted_dependencies() {
 }
 
 #[test]
+fn package_manifest_declares_sorted_host_capabilities() {
+    let manifest = parse_package_manifest(
+        "[package]\n\
+         name = \"Studio.Server\"\n\
+         version = \"0.1.0\"\n\
+         edition = \"2026\"\n\
+         requiredCapabilities = [\"fileAccess\", \"networkAccess\"]\n",
+    )
+    .expect("capability declaration");
+
+    assert_eq!(
+        manifest.required_capabilities(),
+        ["fileAccess", "networkAccess"]
+    );
+}
+
+#[test]
+fn package_manifest_rejects_invalid_or_duplicate_host_capabilities() {
+    let prefix = "[package]\n\
+                  name = \"Studio.Server\"\n\
+                  version = \"0.1.0\"\n\
+                  edition = \"2026\"\n";
+    for (capabilities, expected) in [
+        ("[\"FileAccess\"]", ManifestError::InvalidRequiredCapability),
+        (
+            "[\"fileAccess\", \"fileAccess\"]",
+            ManifestError::DuplicateRequiredCapability,
+        ),
+    ] {
+        let manifest = format!("{prefix}requiredCapabilities = {capabilities}\n");
+        assert_eq!(
+            parse_package_manifest(&manifest).expect_err("invalid capability declaration"),
+            expected
+        );
+    }
+}
+
+#[test]
 fn conventional_roots_create_non_overlapping_typed_bubbles() {
     let manifest = parse_package_manifest(
         "[package]\nname = \"Studio.Gameplay\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",

@@ -58,3 +58,7 @@ typeId	sourceName	ownerBubble	arity	role	prelude
 156	Net.Tls.ClientConfig	Pop.Standard	0	Nominal	false
 157	Net.Tls.ServerConfig	Pop.Standard	0	Nominal	false
 158	Net.Tls.Stream	Pop.Standard	0	Nominal	false
+159	File.Access	Pop.Standard	0	Nominal	false
+160	Directory.Access	Pop.Standard	0	Nominal	false
+161	File.Handle	Pop.Standard	0	Nominal	false
+162	Directory.Snapshot	Pop.Standard	0	Nominal	false

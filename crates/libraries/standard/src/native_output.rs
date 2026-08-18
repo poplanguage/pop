@@ -25,6 +25,78 @@ pub fn print_string(value: &str) {
     let _ = output.write_all(b"\n");
 }
 
+fn write_string(reference: u64, newline: bool) -> bool {
+    let Some(bytes) = pop_internal::runtime::string_bytes(reference) else {
+        return false;
+    };
+    let Ok(value) = std::str::from_utf8(&bytes) else {
+        return false;
+    };
+    let mut output = std::io::stdout().lock();
+    if output.write_all(value.as_bytes()).is_err() {
+        return false;
+    }
+    if newline && output.write_all(b"\n").is_err() {
+        return false;
+    }
+    output.flush().is_ok()
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Terminal",
+    name = "write",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_terminal_write(reference: u64) -> bool {
+    write_string(reference, false)
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Terminal",
+    name = "writeLine",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_terminal_write_line(reference: u64) -> bool {
+    write_string(reference, true)
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Terminal",
+    name = "writeError",
+    parameters(String),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_terminal_write_error(reference: u64) -> bool {
+    let Some(bytes) = pop_internal::runtime::string_bytes(reference) else {
+        return false;
+    };
+    let Ok(value) = std::str::from_utf8(&bytes) else {
+        return false;
+    };
+    let mut output = std::io::stderr().lock();
+    output.write_all(value.as_bytes()).is_ok() && output.flush().is_ok()
+}
+
+#[poplib(
+    bubble = Standard,
+    namespace = "Pop.Terminal",
+    name = "flush",
+    parameters(),
+    results(Boolean),
+    effects(AmbientIo),
+)]
+pub extern "C" fn pop_std_terminal_flush() -> bool {
+    std::io::stdout().lock().flush().is_ok()
+}
+
 /// Prints one managed Pop `String` followed by a newline for the native
 /// bootstrap host.
 ///

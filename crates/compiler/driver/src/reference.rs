@@ -19,10 +19,11 @@ use pop_types::{
 };
 
 use crate::api::{
-    ReferenceClass, ReferenceFfiLayout, ReferenceFfiLayoutCatalog, ReferenceFfiLayoutField,
-    ReferenceFfiValueClass, ReferenceFunction, ReferenceFunctionParameter, ReferenceInterface,
-    ReferenceMetadata, ReferenceMetadataError, ReferenceNominalType, ReferenceRecord,
-    ReferenceRecordField, ReferenceSpecializationCapsule, ReferenceType, ReferenceTypeParameter,
+    ReferenceClass, ReferenceEnum, ReferenceFfiLayout, ReferenceFfiLayoutCatalog,
+    ReferenceFfiLayoutField, ReferenceFfiValueClass, ReferenceFunction, ReferenceFunctionParameter,
+    ReferenceInterface, ReferenceMetadata, ReferenceMetadataError, ReferenceNominalType,
+    ReferenceRecord, ReferenceRecordField, ReferenceSpecializationCapsule, ReferenceType,
+    ReferenceTypeParameter,
 };
 use crate::artifact::{artifact_sha256_hex, capsule_sha256};
 use crate::retained_metadata::RetainedMetadataArtifacts;
@@ -266,7 +267,8 @@ fn reference_type_effects_are_valid(reference: &ReferenceType) -> bool {
         }
         ReferenceType::Primitive(_)
         | ReferenceType::TypeParameter(_)
-        | ReferenceType::Record(_) => true,
+        | ReferenceType::Record(_)
+        | ReferenceType::Enum(_) => true,
     }
 }
 
@@ -396,7 +398,8 @@ fn reference_type_contains_view(reference: &ReferenceType) -> bool {
         }
         ReferenceType::Primitive(_)
         | ReferenceType::TypeParameter(_)
-        | ReferenceType::Record(_) => false,
+        | ReferenceType::Record(_)
+        | ReferenceType::Enum(_) => false,
     }
 }
 
@@ -445,7 +448,7 @@ fn reference_type_parameter_indices_are_valid(
         ReferenceType::Builtin { arguments, .. } => arguments.iter().all(|argument| {
             reference_type_parameter_indices_are_valid(argument, type_parameter_count)
         }),
-        ReferenceType::Primitive(_) | ReferenceType::Record(_) => true,
+        ReferenceType::Primitive(_) | ReferenceType::Record(_) | ReferenceType::Enum(_) => true,
     }
 }
 
@@ -702,7 +705,7 @@ fn collect_reference_record_identities(
                 collect_reference_record_identities(argument, output);
             }
         }
-        ReferenceType::Primitive(_) | ReferenceType::TypeParameter(_) => {}
+        ReferenceType::Primitive(_) | ReferenceType::TypeParameter(_) | ReferenceType::Enum(_) => {}
     }
 }
 
@@ -737,7 +740,9 @@ fn reference_type_records_exist(
         ReferenceType::Builtin { arguments, .. } => arguments
             .iter()
             .all(|argument| reference_type_records_exist(argument, records)),
-        ReferenceType::Primitive(_) | ReferenceType::TypeParameter(_) => true,
+        ReferenceType::Primitive(_) | ReferenceType::TypeParameter(_) | ReferenceType::Enum(_) => {
+            true
+        }
     }
 }
 
@@ -767,7 +772,7 @@ fn ordinary_record_field_type_is_supported(reference: &ReferenceType) -> bool {
         ReferenceType::Builtin { arguments, .. } => arguments
             .iter()
             .all(ordinary_record_field_type_is_supported),
-        ReferenceType::Primitive(_) | ReferenceType::Record(_) => true,
+        ReferenceType::Primitive(_) | ReferenceType::Record(_) | ReferenceType::Enum(_) => true,
     }
 }
 
@@ -783,6 +788,7 @@ const fn reference_abi_name(abi: pop_types::ForeignAbi) -> &'static str {
 struct NominalIdentityMaps {
     classes: BTreeMap<TypeId, SymbolIdentity>,
     interfaces: BTreeMap<TypeId, SymbolIdentity>,
+    enums: BTreeMap<TypeId, SymbolIdentity>,
     tagged_unions: BTreeMap<TypeId, Vec<Vec<TypeId>>>,
 }
 
@@ -792,6 +798,13 @@ fn nominal_identity_maps(
 ) -> NominalIdentityMaps {
     let mut maps = NominalIdentityMaps::default();
     for declaration in hir.declarations() {
+        if let HirDeclarationKind::Enum(enumeration) = declaration.kind() {
+            maps.enums.insert(
+                enumeration.type_id(),
+                SymbolIdentity::new(hir.bubble(), declaration.symbol()),
+            );
+            continue;
+        }
         if let HirDeclarationKind::Union(union) = declaration.kind() {
             maps.tagged_unions.insert(
                 union.type_id(),
@@ -1045,6 +1058,32 @@ pub(crate) fn emit_reference_metadata(
         })
         .collect::<Result<Vec<_>, ReferenceMetadataError>>()?;
     records.sort_by_key(ReferenceRecord::identity);
+    let mut enums = hir
+        .declarations()
+        .iter()
+        .filter_map(|declaration| {
+            let HirDeclarationKind::Enum(enumeration) = declaration.kind() else {
+                return None;
+            };
+            (declaration.visibility() == pop_resolve::Visibility::Public).then(|| ReferenceEnum {
+                identity: SymbolIdentity::new(hir.bubble(), declaration.symbol()),
+                module: declaration.module(),
+                namespace: index
+                    .declaration(declaration.symbol())
+                    .expect("verified public enum is indexed")
+                    .namespace()
+                    .to_owned(),
+                name: declaration.name().to_owned(),
+                cases: enumeration
+                    .cases()
+                    .iter()
+                    .map(|case| (case.name().to_owned(), case.discriminant()))
+                    .collect(),
+                span: declaration.span(),
+            })
+        })
+        .collect::<Vec<_>>();
+    enums.sort_by_key(|enumeration| enumeration.identity());
     let (interfaces, classes) =
         public_nominal_references(hir, index, arena, &record_identities, &nominal_identities)?;
 
@@ -1229,6 +1268,7 @@ pub(crate) fn emit_reference_metadata(
     Ok(ReferenceMetadata {
         bubble: hir.bubble(),
         records,
+        enums,
         interfaces,
         classes,
         functions,
@@ -1481,6 +1521,12 @@ fn reference_type_with_parameters(
 ) -> Result<ReferenceType, ReferenceMetadataError> {
     match arena.get(type_id) {
         Some(SemanticType::Primitive(primitive)) => Ok(ReferenceType::Primitive(*primitive)),
+        Some(SemanticType::Enum { .. }) => nominal_identities
+            .enums
+            .get(&type_id)
+            .copied()
+            .map(ReferenceType::Enum)
+            .ok_or(ReferenceMetadataError::UnsupportedPublicType { function, type_id }),
         Some(SemanticType::Record(_)) => record_identities
             .get(&type_id)
             .copied()
@@ -1709,6 +1755,27 @@ pub(crate) fn define_reference_records(
     database: &ResolutionDatabase,
     resolver: &mut SignatureResolver<'_>,
 ) -> BTreeMap<SymbolIdentity, TypeId> {
+    let mut enum_types = BTreeMap::new();
+    for enumeration in metadata.iter().flat_map(ReferenceMetadata::enums) {
+        let Some(declaration) = database
+            .index()
+            .declaration_by_reference_identity(enumeration.identity())
+        else {
+            continue;
+        };
+        let definition = resolver
+            .enum_definition(declaration.symbol())
+            .cloned()
+            .or_else(|| {
+                resolver.define_referenced_enum(
+                    declaration.symbol(),
+                    enumeration.cases().to_vec(),
+                    enumeration.span(),
+                )
+            })
+            .expect("verified public enum is defined once");
+        enum_types.insert(enumeration.identity(), definition.type_id());
+    }
     let mut pending = metadata
         .iter()
         .flat_map(ReferenceMetadata::records)
@@ -1724,6 +1791,7 @@ pub(crate) fn define_reference_records(
                 .map(|field| {
                     try_reference_type_id(
                         field.field_type(),
+                        &enum_types,
                         resolver.arena_mut(),
                         &[],
                         &record_types,
@@ -1779,12 +1847,31 @@ pub(crate) fn hir_reference_record_declarations(
             ))
         })
         .collect::<Vec<_>>();
+    declarations.extend(
+        metadata
+            .iter()
+            .flat_map(ReferenceMetadata::enums)
+            .filter_map(|enumeration| {
+                let local = database
+                    .index()
+                    .declaration_by_reference_identity(enumeration.identity())?;
+                let definition = resolver.enum_definition(local.symbol())?;
+                Some(pop_hir::HirDeclaration::enumeration(
+                    enumeration.module(),
+                    consumer_bubble,
+                    pop_resolve::Visibility::Private,
+                    enumeration.name(),
+                    definition,
+                ))
+            }),
+    );
     declarations.sort_by_key(pop_hir::HirDeclaration::symbol);
     declarations
 }
 
 #[derive(Default)]
 pub(crate) struct ReferenceNominalTypes {
+    enums: BTreeMap<SymbolIdentity, SymbolId>,
     classes: BTreeMap<SymbolIdentity, SymbolId>,
     interfaces: BTreeMap<SymbolIdentity, SymbolId>,
     direct_bases: BTreeMap<SymbolIdentity, ReferenceNominalType>,
@@ -1797,6 +1884,27 @@ pub(crate) fn define_reference_nominals(
     resolver: &mut SignatureResolver<'_>,
 ) -> ReferenceNominalTypes {
     let mut definitions = ReferenceNominalTypes::default();
+    for enumeration in metadata.iter().flat_map(ReferenceMetadata::enums) {
+        let Some(declaration) = database
+            .index()
+            .declaration_by_reference_identity(enumeration.identity())
+        else {
+            continue;
+        };
+        if resolver.enum_definition(declaration.symbol()).is_some()
+            || resolver
+                .define_referenced_enum(
+                    declaration.symbol(),
+                    enumeration.cases().to_vec(),
+                    enumeration.span(),
+                )
+                .is_some()
+        {
+            definitions
+                .enums
+                .insert(enumeration.identity(), declaration.symbol());
+        }
+    }
     for interface in metadata.iter().flat_map(ReferenceMetadata::interfaces) {
         let Some(declaration) = database
             .index()
@@ -2065,6 +2173,7 @@ fn canonical_reference_type(reference: &ReferenceType) -> Option<pop_types::Cano
         ReferenceType::Primitive(primitive) => CanonicalTypeIdentity::Primitive(*primitive),
         ReferenceType::TypeParameter(_) => return None,
         ReferenceType::Record(identity) => CanonicalTypeIdentity::Record(*identity),
+        ReferenceType::Enum(_) => return None,
         ReferenceType::Class(nominal) | ReferenceType::Interface(nominal) => {
             let arguments = nominal
                 .arguments()
@@ -2201,9 +2310,14 @@ pub(crate) fn hir_reference_ffi_layout_catalog(
         .collect::<BTreeMap<_, _>>();
     let mut imported = BTreeMap::new();
     for layout in catalogs.iter().flat_map(|catalog| catalog.entries()) {
-        let element =
-            try_reference_type_id(layout.element(), resolver.arena_mut(), &[], record_types)
-                .ok_or(pop_hir::HirBubbleError::InvalidReferenceFfiLayout)?;
+        let element = try_reference_type_id(
+            layout.element(),
+            &BTreeMap::new(),
+            resolver.arena_mut(),
+            &[],
+            record_types,
+        )
+        .ok_or(pop_hir::HirBubbleError::InvalidReferenceFfiLayout)?;
         let value_class = match layout.value_class() {
             ReferenceFfiValueClass::Integer => ImportedHirFfiValueClass::Integer,
             ReferenceFfiValueClass::Float => ImportedHirFfiValueClass::Float,
@@ -3005,6 +3119,19 @@ fn try_reference_type_id_with_nominals(
         }
         ReferenceType::TypeParameter(index) => type_parameters.get(usize::from(*index)).copied(),
         ReferenceType::Record(identity) => record_types.get(identity).copied(),
+        ReferenceType::Enum(identity) => nominal_types
+            .enums
+            .get(identity)
+            .and_then(|symbol| resolver.enum_definition(*symbol))
+            .map(|definition| definition.type_id())
+            .or_else(|| {
+                resolver
+                    .arena_mut()
+                    .intern(SemanticType::Enum {
+                        definition: identity.symbol(),
+                    })
+                    .ok()
+            }),
         ReferenceType::Class(nominal) => reference_nominal_type_id(
             nominal,
             resolver,
@@ -3152,6 +3279,7 @@ fn try_reference_type_id_with_nominals(
 
 fn try_reference_type_id(
     reference: &ReferenceType,
+    enum_types: &BTreeMap<SymbolIdentity, TypeId>,
     arena: &mut TypeArena,
     type_parameters: &[TypeId],
     record_types: &BTreeMap<SymbolIdentity, TypeId>,
@@ -3167,11 +3295,14 @@ fn try_reference_type_id(
         }
         ReferenceType::TypeParameter(index) => type_parameters.get(usize::from(*index)).copied(),
         ReferenceType::Record(identity) => record_types.get(identity).copied(),
+        ReferenceType::Enum(identity) => enum_types.get(identity).copied(),
         ReferenceType::Class(_) | ReferenceType::Interface(_) => None,
         ReferenceType::Tuple(elements) => {
             let elements = elements
                 .iter()
-                .map(|element| try_reference_type_id(element, arena, type_parameters, record_types))
+                .map(|element| {
+                    try_reference_type_id(element, enum_types, arena, type_parameters, record_types)
+                })
                 .collect::<Option<Vec<_>>>()?;
             arena.intern(SemanticType::Tuple(elements)).ok()
         }
@@ -3185,12 +3316,20 @@ fn try_reference_type_id(
             let parameters = parameters
                 .iter()
                 .map(|parameter| {
-                    try_reference_type_id(parameter, arena, type_parameters, record_types)
+                    try_reference_type_id(
+                        parameter,
+                        enum_types,
+                        arena,
+                        type_parameters,
+                        record_types,
+                    )
                 })
                 .collect::<Option<Vec<_>>>()?;
             let results = results
                 .iter()
-                .map(|result| try_reference_type_id(result, arena, type_parameters, record_types))
+                .map(|result| {
+                    try_reference_type_id(result, enum_types, arena, type_parameters, record_types)
+                })
                 .collect::<Option<Vec<_>>>()?;
             let lifetime_summary = lifetime_summary.clone().unwrap_or_else(|| {
                 pop_types::CallableLifetimeSummary::conservative(parameters.len(), results.len())
@@ -3206,16 +3345,19 @@ fn try_reference_type_id(
                 .ok()
         }
         ReferenceType::Array(element) => {
-            let element = try_reference_type_id(element, arena, type_parameters, record_types)?;
+            let element =
+                try_reference_type_id(element, enum_types, arena, type_parameters, record_types)?;
             arena.intern(SemanticType::Array(element)).ok()
         }
         ReferenceType::Table { key, value } => {
-            let key = try_reference_type_id(key, arena, type_parameters, record_types)?;
-            let value = try_reference_type_id(value, arena, type_parameters, record_types)?;
+            let key = try_reference_type_id(key, enum_types, arena, type_parameters, record_types)?;
+            let value =
+                try_reference_type_id(value, enum_types, arena, type_parameters, record_types)?;
             arena.intern(SemanticType::Table { key, value }).ok()
         }
         ReferenceType::Optional(element) => {
-            let element = try_reference_type_id(element, arena, type_parameters, record_types)?;
+            let element =
+                try_reference_type_id(element, enum_types, arena, type_parameters, record_types)?;
             arena.optional(element).ok()
         }
         ReferenceType::Builtin {
@@ -3225,7 +3367,13 @@ fn try_reference_type_id(
             let arguments = arguments
                 .iter()
                 .map(|argument| {
-                    try_reference_type_id(argument, arena, type_parameters, record_types)
+                    try_reference_type_id(
+                        argument,
+                        enum_types,
+                        arena,
+                        type_parameters,
+                        record_types,
+                    )
                 })
                 .collect::<Option<Vec<_>>>()?;
             arena
@@ -3238,7 +3386,9 @@ fn try_reference_type_id(
         ReferenceType::Union(elements) => {
             let elements = elements
                 .iter()
-                .map(|element| try_reference_type_id(element, arena, type_parameters, record_types))
+                .map(|element| {
+                    try_reference_type_id(element, enum_types, arena, type_parameters, record_types)
+                })
                 .collect::<Option<Vec<_>>>()?;
             arena.intern(SemanticType::Union(elements)).ok()
         }

@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::{LlvmLoweringError, LlvmLoweringOptions};
 use crate::lowering::*;
-use crate::module_lowering::ClassRuntimeKeys;
+use crate::module_lowering::{ClassRuntimeKeys, FieldLayout};
 
 pub(crate) fn lower_instruction(
     bubble: BubbleId,
@@ -26,7 +26,7 @@ pub(crate) fn lower_instruction(
     types: &TypeArena,
     ffi_layouts: &MirFfiLayoutCatalog,
     foreign_functions: &BTreeMap<SymbolId, &pop_mir::MirForeignFunction>,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
@@ -579,6 +579,21 @@ pub(crate) fn lower_instruction(
                 "call void @pop_std_print_string(i64 %v{})",
                 arguments[0].raw()
             ),
+            219 if arguments.len() == 1 => format!(
+                "{result} = call i1 @pop_std_terminal_write(i64 %v{})",
+                arguments[0].raw()
+            ),
+            220 if arguments.len() == 1 => format!(
+                "{result} = call i1 @pop_std_terminal_write_line(i64 %v{})",
+                arguments[0].raw()
+            ),
+            228 if arguments.len() == 1 => format!(
+                "{result} = call i1 @pop_std_terminal_write_error(i64 %v{})",
+                arguments[0].raw()
+            ),
+            229 if arguments.is_empty() => {
+                format!("{result} = call i1 @pop_std_terminal_flush()")
+            }
             2..=24 | 59..=63 => lower_atomic_standard_call(&result, function.raw(), arguments)?,
             25..=34 => lower_actor_standard_call(
                 &result,
@@ -597,6 +612,17 @@ pub(crate) fn lower_instruction(
             }
             184 if arguments.is_empty() => {
                 format!("{result} = call i64 @pop_std_rust_available_parallelism()")
+            }
+            227 if arguments.is_empty() => {
+                format!(
+                    "{result}_value = call i64 @pop_std_rust_process_executable()\n{result}_present = icmp ne i64 {result}_value, 0\n{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0\n{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_value, 1"
+                )
+            }
+            230 if arguments.is_empty() => {
+                format!("{result} = call i8 @pop_std_rust_native_operating_system()")
+            }
+            231 if arguments.is_empty() => {
+                format!("{result} = call i8 @pop_std_rust_native_architecture()")
             }
             185 if arguments.is_empty() => {
                 format!("{result} = call i1 @pop_std_rust_stdout_is_terminal()")
@@ -646,6 +672,165 @@ pub(crate) fn lower_instruction(
                     arguments[0].raw(),
                     arguments[1].raw(),
                     arguments[2].raw(),
+                )
+            }
+            200 if arguments.len() == 1 => {
+                format!(
+                    "{result}_value = call i64 @pop_std_rust_environment_get(i64 %v{})\n{result}_present = icmp ne i64 {result}_value, 0\n{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0\n{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_value, 1",
+                    arguments[0].raw(),
+                )
+            }
+            201 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_access_open(i64 %v{})",
+                    arguments[0].raw(),
+                )
+            }
+            202 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_file_access_close(i64 %v{})",
+                    arguments[0].raw(),
+                )
+            }
+            203 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_file_exists_at(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                )
+            }
+            204 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_file_is_file_at(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                )
+            }
+            205 if arguments.len() == 4 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_read_at(i64 %v{}, i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw(),
+                    arguments[3].raw(),
+                )
+            }
+            206 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_directory_access_open(i64 %v{})",
+                    arguments[0].raw()
+                )
+            }
+            207 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_access_close(i64 %v{})",
+                    arguments[0].raw()
+                )
+            }
+            208 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_exists_at(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            209 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_is_directory_at(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            210 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_open(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            211 if arguments.len() == 3 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_handle_read(i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            }
+            212 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_file_close(i64 %v{})",
+                    arguments[0].raw()
+                )
+            }
+            213 if arguments.len() == 3 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_directory_list(i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            }
+            214 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_snapshot_close(i64 %v{})",
+                    arguments[0].raw()
+                )
+            }
+            215 if arguments.len() == 1 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_directory_snapshot_count(i64 %v{})",
+                    arguments[0].raw()
+                )
+            }
+            216 if arguments.len() == 2 => {
+                format!(
+                    "{result}_value = call i64 @pop_std_rust_directory_snapshot_name(i64 %v{}, i64 %v{})\n{result}_present = icmp ne i64 {result}_value, 0\n{result}_tagged = insertvalue {{ i1, i64 }} undef, i1 {result}_present, 0\n{result} = insertvalue {{ i1, i64 }} {result}_tagged, i64 {result}_value, 1",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            217 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_open_write(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            226 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_create(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            218 if arguments.len() == 3 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_file_write(i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            }
+            221 if arguments.len() == 3 => {
+                format!(
+                    "{result} = call i64 @pop_std_rust_io_copy_files(i64 %v{}, i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw(),
+                    arguments[2].raw()
+                )
+            }
+            224 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_create(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
+                )
+            }
+            225 if arguments.len() == 2 => {
+                format!(
+                    "{result} = call i1 @pop_std_rust_directory_remove(i64 %v{}, i64 %v{})",
+                    arguments[0].raw(),
+                    arguments[1].raw()
                 )
             }
             _ => {
@@ -811,19 +996,13 @@ pub(crate) fn lower_instruction(
             allocation_site,
             fields,
             ..
-        } => {
-            let slot_count = u32::try_from(fields.len())
-                .map_err(|_| LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
-            lower_object_make(
-                &result,
-                fields,
-                slot_count,
-                value_types,
-                types,
-                field_layout,
-                &allocation_site_symbol(bubble, owner, *allocation_site),
-            )?
-        }
+        } => lower_object_make(
+            &result,
+            fields,
+            value_types,
+            types,
+            &allocation_site_symbol(bubble, owner, *allocation_site),
+        )?,
         MirInstructionKind::ClassMake {
             class,
             allocation_site,
@@ -834,6 +1013,7 @@ pub(crate) fn lower_instruction(
             class_runtime_keys
                 .get(&(*class, instruction.result_type()))
                 .ok_or(LlvmLoweringError::InvalidType(instruction.result_type()))?,
+            instruction.result_type(),
             fields,
             object_map.slot_count() + 1,
             value_types,
@@ -2985,10 +3165,20 @@ pub(crate) fn lower_adjacent_array_field_get(
     field: FieldId,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
 ) -> Result<String, LlvmLoweringError> {
-    let slot = *field_layout
-        .get(&field)
+    let array_type = *values
+        .get(&array)
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
+    let SemanticType::Array(element) = types
+        .get(array_type)
+        .ok_or(LlvmLoweringError::InvalidType(array_type))?
+    else {
+        return Err(LlvmLoweringError::InvalidType(array_type));
+    };
+    let slot = field_layout
+        .slot(*element, field)
+        .or_else(|| field_layout.get(&field).copied())
         .ok_or(LlvmLoweringError::InvalidFieldLayout(field))?;
     if llvm_value_type(values, array, types)? != "i64"
         || llvm_value_type(values, index, types)? != "i64"
@@ -5806,20 +5996,18 @@ pub(crate) fn lower_array_set(
 pub(crate) fn lower_object_make(
     result: &str,
     fields: &[(FieldId, ValueId)],
-    slot_count: u32,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
     descriptor: &str,
 ) -> Result<String, LlvmLoweringError> {
-    lower_initialized_object(
+    lower_initialized_values(
         result,
-        fields,
-        slot_count,
-        None,
+        fields
+            .iter()
+            .map(|(_, value)| ObjectInitializer::Value(*value))
+            .collect(),
         values,
         types,
-        field_layout,
         descriptor,
     )
 }
@@ -5839,7 +6027,8 @@ fn lower_initialized_object(
     class: Option<&str>,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
+    owner_type: TypeId,
     descriptor: &str,
 ) -> Result<String, LlvmLoweringError> {
     let mut reference_slots = Vec::new();
@@ -5850,8 +6039,8 @@ fn lower_initialized_object(
             .is_some_and(|type_id| is_managed_type(type_id, types))
         {
             let slot = field_layout
-                .get(field)
-                .copied()
+                .slot(owner_type, *field)
+                .or_else(|| field_layout.get(field).copied())
                 .and_then(|slot| slot.checked_sub(1))
                 .ok_or(LlvmLoweringError::InvalidFieldLayout(*field))?;
             reference_slots.push(slot);
@@ -5868,7 +6057,8 @@ fn lower_initialized_object(
     }
     for (field, value) in fields {
         let slot = field_layout
-            .get(field)
+            .slot(owner_type, *field)
+            .or_else(|| field_layout.get(field).copied())
             .ok_or(LlvmLoweringError::InvalidFieldLayout(*field))?;
         let index = slot
             .checked_sub(1)
@@ -6016,11 +6206,12 @@ fn lower_initialized_values_with_store(
 pub(crate) fn lower_adjacent_class_array_store(
     result: &str,
     runtime_key: &str,
+    class_type: TypeId,
     fields: &[(FieldId, ValueId)],
     slot_count: u32,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     descriptor: &str,
     array: ValueId,
     index: ValueId,
@@ -6035,7 +6226,8 @@ pub(crate) fn lower_adjacent_class_array_store(
     *class_slot = Some(ObjectInitializer::ConstantExpression(runtime_key));
     for (field, value) in fields {
         let slot = field_layout
-            .get(field)
+            .slot(class_type, *field)
+            .or_else(|| field_layout.get(field).copied())
             .ok_or(LlvmLoweringError::InvalidFieldLayout(*field))?;
         let index = slot
             .checked_sub(1)
@@ -6292,7 +6484,7 @@ pub(crate) fn lower_record_update(
     base: ValueId,
     updates: &[(FieldId, ValueId)],
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
     descriptor: &str,
@@ -6303,11 +6495,15 @@ pub(crate) fn lower_record_update(
     if !values.contains_key(&base) {
         return Err(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)));
     }
+    let owner_type = *values
+        .get(&base)
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let mut lines = Vec::new();
     let mut initializers = Vec::with_capacity(fields.len());
     for field in fields {
-        let slot = *field_layout
-            .get(field)
+        let slot = field_layout
+            .slot(owner_type, *field)
+            .or_else(|| field_layout.get(field).copied())
             .ok_or(LlvmLoweringError::InvalidFieldLayout(*field))?;
         if let Some((_, value)) = updates.iter().find(|(updated, _)| updated == field) {
             initializers.push(ObjectInitializer::Value(*value));
@@ -6334,11 +6530,12 @@ pub(crate) fn lower_record_update(
 pub(crate) fn lower_class_make(
     result: &str,
     runtime_key: &str,
+    class_type: TypeId,
     fields: &[(FieldId, ValueId)],
     slot_count: u32,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     descriptor: &str,
 ) -> Result<String, LlvmLoweringError> {
     lower_initialized_object(
@@ -6349,6 +6546,7 @@ pub(crate) fn lower_class_make(
         values,
         types,
         field_layout,
+        class_type,
         descriptor,
     )
 }
@@ -6822,10 +7020,14 @@ pub(crate) fn runtime_field_call(
     value: Option<ValueId>,
     values: &BTreeMap<ValueId, TypeId>,
     types: &TypeArena,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
 ) -> Result<String, LlvmLoweringError> {
+    let base_type_id = *values
+        .get(&base)
+        .ok_or(LlvmLoweringError::InvalidType(TypeId::from_raw(u32::MAX)))?;
     let slot = field_layout
-        .get(&field)
+        .slot(base_type_id, field)
+        .or_else(|| field_layout.get(&field).copied())
         .ok_or(LlvmLoweringError::InvalidFieldLayout(field))?;
     let base_type = llvm_value_type(values, base, types)?;
     if base_type != "i64" {
@@ -6853,7 +7055,7 @@ pub(crate) fn runtime_field_call(
         result,
         result_type,
         &format!("%v{}", base.raw()),
-        *slot as usize,
+        slot as usize,
         types,
     )
     .map(|lines| lines.join("\n"))

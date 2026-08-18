@@ -39,7 +39,7 @@ fn sequence_callbacks_are_invoked_once_per_loop_item() {
 fn frozen_standard_api_baseline_has_exact_prelude_and_implementation_boundaries() {
     let baseline = standard_api_baseline().expect("valid embedded API baseline");
     assert_eq!(baseline.schema_version(), 1);
-    assert_eq!(baseline.entries().len(), 527);
+    assert_eq!(baseline.entries().len(), 566);
 
     let prelude_names = baseline
         .entries()
@@ -529,6 +529,45 @@ fn frozen_standard_api_baseline_has_exact_prelude_and_implementation_boundaries(
             ("Pop.File", "isFile"),
             ("Pop.Directory", "exists"),
             ("Pop.File", "read"),
+            ("Pop.Environment", "get"),
+            ("Pop.File.Access", "open"),
+            ("Pop.File.Access", "close"),
+            ("Pop.File", "exists"),
+            ("Pop.File", "isFile"),
+            ("Pop.File", "read"),
+            ("Pop.Directory.Access", "open"),
+            ("Pop.Directory.Access", "close"),
+            ("Pop.Directory", "exists"),
+            ("Pop.Directory", "isDirectory"),
+            ("Pop.File", "open"),
+            ("Pop.File", "read"),
+            ("Pop.File", "close"),
+            ("Pop.Directory", "list"),
+            ("Pop.Directory.Snapshot", "close"),
+            ("Pop.Directory.Snapshot", "count"),
+            ("Pop.Directory.Snapshot", "name"),
+            ("Pop.File", "readText"),
+            ("Pop.File", "openWrite"),
+            ("Pop.File", "write"),
+            ("Pop.Terminal", "write"),
+            ("Pop.Terminal", "writeLine"),
+            ("Pop.Io", "copyFiles"),
+            ("Pop.Process", "argumentCount"),
+            ("Pop.Process", "argument"),
+            ("Pop.Directory", "create"),
+            ("Pop.Directory", "remove"),
+            ("Pop.Io", "copy"),
+            ("Pop.Io", "readAll"),
+            ("Pop.File", "create"),
+            ("Pop.Process", "executable"),
+            ("Pop.Terminal", "writeError"),
+            ("Pop.Terminal", "flush"),
+            ("Pop.Platform", "OperatingSystem"),
+            ("Pop.Platform", "Architecture"),
+            ("Pop.Platform", "nativeOperatingSystem"),
+            ("Pop.Platform", "nativeArchitecture"),
+            ("Pop.Platform", "operatingSystem"),
+            ("Pop.Platform", "architecture"),
         ]
     );
 }

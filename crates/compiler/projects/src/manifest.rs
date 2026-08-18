@@ -15,6 +15,7 @@ pub struct PackageManifest {
     name: String,
     version: String,
     edition: String,
+    required_capabilities: Vec<String>,
     features: Vec<PackageFeature>,
     dependencies: Vec<DependencyRequirement>,
     development_dependencies: Vec<DependencyRequirement>,
@@ -38,6 +39,11 @@ impl PackageManifest {
     #[must_use]
     pub fn edition(&self) -> &str {
         &self.edition
+    }
+
+    #[must_use]
+    pub fn required_capabilities(&self) -> &[String] {
+        &self.required_capabilities
     }
 
     #[must_use]
@@ -769,6 +775,8 @@ pub enum ManifestError {
     DuplicateSelectedFeature,
     InvalidVersion,
     InvalidEdition,
+    InvalidRequiredCapability,
+    DuplicateRequiredCapability,
     UnsupportedSection,
     DuplicateKey,
     InvalidTargetName,
@@ -832,6 +840,7 @@ struct PackageManifestParser {
     platform_section: Option<String>,
     saw_package: bool,
     package: BTreeMap<String, String>,
+    required_capabilities: Option<Vec<String>>,
     features: BTreeMap<String, PackageFeature>,
     dependencies: BTreeMap<String, DependencyRequirement>,
     development_dependencies: BTreeMap<String, DependencyRequirement>,
@@ -879,7 +888,16 @@ impl PackageManifestParser {
         let (key, raw_value) = line.split_once('=').ok_or(ManifestError::InvalidLine)?;
         let key = key.trim();
         match self.section {
-            "package" => insert_package_value(&mut self.package, key, raw_value)?,
+            "package" => {
+                if key == "requiredCapabilities" {
+                    if self.required_capabilities.is_some() {
+                        return Err(ManifestError::DuplicateKey);
+                    }
+                    self.required_capabilities = Some(parse_required_capabilities(raw_value)?);
+                } else {
+                    insert_package_value(&mut self.package, key, raw_value)?;
+                }
+            }
             "features" => insert_package_feature(&mut self.features, key, raw_value)?,
             "dependencies" => {
                 insert_package_dependency(&mut self.dependencies, key, raw_value)?;
@@ -965,6 +983,21 @@ fn insert_package_value(
     Ok(())
 }
 
+fn parse_required_capabilities(raw_value: &str) -> Result<Vec<String>, ManifestError> {
+    let mut capabilities = parse_string_array(raw_value.trim())?;
+    if capabilities
+        .iter()
+        .any(|capability| !valid_camel(capability))
+    {
+        return Err(ManifestError::InvalidRequiredCapability);
+    }
+    capabilities.sort();
+    if capabilities.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ManifestError::DuplicateRequiredCapability);
+    }
+    Ok(capabilities)
+}
+
 fn insert_package_feature(
     features: &mut BTreeMap<String, PackageFeature>,
     key: &str,
@@ -1024,6 +1057,7 @@ fn finish_package_manifest(
     let PackageManifestParser {
         saw_package,
         mut package,
+        required_capabilities,
         features,
         dependencies,
         development_dependencies,
@@ -1097,6 +1131,7 @@ fn finish_package_manifest(
         name,
         version,
         edition,
+        required_capabilities: required_capabilities.unwrap_or_default(),
         features,
         dependencies,
         development_dependencies,

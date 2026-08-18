@@ -231,6 +231,236 @@ fn direct_calls_checked_arithmetic_and_both_cfg_branches_execute() {
 }
 
 #[test]
+fn explicit_file_access_scopes_interpreter_host_reads() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.File\n\
+         public function access(): Boolean\n\
+             local access = File.Access.open(\".\")\n\
+             local present = File.exists(access, \".\")\n\
+             File.Access.close(access)\n\
+             return present\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified file access MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn explicit_directory_access_scopes_interpreter_host_queries() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.Directory\n\
+         public function access(): Boolean\n\
+             local access = Directory.Access.open(\".\")\n\
+             local present = Directory.exists(access, \".\") and Directory.isDirectory(access, \".\")\n\
+             Directory.Access.close(access)\n\
+             return present\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified directory access MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn directory_mutation_rejects_traversal_and_non_directory_targets_in_interpreter() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.Directory\n\
+         public function access(): Boolean\n\
+             local access = Directory.Access.open(\".\")\n\
+             local traversalRejected = not Directory.create(access, \"../outside\")\n\
+             local fileRejected = not Directory.remove(access, \"Cargo.toml\")\n\
+             Directory.Access.close(access)\n\
+             return traversalRejected and fileRejected\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified directory mutation MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn explicit_file_handle_reads_and_closes_interpreter_host_resource() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.File\n\
+         public function access(): Boolean\n\
+             local access = File.Access.open(\".\")\n\
+             local handle = File.open(access, \"Cargo.toml\")\n\
+             local buffer = Bytes.withCapacity(64)\n\
+             local count = File.read(handle, buffer, UInt64(64))\n\
+             local closed = File.close(handle)\n\
+             File.Access.close(access)\n\
+             return count > 0 and closed\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified file handle MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn io_read_all_uses_bounded_pop_adapter_without_closing_the_handle() {
+    let (mir, types) = executable_modules(&[
+        (
+            "src/bytes.pop",
+            include_str!("../../../../libraries/standard/pop/src/bytes.pop"),
+        ),
+        (
+            "src/io.pop",
+            include_str!("../../../../libraries/standard/pop/src/io.pop"),
+        ),
+        (
+            "src/main.pop",
+            "namespace Main\n\
+             using Pop.File\n\
+             using Pop.Io\n\
+             public function access(handle: File.Handle): Boolean\n\
+                 local value = Pop.Io.readAll(handle, UInt64(67108865))\n\
+                 return value == nil\n\
+             end\n",
+        ),
+    ]);
+    let entry = mir.functions().last().expect("Io consumer").symbol();
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified Io adapter MIR");
+    assert_eq!(
+        interpreter.call(entry, &[MirValue::FfiHandle(0)]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn process_executable_returns_an_optional_host_value_in_interpreter() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.Process\n\
+         public function access(): Boolean\n\
+             return Process.executable() ~= nil\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified process executable MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn bounded_directory_snapshot_is_sorted_and_closes_in_interpreter() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.Directory\n\
+         public function access(): Boolean\n\
+             local access = Directory.Access.open(\".\")\n\
+             local snapshot = Directory.list(access, \".\", UInt64(128))\n\
+             local count = Directory.Snapshot.count(snapshot)\n\
+             local first = Directory.Snapshot.name(snapshot, UInt64(0))\n\
+             local closed = Directory.Snapshot.close(snapshot)\n\
+             Directory.Access.close(access)\n\
+             return count > UInt64(0) and first ~= nil and closed\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified directory snapshot MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn explicit_write_handle_accepts_bounded_buffer_and_closes_in_interpreter() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.File\n\
+         public function access(): Boolean\n\
+             local access = File.Access.open(\".\")\n\
+             local handle = File.openWrite(access, \"Cargo.toml\")\n\
+             local buffer = Bytes.withCapacity(0)\n\
+             local count = File.write(handle, buffer, UInt64(0))\n\
+             local closed = File.close(handle)\n\
+             File.Access.close(access)\n\
+             return count == 0 and closed\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified write handle MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
+fn explicit_file_create_opens_a_new_writable_handle_in_interpreter() {
+    let root = std::env::temp_dir();
+    let relative = format!("pop-file-create-{}.tmp", std::process::id());
+    let path = root.join(&relative);
+    let _ = std::fs::remove_file(&path);
+    let source = format!(
+        "namespace Main\n\
+         using Pop.File\n\
+         public function access(): Boolean\n\
+             local access = File.Access.open(\"{}\")\n\
+             local handle = File.create(access, \"{}\")\n\
+             local buffer = Bytes.withCapacity(0)\n\
+             local written = File.write(handle, buffer, UInt64(0))\n\
+             local closed = File.close(handle)\n\
+             File.Access.close(access)\n\
+             return written == 0 and closed\n\
+         end\n",
+        root.display(),
+        relative
+    );
+    let (mir, types, function) = executable_source_function(&source, "access");
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified file create MIR");
+    let result = interpreter.call(function, &[]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(result, Ok(vec![MirValue::Boolean(true)]));
+}
+
+#[test]
+fn bounded_file_copy_preserves_handles_and_returns_count_in_interpreter() {
+    let (mir, types, function) = executable_source_function(
+        "namespace Main\n\
+         using Pop.File\n\
+         using Pop.Io\n\
+         public function access(): Boolean\n\
+             local access = File.Access.open(\".\")\n\
+             local source = File.open(access, \"Cargo.toml\")\n\
+             local destination = File.openWrite(access, \"Cargo.toml\")\n\
+             local copied = Io.copyFiles(source, destination, UInt64(0))\n\
+             local sourceClosed = File.close(source)\n\
+             local destinationClosed = File.close(destination)\n\
+             File.Access.close(access)\n\
+             return copied == 0 and sourceClosed and destinationClosed\n\
+         end\n",
+        "access",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified file copy MIR");
+    assert_eq!(
+        interpreter.call(function, &[]),
+        Ok(vec![MirValue::Boolean(true)])
+    );
+}
+
+#[test]
 fn safe_ffi_pointer_presence_executes_without_dynamic_conversion() {
     let ffi = BubbleId::from_raw(20);
     let source = SourceFile::new(
@@ -408,6 +638,20 @@ fn structured_group_transfers_child_ownership_and_returns_the_exact_completion()
     assert_eq!(
         interpreter.call(run, &[]).expect("group completion"),
         vec![int(42)]
+    );
+}
+
+#[test]
+fn documented_concurrency_example_executes_both_workers_and_returns_sixty() {
+    let (mir, types, run) = executable_source_function(
+        include_str!("../../../../../examples/concurrency.pop"),
+        "run",
+    );
+    let interpreter = MirInterpreter::new(&mir, &types).expect("verified concurrency example MIR");
+
+    assert_eq!(
+        interpreter.call(run, &[]).expect("concurrency completion"),
+        vec![int(60)]
     );
 }
 
@@ -2875,6 +3119,10 @@ fn canonical_ipv4_values_parse_format_and_classify() {
             include_str!("../../../../libraries/standard/pop/src/net.pop"),
         ),
         (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
+        ),
+        (
             "src/main.pop",
             "namespace Main\n\
              using Pop.Net\n\
@@ -3290,6 +3538,10 @@ fn ipv4_prefixes_and_socket_addresses_are_exact_values() {
         (
             "src/net.pop",
             include_str!("../../../../libraries/standard/pop/src/net.pop"),
+        ),
+        (
+            "src/netIpv6.pop",
+            include_str!("../../../../libraries/standard/pop/src/netIpv6.pop"),
         ),
         (
             "src/netIpv4Endpoint.pop",

@@ -1,0 +1,97 @@
+namespace Pop.Http.Tests
+using Pop.Http
+using Pop.Net
+using Pop.Text
+
+private function main(): Int
+    if not contains("Bad\r\nName", "\r") or not contains("Bad\r\nName", "\n") then
+        return 14
+    end
+    if not (contains("Bad\r\nName", "\r") or contains("Bad\r\nName", "\n")) then
+        return 15
+    end
+    if local invalid = header("Bad\r\nName", "value") then
+        return 1
+    end
+
+    local headers = List.create<<Header>>()
+    if local host = header("Host", "example.test") then
+        List.add(headers, host)
+    else
+        return 2
+    end
+    local encodedRequest = "POST /submit HTTP/1.1\r\nHost: example.test\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"
+    if local value = request(Method.Post, "/submit", headers, "hello") then
+        local encoded = formatRequest(value)
+        if encoded ~= encodedRequest then
+            return 3
+        end
+    else
+        return 4
+    end
+
+    local responseHeaders = List.create<<Header>>()
+    if local contentType = header("Content-Type", "text/plain") then
+        List.add(responseHeaders, contentType)
+    else
+        return 5
+    end
+    if local reply = response(UInt16(200), "OK", responseHeaders, "ready") then
+        local encodedReply = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nready"
+        if formatResponse(reply) ~= encodedReply then
+            return 6
+        end
+        if local parsed = parseResponse(encodedReply, UInt64(5)) then
+            if parsed.status ~= UInt16(200) or parsed.reason ~= "OK" or parsed.body ~= "ready" then
+                return 7
+            end
+        else
+            return 8
+        end
+    else
+        return 9
+    end
+
+    local listener = Net.Tcp.listen(UInt16(0))
+    local client = Net.Tcp.connect(Net.Tcp.listenerLocalPort(listener))
+    if local server = Net.Tcp.accept(listener) then
+        if local htmlReply = response(UInt16(200), "OK", responseHeaders, "<h1>Pop</h1>") then
+            if not sendResponse(server, htmlReply) or not Net.Tcp.shutdownWrite(server) then
+                return 16
+            end
+            if local request = request(Method.Get, "/", headers, "") then
+                if local exchanged = exchange(client, request, UInt64(32)) then
+                    if exchanged.status ~= UInt16(200) or exchanged.body ~= "<h1>Pop</h1>" then
+                        return 17
+                    end
+                else
+                    return 18
+                end
+            else
+                return 19
+            end
+        else
+            return 20
+        end
+        Net.Tcp.closeStream(server)
+    else
+        return 21
+    end
+    Net.Tcp.closeStream(client)
+    Net.Tcp.closeListener(listener)
+
+    if local parsedRequest = parseRequest(encodedRequest, UInt64(5)) then
+        if parsedRequest.method ~= Method.Post or parsedRequest.target ~= "/submit" or parsedRequest.body ~= "hello" then
+            return 10
+        end
+    else
+        return 11
+    end
+    if parseResponse("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nready", UInt64(6)) ~= nil then
+        return 12
+    end
+    if parseRequest("GET / HTTP/1.1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n", UInt64(0)) ~= nil then
+        return 13
+    end
+    return 0
+end

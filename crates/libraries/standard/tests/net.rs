@@ -10,6 +10,10 @@ fn canonical_ipv4_source_keeps_the_pure_static_contract() {
         "public function ipv4Octet(address: Ipv4Address, index: Int): Byte?",
         "public function isIpv4Loopback(address: Ipv4Address): Boolean",
         "public function isIpv4Private(address: Ipv4Address): Boolean",
+        "public function isIpv4LinkLocal(address: Ipv4Address): Boolean",
+        "public function isIpv4Multicast(address: Ipv4Address): Boolean",
+        "public function isIpv4Broadcast(address: Ipv4Address): Boolean",
+        "public function isIpv4Documentation(address: Ipv4Address): Boolean",
     ] {
         assert!(source.contains(declaration), "missing {declaration}");
     }
@@ -22,6 +26,7 @@ fn canonical_ipv4_source_keeps_the_pure_static_contract() {
         "Dns.",
         "Socket.",
         "connect(",
+        "RustNet.",
         "runtime",
         "reflect",
     ] {

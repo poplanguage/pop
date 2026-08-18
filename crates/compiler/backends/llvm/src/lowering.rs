@@ -14,7 +14,8 @@ use pop_mir::{
 use pop_runtime_interface::{ArrayElementMap, FfiAbiLayoutId, RuntimeOperation};
 use pop_target::{CAbiScalarKind, CAbiSignedness, TargetCapability, TargetSpec};
 use pop_types::{
-    ForeignAbi, IntegerKind, PrimitiveType, SemanticType, TypeArena, embedded_bootstrap_schema,
+    ForeignAbi, IntegerKind, NumericConversionKind, PrimitiveType, SemanticType, TypeArena,
+    embedded_bootstrap_schema,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -35,7 +36,7 @@ pub(crate) enum CaptureEnvironment<'a> {
     Scoped(&'a [pop_mir::MirCapture]),
 }
 use crate::module_lowering::{
-    ClassRuntimeKeys, analyze_memory_none_functions, checked_integer_declarations,
+    ClassRuntimeKeys, FieldLayout, analyze_memory_none_functions, checked_integer_declarations,
     collect_class_runtime_keys, collect_field_layout, collect_record_field_types,
     collect_record_fields, collect_self_capture_slots, collect_string_literals,
     direct_scalar_array_fill_function, lower_async_indirect_create_dispatchers,
@@ -537,8 +538,15 @@ pub fn lower_mir_to_llvm_ir(
     declarations.extend(foreign_declarations);
     declarations.push("declare void @pop_std_print_int(i64)".to_owned());
     declarations.push("declare void @pop_std_print_string(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_terminal_write(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_terminal_write_line(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_terminal_write_error(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_terminal_flush()".to_owned());
     declarations.push("declare i64 @pop_std_rust_process_id()".to_owned());
     declarations.push("declare i64 @pop_std_rust_available_parallelism()".to_owned());
+    declarations.push("declare i64 @pop_std_rust_process_executable()".to_owned());
+    declarations.push("declare i8 @pop_std_rust_native_operating_system()".to_owned());
+    declarations.push("declare i8 @pop_std_rust_native_architecture()".to_owned());
     declarations.push("declare i1 @pop_std_rust_stdout_is_terminal()".to_owned());
     declarations.push("declare i1 @pop_std_rust_stderr_is_terminal()".to_owned());
     declarations.push("declare i1 @pop_std_rust_net_ipv4_is_link_local(i64)".to_owned());
@@ -559,6 +567,29 @@ pub fn lower_mir_to_llvm_ir(
     declarations.push("declare i1 @pop_std_rust_file_is_file(i64)".to_owned());
     declarations.push("declare i1 @pop_std_rust_directory_exists(i64)".to_owned());
     declarations.push("declare i64 @pop_std_rust_file_read(i64, i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_environment_get(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_access_open(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_access_close(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_exists_at(i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_is_file_at(i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_read_at(i64, i64, i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_directory_access_open(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_access_close(i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_exists_at(i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_is_directory_at(i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_open(i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_handle_read(i64, i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_file_close(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_open_write(i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_create(i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_file_write(i64, i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_io_copy_files(i64, i64, i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_directory_list(i64, i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_snapshot_close(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_directory_snapshot_count(i64)".to_owned());
+    declarations.push("declare i64 @pop_std_rust_directory_snapshot_name(i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_create(i64, i64)".to_owned());
+    declarations.push("declare i1 @pop_std_rust_directory_remove(i64, i64)".to_owned());
     if matches!(
         options.runtime_profile,
         pop_backend_api::RuntimeProfile::ProductionGenerational
@@ -1063,7 +1094,7 @@ pub(crate) fn lower_function(
     foreign_functions: &BTreeMap<SymbolId, &MirForeignFunction>,
     options: LlvmLoweringOptions,
     memory_none: bool,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
@@ -1369,7 +1400,7 @@ pub(crate) fn lower_function_parts(
     ffi_layouts: &pop_mir::MirFfiLayoutCatalog,
     foreign_functions: &BTreeMap<SymbolId, &MirForeignFunction>,
     options: LlvmLoweringOptions,
-    field_layout: &BTreeMap<FieldId, u32>,
+    field_layout: &FieldLayout,
     class_runtime_keys: &ClassRuntimeKeys,
     record_fields: &BTreeMap<SymbolId, Vec<FieldId>>,
     record_field_types: &BTreeMap<TypeId, Vec<TypeId>>,
@@ -1634,6 +1665,7 @@ pub(crate) fn lower_function_parts(
                     class_runtime_keys
                         .get(&(class, instruction.result_type()))
                         .ok_or(LlvmLoweringError::InvalidType(instruction.result_type()))?,
+                    instruction.result_type(),
                     fields,
                     object_map.slot_count() + 1,
                     &value_types,
@@ -2450,6 +2482,15 @@ pub(crate) fn llvm_block_exit_label(
                 | MirInstructionKind::ArraySet { .. }
                 | MirInstructionKind::TableSet { .. }
                 | MirInstructionKind::ArrayFill { .. } => "continue",
+                MirInstructionKind::ConvertInteger { source, target, .. }
+                    if NumericConversionKind::IntegerToInteger {
+                        source: *source,
+                        target: *target,
+                    }
+                    .may_trap() =>
+                {
+                    "continue"
+                }
                 MirInstructionKind::ListSet { .. } | MirInstructionKind::ListAdd { .. } => {
                     "continue"
                 }

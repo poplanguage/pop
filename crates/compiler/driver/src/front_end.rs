@@ -113,6 +113,15 @@ pub fn analyze_bubble(input: FrontEndBubbleInput) -> FrontEndResult {
                         record.span(),
                     )
                 })
+                .chain(metadata.enums().iter().map(|enumeration| {
+                    pop_resolve::ReferencedDeclaration::enumeration(
+                        enumeration.identity(),
+                        enumeration.module(),
+                        enumeration.namespace(),
+                        enumeration.name(),
+                        enumeration.span(),
+                    )
+                }))
                 .chain(metadata.interfaces().iter().map(|interface| {
                     pop_resolve::ReferencedDeclaration::interface(
                         interface.identity(),
