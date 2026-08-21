@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://feitonobrasil.dev.br"><img src="https://selo.feitonobrasil.dev.br/en/branco-colorido/0.5x.svg" alt="Made in Brazil" height="28"></a>
+  <a href="https://feitonobrasil.dev.br"><img src="https://selo.feitonobrasil.dev.br/en/branco-colorido/1x.svg" alt="Made in Brazil" height="72"></a>
 </p>
 
 # Pop Lang
