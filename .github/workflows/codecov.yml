@@ -8,10 +8,6 @@ permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: coverage-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -22,7 +18,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust 1.96
         uses: dtolnay/rust-toolchain@stable
@@ -62,23 +58,40 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage
+      - name: Clean previous coverage artifacts
+        run: cargo llvm-cov clean --workspace
+
+      - name: Run tests with coverage
+        id: coverage-tests
+        continue-on-error: true
         run: >
           cargo llvm-cov
+          --no-report
+          --no-fail-fast
           --workspace
           --all-features
           --lib
           --bins
           --tests
           --examples
-          --codecov
-          --output-path codecov.json
           --
           --test-threads=1
 
+      - name: Generate Codecov report
+        if: always()
+        run: >
+          cargo llvm-cov report
+          --codecov
+          --output-path codecov.json
+
       - name: Upload coverage to Codecov
+        if: ${{ always() && hashFiles('codecov.json') != '' }}
         uses: codecov/codecov-action@v5
         with:
           files: codecov.json
           fail_ci_if_error: true
           use_oidc: true
+
+      - name: Fail workflow if tests failed
+        if: ${{ steps.coverage-tests.outcome == 'failure' }}
+        run: exit 1
