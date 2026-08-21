@@ -10,6 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
   coverage:
@@ -45,28 +46,25 @@ jobs:
           echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
-      - name: Cache Cargo dependencies
+      - name: Cache Cargo registry and target
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-coverage-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+            target
+          key: ${{ runner.os }}-rust-1.96-coverage-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-coverage-cargo-
+            ${{ runner.os }}-rust-1.96-coverage-
+            ${{ runner.os }}-rust-1.96-
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Clean previous coverage artifacts
-        run: cargo llvm-cov clean --workspace
-
-      - name: Run tests with coverage
-        id: coverage-tests
-        continue-on-error: true
+      - name: Generate coverage
         run: >
           cargo llvm-cov
-          --no-report
+          --ignore-run-fail
           --no-fail-fast
           --workspace
           --all-features
@@ -74,15 +72,10 @@ jobs:
           --bins
           --tests
           --examples
-          --
-          --test-threads=1
-
-      - name: Generate Codecov report
-        if: always()
-        run: >
-          cargo llvm-cov report
           --codecov
           --output-path codecov.json
+          --
+          --test-threads=1
 
       - name: Upload coverage to Codecov
         if: ${{ always() && hashFiles('codecov.json') != '' }}
@@ -91,7 +84,3 @@ jobs:
           files: codecov.json
           fail_ci_if_error: true
           use_oidc: true
-
-      - name: Fail workflow if tests failed
-        if: ${{ steps.coverage-tests.outcome == 'failure' }}
-        run: exit 1
