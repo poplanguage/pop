@@ -11,6 +11,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  CARGO_LLVM_COV_TARGET_DIR: target/llvm-cov-target
 
 jobs:
   coverage:
@@ -46,17 +47,24 @@ jobs:
           echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
-      - name: Cache Cargo registry and target
+      - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-rust-1.96-coverage-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-rust-1.96-coverage-
-            ${{ runner.os }}-rust-1.96-
+            ${{ runner.os }}-cargo-
+
+      - name: Cache coverage target
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/llvm-cov-target
+          key: ${{ runner.os }}-rust-1.96-llvmcov-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-1.96-llvmcov-
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -65,7 +73,7 @@ jobs:
         run: >
           cargo llvm-cov
           --ignore-run-fail
-          --no-fail-fast
+          --no-clean
           --workspace
           --all-features
           --lib
