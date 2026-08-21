@@ -15,6 +15,10 @@
   <a href="https://discord.gg/m5nUXdTRbh">Discord</a>
 </p>
 
+<p align="center">
+  <a href="https://feitonobrasil.dev.br"><img src="https://selo.feitonobrasil.dev.br/en/branco-colorido/0.5x.svg" alt="Made in Brazil" height="28"></a>
+</p>
+
 # Pop Lang
 
 Pop Lang is a native, strongly and statically typed programming language inspired by Luau.
