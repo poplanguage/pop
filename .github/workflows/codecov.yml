@@ -1,0 +1,84 @@
+name: Coverage
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.96
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+          components: llvm-tools-preview
+
+      - name: Cache LLVM 22 packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-llvm-22-apt
+
+      - name: Install LLVM 22 packages
+        shell: bash
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 22
+
+      - name: Export LLVM prefix
+        shell: bash
+        run: |
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-coverage-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-coverage-cargo-
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage
+        run: >
+          cargo llvm-cov
+          --workspace
+          --all-features
+          --lib
+          --bins
+          --tests
+          --examples
+          --codecov
+          --output-path codecov.json
+          --
+          --test-threads=1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: codecov.json
+          fail_ci_if_error: true
+          use_oidc: true
